@@ -1,0 +1,14 @@
+duckdb
+pandas
+requests
+xgboost
+scypy
+scipy
+matplotlib
+numpy
+seaborn
+scikit-learn
+tabulate
+psutil
+numba
+optuna
