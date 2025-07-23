@@ -1,0 +1,25 @@
+# Ignore virtual environment
+/venv/
+
+# Ignore keno data
+/keno_data/*
+!/keno_data/
+
+/keno_models/*
+!/keno_models/
+
+/keno_results/*
+!/keno_results/
+
+/keno_output/*
+!/keno_output/
+
+# Ignore Python bytecode files
+*.pyc
+*.pyo
+__pycache__/
+
+# Ignore binary files
+/bin/
+/models
+/lib64/
