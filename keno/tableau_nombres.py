@@ -494,13 +494,12 @@ else:
             f.write(f"{i:2d}. Boule {int(row['boule']):<2d} - Score: {row['score_composite']:.3f} | "
                     f"Proba: {row['proba_x100']:.1f}% | Gap: {int(row['tirages_sans_sortie'])}\n")
         
-        # Vérifiez si la variable est définie, sinon attribuez une valeur par défaut
-        try:
-            last_draw_id_in_file
-        except NameError:
+        # Initialisation par défaut si la variable n'est pas définie ailleurs
+        if 'last_draw_id_in_file' not in locals():
             last_draw_id_in_file = -1  # Valeur par défaut ou une valeur appropriée
 
         # Sauvegarde des informations dans le fichier JSON
-        json.dump({'last_processed_id': int(last_draw_id_in_file), 'best_window_size': int(best_window_size)}, f)
+        with open(OUTPUT_DIR / "meta.json", "w") as f_meta:
+            json.dump({'last_processed_id': int(last_draw_id_in_file), 'best_window_size': int(best_window_size)}, f_meta)
     
     print(f"💡 Recommandations texte sauvegardées : {reco_path}")
