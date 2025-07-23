@@ -494,7 +494,13 @@ else:
             f.write(f"{i:2d}. Boule {int(row['boule']):<2d} - Score: {row['score_composite']:.3f} | "
                     f"Proba: {row['proba_x100']:.1f}% | Gap: {int(row['tirages_sans_sortie'])}\n")
         
-        # Ajout des informations demandées
+        # Vérifiez si la variable est définie, sinon attribuez une valeur par défaut
+        try:
+            last_draw_id_in_file
+        except NameError:
+            last_draw_id_in_file = -1  # Valeur par défaut ou une valeur appropriée
+
+        # Sauvegarde des informations dans le fichier JSON
         json.dump({'last_processed_id': int(last_draw_id_in_file), 'best_window_size': int(best_window_size)}, f)
     
     print(f"💡 Recommandations texte sauvegardées : {reco_path}")
