@@ -39,8 +39,8 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Paramètres optimisés
 N_PAST_TIRAGES = [50, 100, 200, 500]
-MIN_SAMPLES_FOR_TRAINING = 1000
-CHUNK_SIZE = 1000  # Pour traitement par blocs
+MIN_SAMPLES_FOR_TRAINING = 5000
+CHUNK_SIZE = 100  # Pour traitement par blocs
 
 # === Lecture optimisée avec DuckDB ===
 print("📊 Lecture des données avec DuckDB...")
