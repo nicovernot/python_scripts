@@ -12,5 +12,8 @@ tabulate
 psutil
 numba
 optuna
+dotenv
+numba
+redis
 plotly
 kaleido
