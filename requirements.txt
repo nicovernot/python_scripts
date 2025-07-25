@@ -12,3 +12,5 @@ tabulate
 psutil
 numba
 optuna
+plotly
+kaleido
