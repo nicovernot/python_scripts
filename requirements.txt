@@ -12,3 +12,9 @@ tabulate
 psutil
 numba
 optuna
+dotenv
+numba
+redis
+pyyaml
+stumpy
+statsmodels

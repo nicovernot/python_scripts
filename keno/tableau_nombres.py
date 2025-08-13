@@ -18,6 +18,7 @@ import time
 from numba import jit, prange
 import gc
 import json
+import os
 warnings.filterwarnings('ignore')
 
 # === Configuration CPU optimisée ===
@@ -26,16 +27,20 @@ N_WORKERS = min(N_CPUS, 16)  # Limite pour éviter l'over-subscription
 print(f"🚀 Utilisation de {N_WORKERS} workers sur {N_CPUS} CPU disponibles")
 
 # === Configurations améliorées ===
-INPUT_PATH = '/home/nico/projets/python_scripts/keno_data/keno_202010.csv'
-OUTPUT_DIR = Path('/home/nico/projets/python_scripts/keno_output')
-MODELS_DIR = Path('/home/nico/projets/python_scripts/keno_models')
-MODELS_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+DATA_PATH = os.getenv('DATA_PATH', '/home/nico/projets/keno/keno_data')
+LOG_PATH = os.getenv('LOG_PATH', '/home/nico/projets/keno/logs')
+OUTPUT_PATH = os.getenv('OUTPUT_PATH', '/home/nico/projets/keno/keno_output')
+
+INPUT_PATH = os.path.join(DATA_PATH, 'keno_202010.csv')
+OUTPUT_DIR = Path(OUTPUT_PATH)
+MODELS_DIR = OUTPUT_DIR / 'models'
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Paramètres optimisés
 N_PAST_TIRAGES = [50, 100, 200, 500]
-MIN_SAMPLES_FOR_TRAINING = 1000
-CHUNK_SIZE = 1000  # Pour traitement par blocs
+MIN_SAMPLES_FOR_TRAINING = 5000
+CHUNK_SIZE = 100  # Pour traitement par blocs
 
 # === Lecture optimisée avec DuckDB ===
 print("📊 Lecture des données avec DuckDB...")
@@ -476,7 +481,7 @@ else:
     print(f"⚖️ Équilibré / Score élevé (5): {equilibre}")
 
     # Sauvegarde recommandations texte
-    reco_path = OUTPUT_DIR / "recommandations_finales.txt"
+    reco_path = OUTPUT_DIR / "/home/nico/projets/keno/keno_output/recommandations_finales.txt"
     with open(reco_path, "w") as f:
         f.write(f"KENO - RAPPORT D'ANALYSE\n")
         f.write(f"Date: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}\n")

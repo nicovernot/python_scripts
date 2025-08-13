@@ -1,0 +1,88 @@
+strategies:
+  equilibre:
+    description: "Stratégie équilibrée utilisant tous les critères avec ML"
+    weights:
+      frequency: 0.25
+      recency_gap: 0.20
+      momentum: 0.15
+      hot_cold: 0.10
+      frequent_pairs: 0.10
+      ml_boost: 0.30
+      recent_draws_penalty: 0.4
+
+  focus_retard:
+    description: "Focus sur les numéros en retard avec assistance ML"
+    weights:
+      frequency: 0.15
+      recency_gap: 0.40
+      momentum: 0.05
+      hot_cold: 0.15
+      frequent_pairs: 0.05
+      ml_boost: 0.25
+      recent_draws_penalty: 0.3
+
+  momentum_ml:
+    description: "Stratégie basée sur le momentum et machine learning"
+    weights:
+      frequency: 0.20
+      recency_gap: 0.10
+      momentum: 0.30
+      hot_cold: 0.10
+      frequent_pairs: 0.15
+      ml_boost: 0.40
+      recent_draws_penalty: 0.5
+
+  contrarian_ml:
+    description: "Stratégie contrariante avec ML pour identifier les renversements"
+    weights:
+      frequency: 0.10
+      recency_gap: 0.35
+      momentum: -0.10  # Inverse du momentum
+      hot_cold: 0.20
+      frequent_pairs: 0.05
+      ml_boost: 0.35
+      recent_draws_penalty: 0.2
+
+  frequency_ml:
+    description: "Focus sur les fréquences historiques avec validation ML"
+    weights:
+      frequency: 0.40
+      recency_gap: 0.15
+      momentum: 0.10
+      hot_cold: 0.15
+      frequent_pairs: 0.20
+      ml_boost: 0.25
+      recent_draws_penalty: 0.6
+
+  pattern_hunter:
+    description: "Chasse aux patterns avec analyse ML avancée"
+    weights:
+      frequency: 0.15
+      recency_gap: 0.15
+      momentum: 0.20
+      hot_cold: 0.05
+      frequent_pairs: 0.30
+      ml_boost: 0.50
+      recent_draws_penalty: 0.3
+
+  conservative_ml:
+    description: "Approche conservatrice avec ML pour la stabilité"
+    weights:
+      frequency: 0.30
+      recency_gap: 0.25
+      momentum: 0.15
+      hot_cold: 0.10
+      frequent_pairs: 0.15
+      ml_boost: 0.20
+      recent_draws_penalty: 0.7
+
+  aggressive_ml:
+    description: "Stratégie agressive maximisant l'usage du ML"
+    weights:
+      frequency: 0.10
+      recency_gap: 0.15
+      momentum: 0.25
+      hot_cold: 0.10
+      frequent_pairs: 0.10
+      ml_boost: 0.60
+      recent_draws_penalty: 0.2
