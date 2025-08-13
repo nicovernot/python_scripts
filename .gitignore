@@ -1,7 +1,7 @@
 # Ignore virtual environment
 /venv/
 
-# Ignore keno data
+# Ignore keno data and generated files
 /keno_data/*
 !/keno_data/
 
@@ -13,6 +13,43 @@
 
 /keno_output/*
 !/keno_output/
+
+# Ignore generated keno analysis files
+/keno_analyse_plots/
+/keno_stats_exports/
+keno/keno_data/
+keno/keno_analyse/
+
+# Ignore loto data and generated files
+/loto_data/*
+!/loto_data/
+
+/loto_output/*
+!/loto_output/
+
+# Ignore generated loto analysis files
+/loto_analyse_plots/
+/loto_stats_exports/
+loto/loto_data/
+loto/loto_analyse/
+
+# Ignore generated grids and recommendations
+grilles.csv
+/output/
+recommandations_*.txt
+
+# Ignore cache files
+/cache/
+viz_cache.pkl
+
+# Ignore model files
+/boost_models/
+/boost_models_backup/
+*.joblib
+*.pkl
+*.json
+model_*.joblib
+xgb_*.pkl
 
 # Ignore Python bytecode files
 *.pyc
