@@ -1,0 +1,55 @@
+# strategies.yml
+# Fichier de configuration pour les stratégies de génération de grilles Loto.
+# Vous pouvez ajouter, modifier ou supprimer des stratégies ici.
+# La somme des poids (sauf la pénalité) n'a pas besoin de faire 1.0, ils sont relatifs.
+
+strategies:
+  equilibre:
+    description: "Approche équilibrée entre la fréquence historique, le retard et le momentum récent. Idéal pour commencer."
+    weights:
+      frequency: 0.20        # Fréquence globale
+      recency_gap: 0.25      # Écart depuis la dernière sortie vs écart moyen
+      momentum: 0.20         # Performance sur les 20 derniers tirages
+      hot_cold: 0.10         # Bonus pour les numéros très chauds/froids
+      frequent_pairs: 0.15   # Bonus si le numéro fait partie d'une paire fréquente
+      recent_draws_penalty: 0.5 # Pénalité (multiplicateur) si le numéro est dans les 3 derniers tirages
+
+  focus_retard:
+    description: "Stratégie agressive qui favorise fortement les numéros en 'retard de sortie'."
+    weights:
+      frequency: 0.10
+      recency_gap: 0.50      # Poids principal sur l'écart/retard
+      momentum: 0.05
+      hot_cold: 0.15         # On favorise aussi les numéros très froids
+      frequent_pairs: 0.10
+      recent_draws_penalty: 0.6 # Pénalité encore plus forte
+
+  momentum:
+    description: "Stratégie qui mise sur les numéros 'chauds' et les tendances récentes."
+    weights:
+      frequency: 0.10
+      recency_gap: 0.10
+      momentum: 0.50         # Poids principal sur les tirages récents
+      hot_cold: 0.15         # On favorise les numéros très chauds
+      frequent_pairs: 0.15
+      recent_draws_penalty: 0.4
+
+  frequences_moyennes:
+    description: "Stratégie qui privilégie les numéros avec des fréquences moyennes, évitant les extrêmes (ni trop sortis, ni jamais sortis)."
+    weights:
+      frequency: 0.45        # Poids principal sur les fréquences moyennes
+      recency_gap: 0.20      # Écart modéré depuis la dernière sortie
+      momentum: 0.15         # Momentum récent modéré
+      hot_cold: 0.05         # Faible poids sur les extrêmes chaud/froid
+      frequent_pairs: 0.15   # Bonus pour les paires fréquentes
+      recent_draws_penalty: 0.7 # Pénalité forte pour éviter les répétitions immédiates
+
+  equilibre_conservateur:
+    description: "Version plus conservatrice de l'équilibre, favorisant la stabilité et les fréquences moyennes."
+    weights:
+      frequency: 0.35        # Fréquence importante mais pas exclusive
+      recency_gap: 0.30      # Retard modéré privilégié
+      momentum: 0.10         # Faible poids sur les tendances récentes
+      hot_cold: 0.05         # Évite les extrêmes
+      frequent_pairs: 0.20   # Privilégie les associations stables
+      recent_draws_penalty: 0.8 # Pénalité très forte contre les répétitions
