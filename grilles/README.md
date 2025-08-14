@@ -37,6 +37,13 @@ python generateur_grilles.py --nombres 1,7,12,18,23,29,34,39,45,49 --grilles 10 
 
 ## ⚙️ Options avancées
 
+### Sélection de numéros
+- `--nombres-utilises N` : Utilise seulement N numéros parmi les favoris (minimum 7)
+  ```bash
+  # Utilise 8 numéros parmi 10 favoris
+  python generateur_grilles.py --nombres 1,7,12,18,23,29,34,39,45,49 --grilles 5 --nombres-utilises 8
+  ```
+
 ### Choix de la méthode
 - `--methode optimal` : Algorithme de couverture maximale (recommandé)
 - `--methode aleatoire` : Génération aléatoire intelligente

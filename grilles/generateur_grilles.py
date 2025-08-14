@@ -15,6 +15,7 @@ Usage:
     python generateur_grilles.py --nombres 1,7,12,18,23,29,34,39,45,49 --grilles 5
     python generateur_grilles.py --nombres 1,7,12,18,23,29,34,39,45,49 --grilles 10 --garantie 3
     python generateur_grilles.py --fichier mes_nombres.txt --grilles 8 --export
+    python generateur_grilles.py --nombres 1,7,12,18,23,29,34,39,45,49 --grilles 5 --nombres-utilises 8
 
 Auteur: Système Loto/Keno
 Date: 14 août 2025
@@ -619,8 +620,8 @@ class GenerateurGrilles:
         return str(fichier_path)
     
     def generer(self, nombres: List[int], nb_grilles: int, garantie: int = 3, 
-               methode: str = 'optimal', export: bool = False, 
-               format_export: str = 'csv') -> Dict[str, Any]:
+               methode: str = 'optimal', nb_nombres_utilises: int = None,
+               export: bool = False, format_export: str = 'csv') -> Dict[str, Any]:
         """
         Génère des grilles selon les paramètres spécifiés
         
@@ -629,8 +630,9 @@ class GenerateurGrilles:
             nb_grilles: Nombre de grilles à générer
             garantie: Niveau de garantie (2-5)
             methode: 'optimal' ou 'aleatoire'
+            nb_nombres_utilises: Nombre de numéros à utiliser parmi les favoris (None = tous)
             export: Exporter les résultats
-            format_export: Format d'export ('csv', 'json', 'txt')
+            format_export: Format d'export ('csv', 'json', 'txt', 'md')
         
         Returns:
             Dictionnaire avec les grilles et l'analyse
@@ -642,6 +644,20 @@ class GenerateurGrilles:
         # Validation des paramètres
         nombres_valides = self.valider_nombres(nombres)
         print(f"📊 Numéros favoris validés : {nombres_valides}")
+        
+        # Sélection du nombre de numéros à utiliser
+        if nb_nombres_utilises is not None:
+            if nb_nombres_utilises < 7:
+                raise ValueError("Au moins 7 numéros sont requis pour générer des grilles")
+            if nb_nombres_utilises > len(nombres_valides):
+                raise ValueError(f"Impossible d'utiliser {nb_nombres_utilises} numéros parmi {len(nombres_valides)} disponibles")
+            
+            # Sélection des meilleurs numéros (on peut ajouter de la logique ici)
+            import random
+            random.seed(42)  # Pour la reproductibilité
+            nombres_selectionnes = sorted(random.sample(nombres_valides, nb_nombres_utilises))
+            print(f"🎯 Utilisation de {nb_nombres_utilises} numéros parmi {len(nombres_valides)} : {nombres_selectionnes}")
+            nombres_valides = nombres_selectionnes
         
         # Création du système réduit
         systeme = SystemeReduit(nombres_valides, garantie)
@@ -722,6 +738,9 @@ Exemples d'utilisation :
   # Avec niveau de garantie personnalisé
   python generateur_grilles.py --nombres 1,7,12,18,23,29,34,39,45,49 --grilles 10 --garantie 3
 
+  # Utiliser seulement 8 numéros parmi les 10 favoris
+  python generateur_grilles.py --nombres 1,7,12,18,23,29,34,39,45,49 --grilles 5 --nombres-utilises 8
+
   # Lecture depuis un fichier
   python generateur_grilles.py --fichier mes_nombres.txt --grilles 8
 
@@ -751,6 +770,12 @@ Exemples d'utilisation :
         type=int,
         required=True,
         help='Nombre de grilles à générer'
+    )
+    
+    parser.add_argument(
+        '--nombres-utilises',
+        type=int,
+        help='Nombre de numéros à utiliser parmi les favoris (défaut: tous)'
     )
     
     parser.add_argument(
@@ -818,6 +843,7 @@ Exemples d'utilisation :
             nb_grilles=args.grilles,
             garantie=args.garantie,
             methode=args.methode,
+            nb_nombres_utilises=getattr(args, 'nombres_utilises', None),
             export=args.export,
             format_export=args.format
         )

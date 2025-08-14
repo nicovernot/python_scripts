@@ -311,8 +311,24 @@ class LotoKenoMenu:
         print("  md  - Markdown")
         format_export = input("Format (csv/md): ").strip() or "csv"
         
+        # Nombre de numéros à utiliser
+        print(f"\nNombre de numéros à utiliser parmi les favoris:")
+        print(f"  Appuyez sur Entrée pour utiliser tous les numéros")
+        print(f"  Ou entrez un nombre (minimum 7)")
+        nb_nombres_input = input("Nombre de numéros à utiliser: ").strip()
+        
         # Construction de la commande
         command = f"python grilles/generateur_grilles.py --nombres {nombres_input} --grilles {nb_grilles} --export --format {format_export}"
+        
+        if nb_nombres_input:
+            try:
+                nb_nombres = int(nb_nombres_input)
+                if nb_nombres >= 7:
+                    command += f" --nombres-utilises {nb_nombres}"
+                else:
+                    print("⚠️  Minimum 7 numéros requis. Utilisation de tous les numéros.")
+            except ValueError:
+                print("⚠️  Nombre invalide. Utilisation de tous les numéros.")
         self.execute_command(command, "Génération Système Réduit Simple")
         
         # Affichage du dossier de sortie
@@ -388,6 +404,12 @@ class LotoKenoMenu:
         print("  aleatoire - Génération aléatoire intelligente")
         methode = input("Méthode (optimal/aleatoire): ").strip() or "optimal"
         
+        # Nombre de numéros à utiliser
+        print("Nombre de numéros à utiliser parmi les favoris:")
+        print("  Appuyez sur Entrée pour utiliser tous les numéros")
+        print("  Ou entrez un nombre (minimum 7)")
+        nb_nombres_utilises = input("Nombre de numéros à utiliser: ").strip()
+        
         # Format d'export
         print("Format d'export:")
         print("  csv  - Tableur (défaut)")
@@ -412,6 +434,15 @@ class LotoKenoMenu:
             f"--format {format_export}",
             "--verbose"
         ])
+        
+        # Ajout du paramètre nombre de numéros si spécifié
+        if nb_nombres_utilises:
+            try:
+                nb_nombres = int(nb_nombres_utilises)
+                if nb_nombres >= 7:
+                    command_parts.insert(-2, f"--nombres-utilises {nb_nombres}")
+            except ValueError:
+                pass
         
         command = " ".join(command_parts)
         self.execute_command(command, "Génération Système Réduit Personnalisé")
