@@ -137,10 +137,20 @@ class LotoKenoMenu:
         print("  1️⃣4️⃣ Nettoyage et optimisation")
         print()
         
+        print(f"{Colors.HEADER}🌐 API FLASK{Colors.ENDC}")
+        print("  1️⃣5️⃣ Lancer l'API Flask")
+        print("  1️⃣6️⃣ Tester l'API Flask")
+        print()
+        
+        print(f"{Colors.OKCYAN}🎯 SYSTÈMES RÉDUITS{Colors.ENDC}")
+        print("  1️⃣7️⃣ Générateur de grilles (système réduit)")
+        print("  1️⃣8️⃣ Générateur personnalisé")
+        print()
+        
         print(f"{Colors.WARNING}📊 CONSULTATION DES RÉSULTATS{Colors.ENDC}")
-        print("  1️⃣5️⃣ Voir les dernières grilles Loto")
-        print("  1️⃣6️⃣ Voir les recommandations Keno")
-        print("  1️⃣7️⃣ Ouvrir dossier des graphiques")
+        print("  1️⃣9️⃣ Voir les dernières grilles Loto")
+        print("  2️⃣0️⃣ Voir les recommandations Keno")
+        print("  2️⃣1️⃣ Ouvrir dossier des graphiques")
         print()
         
         print(f"{Colors.FAIL}🚪 QUITTER{Colors.ENDC}")
@@ -271,6 +281,146 @@ class LotoKenoMenu:
             
         self.execute_command(command, "Analyse Keno Personnalisée")
         
+    def handle_systeme_reduit_simple(self):
+        """Générateur simple de système réduit"""
+        print(f"\n{Colors.BOLD}🎯 Générateur de Système Réduit - Simple{Colors.ENDC}")
+        print("=" * 50)
+        
+        # Saisie des numéros favoris
+        print("Entrez vos numéros favoris (8 à 15 numéros recommandés)")
+        print("Format: 1,7,12,18,23,29,34,39,45,49")
+        nombres_input = input("Numéros favoris: ").strip()
+        
+        if not nombres_input:
+            print(f"{Colors.WARNING}⚠️  Aucun numéro saisi.{Colors.ENDC}")
+            self.wait_and_continue()
+            return
+        
+        # Nombre de grilles
+        try:
+            nb_grilles = int(input("Nombre de grilles à générer (5-20): ").strip() or "8")
+            if nb_grilles < 1 or nb_grilles > 50:
+                raise ValueError("Nombre invalide")
+        except:
+            nb_grilles = 8
+            print(f"Nombre par défaut: {nb_grilles}")
+        
+        # Format d'export
+        print("\nFormat d'export:")
+        print("  csv - Tableur (défaut)")
+        print("  md  - Markdown")
+        format_export = input("Format (csv/md): ").strip() or "csv"
+        
+        # Construction de la commande
+        command = f"python grilles/generateur_grilles.py --nombres {nombres_input} --grilles {nb_grilles} --export --format {format_export}"
+        self.execute_command(command, "Génération Système Réduit Simple")
+        
+        # Affichage du dossier de sortie
+        print(f"\n{Colors.OKCYAN}📁 Fichiers générés dans: grilles/sorties/{Colors.ENDC}")
+        self.wait_and_continue()
+    
+    def handle_systeme_reduit_personnalise(self):
+        """Générateur personnalisé de système réduit"""
+        print(f"\n{Colors.BOLD}🎯 Générateur de Système Réduit - Personnalisé{Colors.ENDC}")
+        print("=" * 60)
+        
+        # Méthode de saisie
+        print("1. Saisir les numéros directement")
+        print("2. Utiliser un fichier de numéros")
+        methode_saisie = input("Votre choix (1-2): ").strip()
+        
+        nombres_param = ""
+        fichier_param = ""
+        
+        if methode_saisie == "2":
+            # Fichier
+            print(f"\nFichiers disponibles dans grilles/:")
+            grilles_dir = self.base_path / "grilles"
+            txt_files = list(grilles_dir.glob("*.txt"))
+            for i, f in enumerate(txt_files, 1):
+                print(f"  {i}. {f.name}")
+            
+            if txt_files:
+                try:
+                    file_choice = int(input("Choisir un fichier (numéro): ").strip()) - 1
+                    if 0 <= file_choice < len(txt_files):
+                        fichier_param = f"--fichier {txt_files[file_choice]}"
+                    else:
+                        raise ValueError()
+                except:
+                    fichier_nom = input("Nom du fichier (ex: mes_nombres.txt): ").strip()
+                    if fichier_nom:
+                        fichier_param = f"--fichier grilles/{fichier_nom}"
+            else:
+                fichier_nom = input("Nom du fichier (ex: mes_nombres.txt): ").strip()
+                if fichier_nom:
+                    fichier_param = f"--fichier grilles/{fichier_nom}"
+        else:
+            # Saisie directe
+            print("Entrez vos numéros favoris (8 à 20 numéros)")
+            print("Format: 1,7,12,18,23,29,34,39,45,49")
+            nombres_input = input("Numéros favoris: ").strip()
+            if nombres_input:
+                nombres_param = f"--nombres {nombres_input}"
+        
+        if not nombres_param and not fichier_param:
+            print(f"{Colors.WARNING}⚠️  Aucune source de numéros définie.{Colors.ENDC}")
+            self.wait_and_continue()
+            return
+        
+        # Paramètres avancés
+        print("\nParamètres avancés:")
+        
+        # Nombre de grilles
+        nb_grilles = input("Nombre de grilles (défaut: 10): ").strip() or "10"
+        
+        # Niveau de garantie
+        print("Niveau de garantie:")
+        print("  2 - Garantie faible (plus de grilles)")
+        print("  3 - Équilibre optimal (défaut)")
+        print("  4 - Garantie élevée")
+        print("  5 - Garantie maximale")
+        garantie = input("Garantie (2-5, défaut: 3): ").strip() or "3"
+        
+        # Méthode
+        print("Méthode de génération:")
+        print("  optimal   - Couverture maximale (défaut)")
+        print("  aleatoire - Génération aléatoire intelligente")
+        methode = input("Méthode (optimal/aleatoire): ").strip() or "optimal"
+        
+        # Format d'export
+        print("Format d'export:")
+        print("  csv  - Tableur (défaut)")
+        print("  json - Données structurées")
+        print("  txt  - Fichier texte")
+        print("  md   - Markdown")
+        format_export = input("Format (csv/json/txt/md): ").strip() or "csv"
+        
+        # Construction de la commande
+        command_parts = ["python grilles/generateur_grilles.py"]
+        
+        if nombres_param:
+            command_parts.append(nombres_param)
+        elif fichier_param:
+            command_parts.append(fichier_param)
+        
+        command_parts.extend([
+            f"--grilles {nb_grilles}",
+            f"--garantie {garantie}",
+            f"--methode {methode}",
+            "--export",
+            f"--format {format_export}",
+            "--verbose"
+        ])
+        
+        command = " ".join(command_parts)
+        self.execute_command(command, "Génération Système Réduit Personnalisé")
+        
+        # Affichage du dossier de sortie
+        print(f"\n{Colors.OKCYAN}📁 Fichiers générés dans: grilles/sorties/{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}📖 Documentation: grilles/README.md{Colors.ENDC}")
+        self.wait_and_continue()
+    
     def handle_choice(self, choice):
         """Traite le choix de l'utilisateur"""
         
@@ -322,6 +472,18 @@ class LotoKenoMenu:
             self.wait_and_continue()
             
         elif choice == "15":
+            self.execute_command("./lancer_api.sh", "Lancement de l'API Flask")
+            
+        elif choice == "16":
+            self.execute_command("python test_api.py", "Test de l'API Flask")
+            
+        elif choice == "17":
+            self.handle_systeme_reduit_simple()
+            
+        elif choice == "18":
+            self.handle_systeme_reduit_personnalise()
+            
+        elif choice == "19":
             grilles_file = self.base_path / "grilles.csv"
             if grilles_file.exists():
                 self.show_file_content(grilles_file, 20)
@@ -329,7 +491,7 @@ class LotoKenoMenu:
                 print(f"\n{Colors.WARNING}⚠️  Aucune grille trouvée. Générez d'abord des grilles Loto.{Colors.ENDC}")
             self.wait_and_continue()
             
-        elif choice == "16":
+        elif choice == "20":
             reco_file = self.base_path / "keno_output" / "recommandations_keno.txt"
             if reco_file.exists():
                 self.show_file_content(reco_file, 30)
@@ -337,7 +499,7 @@ class LotoKenoMenu:
                 print(f"\n{Colors.WARNING}⚠️  Aucune recommandation trouvée. Lancez d'abord une analyse Keno.{Colors.ENDC}")
             self.wait_and_continue()
             
-        elif choice == "17":
+        elif choice == "21":
             plots_dir = self.base_path / "loto_analyse_plots"
             keno_plots_dir = self.base_path / "keno_analyse_plots"
             

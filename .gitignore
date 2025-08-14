@@ -38,6 +38,9 @@ grilles.csv
 /output/
 recommandations_*.txt
 
+# Ignore grilles output directory
+/grilles/sorties/
+
 # Ignore cache files
 /cache/
 viz_cache.pkl

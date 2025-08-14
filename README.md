@@ -153,7 +153,85 @@ Le **Menu CLI Interactif** offre une interface conviviale avec :
 - Génération de visualisations
 - Export des statistiques détaillées
 
-## 🎲 Guide Loto Complet
+## � API Flask RESTful
+
+### 🚀 Lancement de l'API
+
+L'API Flask expose toutes les fonctionnalités via des endpoints HTTP :
+
+```bash
+# Méthode 1: Script de lancement
+./lancer_api.sh
+
+# Méthode 2: Lancement direct
+python api/app.py
+
+# Méthode 3: Flask CLI
+export FLASK_APP=api/app.py
+flask run --host=0.0.0.0 --port=5000
+```
+
+**🌐 Accès:** `http://localhost:5000`
+
+### 📚 Documentation Interactive
+
+L'API inclut une page de documentation complète accessible à `http://localhost:5000/`
+
+### 🛠️ Endpoints Principaux
+
+#### 🎲 Génération Loto
+```bash
+# Générer 3 grilles avec stratégie équilibrée
+curl -X POST http://localhost:5000/api/loto/generate \
+  -H "Content-Type: application/json" \
+  -d '{"count": 3, "strategy": "equilibre"}'
+```
+
+#### 🎰 Analyse Keno
+```bash
+# Analyse avec 5 stratégies
+curl -X POST http://localhost:5000/api/keno/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"strategies": 5, "deep_analysis": false}'
+```
+
+#### 📊 Gestion des Données
+```bash
+# Statut des données
+curl http://localhost:5000/api/data/status
+
+# Mise à jour des données
+curl -X POST http://localhost:5000/api/data/update \
+  -H "Content-Type: application/json" \
+  -d '{"sources": ["loto", "keno"]}'
+```
+
+#### 🩺 Santé de l'API
+```bash
+# Vérifier l'état de l'API
+curl http://localhost:5000/api/health
+```
+
+### 🧪 Tests API
+
+```bash
+# Tester tous les endpoints
+python test_api.py
+
+# Tester depuis le menu CLI (option 16)
+python cli_menu.py
+```
+
+### 📖 Documentation Complète
+
+Voir le fichier `api/API_DOCUMENTATION.md` pour :
+- **📋 Liste complète des endpoints**
+- **🔧 Paramètres de requête**
+- **📄 Formats de réponse**
+- **❌ Gestion des erreurs**
+- **🚀 Exemples d'utilisation**
+
+## �🎲 Guide Loto Complet
 
 ### 📥 Téléchargement Automatique des Données
 

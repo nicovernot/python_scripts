@@ -18,3 +18,5 @@ redis
 pyyaml
 stumpy
 statsmodels
+flask
+flask-cors
