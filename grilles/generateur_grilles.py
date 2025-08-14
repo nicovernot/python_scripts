@@ -51,7 +51,7 @@ class SystemeReduit:
     génère le nombre minimal de grilles pour garantir un certain niveau de gain.
     """
     
-    def __init__(self, nombres_favoris: List[int], garantie: int = 3):
+    def __init__(self, nombres_favoris: List[int], garantie: int = 3, taille_grille: int = 5):
         """
         Initialise le système réduit
         
@@ -60,9 +60,11 @@ class SystemeReduit:
             garantie: Niveau de garantie (2, 3, 4 ou 5)
                      garantie=3 : si 5 bons numéros dans les favoris, 
                                  garantit au moins un 3 dans une grille
+            taille_grille: Nombre de numéros par grille (5 pour Loto, 10 pour Keno)
         """
         self.nombres_favoris = sorted(list(set(nombres_favoris)))
         self.garantie = garantie
+        self.taille_grille = taille_grille
         self.nb_favoris = len(self.nombres_favoris)
         
         # Validation
@@ -82,7 +84,7 @@ class SystemeReduit:
         """Calcule la couverture théorique du système"""
         
         # Nombre total de combinaisons possibles avec les favoris
-        total_combinaisons = math.comb(self.nb_favoris, 5)
+        total_combinaisons = math.comb(self.nb_favoris, self.taille_grille)
         
         # Estimation de la couverture
         if nb_grilles >= total_combinaisons:
@@ -127,7 +129,7 @@ class SystemeReduit:
         print(f"\n🔄 Génération de {nb_grilles} grilles optimales...")
         
         # Étape 1 : Générer toutes les combinaisons possibles
-        toutes_combinaisons = list(itertools.combinations(self.nombres_favoris, 5))
+        toutes_combinaisons = list(itertools.combinations(self.nombres_favoris, self.taille_grille))
         print(f"   Combinaisons théoriques : {len(toutes_combinaisons)}")
         
         if nb_grilles >= len(toutes_combinaisons):
@@ -289,7 +291,7 @@ class SystemeReduit:
             tentatives = 0
             while tentatives < tentatives_max:
                 # Génère une grille candidate
-                grille = sorted(random.sample(self.nombres_favoris, 5))
+                grille = sorted(random.sample(self.nombres_favoris, self.taille_grille))
                 
                 # Vérifie qu'elle n'existe pas déjà
                 if grille not in grilles:
@@ -300,7 +302,7 @@ class SystemeReduit:
             
             # Si impossible de trouver une grille unique, force l'ajout
             if len(grilles) <= i:
-                grille = sorted(random.sample(self.nombres_favoris, 5))
+                grille = sorted(random.sample(self.nombres_favoris, self.taille_grille))
                 grilles.append(grille)
         
         print(f"   ✅ {len(grilles)} grilles générées")
@@ -371,12 +373,26 @@ class SystemeReduit:
 
 
 class GenerateurGrilles:
-    """Classe principale pour la génération de grilles Loto avec systèmes réduits"""
+    """Classe principale pour la génération de grilles Loto/Keno avec systèmes réduits"""
     
-    def __init__(self):
+    def __init__(self, jeu: str = 'loto'):
         self.base_path = Path(__file__).parent
         self.output_path = self.base_path / "sorties"
         self.output_path.mkdir(exist_ok=True)
+        
+        # Configuration selon le type de jeu
+        if jeu.lower() == 'keno':
+            self.jeu = 'keno'
+            self.min_numero = 1
+            self.max_numero = 70
+            self.taille_grille = 10  # Keno: 10 numéros par grille
+            self.nom_jeu = "Keno"
+        else:
+            self.jeu = 'loto'
+            self.min_numero = 1
+            self.max_numero = 49
+            self.taille_grille = 5   # Loto: 5 numéros par grille
+            self.nom_jeu = "Loto"
     
     def charger_nombres_depuis_fichier(self, fichier: str) -> List[int]:
         """Charge une liste de numéros depuis un fichier"""
@@ -415,11 +431,12 @@ class GenerateurGrilles:
     def valider_nombres(self, nombres: List[int]) -> List[int]:
         """Valide et filtre la liste de numéros"""
         
-        # Filtre les numéros valides pour le Loto (1-49)
-        nombres_valides = [n for n in nombres if 1 <= n <= 49]
+        # Filtre les numéros valides selon le jeu
+        nombres_valides = [n for n in nombres if self.min_numero <= n <= self.max_numero]
         
-        if len(nombres_valides) < 7:
-            raise ValueError(f"Au moins 7 numéros valides requis (1-49). Trouvés : {len(nombres_valides)}")
+        min_requis = max(7, self.taille_grille)  # Au minimum taille_grille ou 7
+        if len(nombres_valides) < min_requis:
+            raise ValueError(f"Au moins {min_requis} numéros valides requis ({self.min_numero}-{self.max_numero}) pour {self.nom_jeu}. Trouvés : {len(nombres_valides)}")
         
         if len(nombres_valides) > 20:
             print(f"⚠️  Trop de numéros ({len(nombres_valides)}), limitation à 20")
@@ -638,7 +655,7 @@ class GenerateurGrilles:
             Dictionnaire avec les grilles et l'analyse
         """
         
-        print(f"\n🎯 GÉNÉRATEUR DE GRILLES LOTO - SYSTÈME RÉDUIT")
+        print(f"\n🎯 GÉNÉRATEUR DE GRILLES {self.nom_jeu.upper()} - SYSTÈME RÉDUIT")
         print("=" * 60)
         
         # Validation des paramètres
@@ -647,8 +664,9 @@ class GenerateurGrilles:
         
         # Sélection du nombre de numéros à utiliser
         if nb_nombres_utilises is not None:
-            if nb_nombres_utilises < 7:
-                raise ValueError("Au moins 7 numéros sont requis pour générer des grilles")
+            min_requis = max(7, self.taille_grille)  # Au minimum taille_grille ou 7
+            if nb_nombres_utilises < min_requis:
+                raise ValueError(f"Au moins {min_requis} numéros sont requis pour générer des grilles {self.nom_jeu}")
             if nb_nombres_utilises > len(nombres_valides):
                 raise ValueError(f"Impossible d'utiliser {nb_nombres_utilises} numéros parmi {len(nombres_valides)} disponibles")
             
@@ -660,7 +678,7 @@ class GenerateurGrilles:
             nombres_valides = nombres_selectionnes
         
         # Création du système réduit
-        systeme = SystemeReduit(nombres_valides, garantie)
+        systeme = SystemeReduit(nombres_valides, garantie, self.taille_grille)
         
         # Génération des grilles
         if methode.lower() == 'optimal':
@@ -741,6 +759,9 @@ Exemples d'utilisation :
   # Utiliser seulement 8 numéros parmi les 10 favoris
   python generateur_grilles.py --nombres 1,7,12,18,23,29,34,39,45,49 --grilles 5 --nombres-utilises 8
 
+  # Mode Keno (1-70, grilles de 10 numéros)
+  python generateur_grilles.py --jeu keno --nombres 5,15,25,35,45,55,65 --grilles 3
+
   # Lecture depuis un fichier
   python generateur_grilles.py --fichier mes_nombres.txt --grilles 8
 
@@ -776,6 +797,13 @@ Exemples d'utilisation :
         '--nombres-utilises',
         type=int,
         help='Nombre de numéros à utiliser parmi les favoris (défaut: tous)'
+    )
+    
+    parser.add_argument(
+        '--jeu',
+        choices=['loto', 'keno'],
+        default='loto',
+        help='Type de jeu (loto: 1-49/5 numéros, keno: 1-70/10 numéros, défaut: loto)'
     )
     
     parser.add_argument(
@@ -816,7 +844,7 @@ Exemples d'utilisation :
     
     try:
         # Initialisation du générateur
-        generateur = GenerateurGrilles()
+        generateur = GenerateurGrilles(args.jeu)
         
         # Chargement des numéros
         if args.nombres:

@@ -286,15 +286,28 @@ class LotoKenoMenu:
         print(f"\n{Colors.BOLD}🎯 Générateur de Système Réduit - Simple{Colors.ENDC}")
         print("=" * 50)
         
+        # Choix du type de jeu
+        print("Type de jeu:")
+        print("  loto - Loto (1-49, grilles de 5 numéros)")
+        print("  keno - Keno (1-70, grilles de 10 numéros)")
+        jeu = input("Jeu (loto/keno): ").strip().lower() or "loto"
+        
         # Saisie des numéros favoris
-        print("Entrez vos numéros favoris (8 à 15 numéros recommandés)")
-        print("Format: 1,7,12,18,23,29,34,39,45,49")
+        if jeu == "keno":
+            print("Entrez vos numéros favoris Keno (10 à 15 numéros recommandés)")
+            print("Format: 5,15,25,35,45,55,65")
+        else:
+            print("Entrez vos numéros favoris Loto (8 à 15 numéros recommandés)")
+            print("Format: 1,7,12,18,23,29,34,39,45,49")
         nombres_input = input("Numéros favoris: ").strip()
         
         if not nombres_input:
             print(f"{Colors.WARNING}⚠️  Aucun numéro saisi.{Colors.ENDC}")
             self.wait_and_continue()
             return
+        
+        # Nettoyage de l'entrée : enlever les espaces autour des virgules
+        nombres_input = ','.join([num.strip() for num in nombres_input.split(',')])
         
         # Nombre de grilles
         try:
@@ -317,16 +330,17 @@ class LotoKenoMenu:
         print(f"  Ou entrez un nombre (minimum 7)")
         nb_nombres_input = input("Nombre de numéros à utiliser: ").strip()
         
-        # Construction de la commande
-        command = f"python grilles/generateur_grilles.py --nombres {nombres_input} --grilles {nb_grilles} --export --format {format_export}"
+        # Construction de la commande avec quotes pour les paramètres
+        command = f"python grilles/generateur_grilles.py --jeu {jeu} --nombres \"{nombres_input}\" --grilles {nb_grilles} --export --format {format_export}"
         
         if nb_nombres_input:
             try:
                 nb_nombres = int(nb_nombres_input)
-                if nb_nombres >= 7:
+                min_requis = 10 if jeu == "keno" else 7
+                if nb_nombres >= min_requis:
                     command += f" --nombres-utilises {nb_nombres}"
                 else:
-                    print("⚠️  Minimum 7 numéros requis. Utilisation de tous les numéros.")
+                    print(f"⚠️  Minimum {min_requis} numéros requis pour {jeu.upper()}. Utilisation de tous les numéros.")
             except ValueError:
                 print("⚠️  Nombre invalide. Utilisation de tous les numéros.")
         self.execute_command(command, "Génération Système Réduit Simple")
@@ -339,6 +353,12 @@ class LotoKenoMenu:
         """Générateur personnalisé de système réduit"""
         print(f"\n{Colors.BOLD}🎯 Générateur de Système Réduit - Personnalisé{Colors.ENDC}")
         print("=" * 60)
+        
+        # Choix du type de jeu
+        print("Type de jeu:")
+        print("  loto - Loto (1-49, grilles de 5 numéros)")
+        print("  keno - Keno (1-70, grilles de 10 numéros)")
+        jeu = input("Jeu (loto/keno): ").strip().lower() or "loto"
         
         # Méthode de saisie
         print("1. Saisir les numéros directement")
@@ -377,6 +397,8 @@ class LotoKenoMenu:
             print("Format: 1,7,12,18,23,29,34,39,45,49")
             nombres_input = input("Numéros favoris: ").strip()
             if nombres_input:
+                # Nettoyage de l'entrée : enlever les espaces autour des virgules
+                nombres_input = ','.join([num.strip() for num in nombres_input.split(',')])
                 nombres_param = f"--nombres {nombres_input}"
         
         if not nombres_param and not fichier_param:
@@ -427,6 +449,7 @@ class LotoKenoMenu:
             command_parts.append(fichier_param)
         
         command_parts.extend([
+            f"--jeu {jeu}",
             f"--grilles {nb_grilles}",
             f"--garantie {garantie}",
             f"--methode {methode}",
@@ -439,7 +462,8 @@ class LotoKenoMenu:
         if nb_nombres_utilises:
             try:
                 nb_nombres = int(nb_nombres_utilises)
-                if nb_nombres >= 7:
+                min_requis = 10 if jeu == "keno" else 7
+                if nb_nombres >= min_requis:
                     command_parts.insert(-2, f"--nombres-utilises {nb_nombres}")
             except ValueError:
                 pass
