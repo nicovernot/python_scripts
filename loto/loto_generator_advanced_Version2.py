@@ -18,6 +18,8 @@ import pickle
 import scipy.stats
 from numba import njit
 import random
+import argparse
+import sys
 import redis
 import stumpy
 from statsmodels.tsa.seasonal import STL
@@ -86,16 +88,93 @@ def convert_csv_to_parquet(csv_path, parquet_path):
 parquet_path = ensure_parquet_file()
 print(f"📂 Utilisation du fichier Parquet : {parquet_path}")
 
-GLOBAL_SEED = 42
+def parse_arguments():
+    """Parse les arguments de ligne de commande"""
+    parser = argparse.ArgumentParser(
+        description="Générateur Loto Avancé avec IA et Machine Learning",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemples d'utilisation :
+  python loto_generator_advanced_Version2.py                    # Configuration par défaut
+  python loto_generator_advanced_Version2.py -s 5000          # 5000 simulations
+  python loto_generator_advanced_Version2.py -c 4             # 4 processeurs
+  python loto_generator_advanced_Version2.py -s 20000 -c 8    # 20k simulations sur 8 cœurs
+  python loto_generator_advanced_Version2.py --quick          # Mode rapide (1000 simulations)
+  python loto_generator_advanced_Version2.py --intensive      # Mode intensif (50000 simulations)
+        """
+    )
+    
+    parser.add_argument('-s', '--simulations', 
+                        type=int, 
+                        default=10000,
+                        help='Nombre de simulations à effectuer (défaut: 10000)')
+    
+    parser.add_argument('-c', '--cores', 
+                        type=int, 
+                        default=None,
+                        help=f'Nombre de processeurs à utiliser (défaut: auto = {mp.cpu_count() - 1 if mp.cpu_count() > 1 else 1})')
+    
+    parser.add_argument('--quick', 
+                        action='store_true',
+                        help='Mode rapide : 1000 simulations')
+    
+    parser.add_argument('--intensive', 
+                        action='store_true',
+                        help='Mode intensif : 50000 simulations')
+    
+    parser.add_argument('--seed', 
+                        type=int, 
+                        default=42,
+                        help='Graine pour la reproductibilité (défaut: 42)')
+    
+    parser.add_argument('--silent', 
+                        action='store_true',
+                        help='Mode silencieux (pas de confirmation)')
+    
+    args = parser.parse_args()
+    
+    # Gestion des modes prédéfinis
+    if args.quick:
+        args.simulations = 1000
+    elif args.intensive:
+        args.simulations = 50000
+    
+    # Validation des arguments
+    if args.simulations < 100:
+        print("❌ Erreur: Le nombre de simulations doit être d'au moins 100")
+        sys.exit(1)
+    
+    if args.simulations > 100000:
+        print("⚠️  Attention: Plus de 100,000 simulations peuvent prendre beaucoup de temps")
+        if not args.silent:
+            confirm = input("Continuer ? (o/N): ").strip().lower()
+            if confirm != 'o':
+                sys.exit(0)
+    
+    # Configuration automatique des cores si non spécifié
+    if args.cores is None:
+        args.cores = mp.cpu_count() - 1 if mp.cpu_count() > 1 else 1
+    elif args.cores < 1:
+        args.cores = 1
+    elif args.cores > mp.cpu_count():
+        print(f"⚠️  Limitation: {args.cores} cœurs demandés, mais seulement {mp.cpu_count()} disponibles")
+        args.cores = mp.cpu_count()
+    
+    return args
+
+# Configuration globale (sera mise à jour par les arguments)
+ARGS = parse_arguments()
+GLOBAL_SEED = ARGS.seed
+N_SIMULATIONS = ARGS.simulations
+N_CORES = ARGS.cores
+
 random.seed(GLOBAL_SEED)
 np.random.seed(GLOBAL_SEED)
 
-N_SIMULATIONS = 10000
-N_CORES = mp.cpu_count() - 1 if mp.cpu_count() > 1 else 1
 BALLS = np.arange(1, 50)
 CHANCE_BALLS = np.arange(1, 11)
 
-print(f"Configuration : {N_CORES} processeurs, {N_SIMULATIONS} grilles, SEED={GLOBAL_SEED}.")
+print(f"Configuration : {N_CORES} processeurs, {N_SIMULATIONS:,} grilles, SEED={GLOBAL_SEED}.")
 
 # --- Gestion des Dossiers & Connexion Redis ---
 BASE_DIR = Path.cwd()

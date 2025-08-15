@@ -588,11 +588,86 @@ class LotoKenoMenu:
             print("  • Optimisation multi-critères")
             print("  • Cache Redis pour les performances")
             print()
-            confirm = input("Continuer avec le générateur avancé ? (o/N): ").strip().lower()
+            
+            # Configuration des paramètres
+            print(f"{Colors.OKBLUE}⚙️  Configuration des paramètres:{Colors.ENDC}")
+            print("1️⃣  Mode rapide (1,000 simulations)")
+            print("2️⃣  Mode standard (10,000 simulations)")
+            print("3️⃣  Mode intensif (50,000 simulations)")
+            print("4️⃣  Configuration personnalisée")
+            print("0️⃣  Retour au menu principal")
+            
+            config_choice = input("\n🎯 Votre choix de configuration: ").strip()
+            
+            if config_choice == "0":
+                self.wait_and_continue()
+                return
+            elif config_choice == "1":
+                command = "python loto/loto_generator_advanced_Version2.py --quick --silent"
+                description = "Générateur Loto Avancé (Mode Rapide)"
+            elif config_choice == "2":
+                command = "python loto/loto_generator_advanced_Version2.py --silent"
+                description = "Générateur Loto Avancé (Mode Standard)"
+            elif config_choice == "3":
+                command = "python loto/loto_generator_advanced_Version2.py --intensive"
+                description = "Générateur Loto Avancé (Mode Intensif)"
+            elif config_choice == "4":
+                # Configuration personnalisée
+                print(f"\n{Colors.OKBLUE}� Configuration personnalisée:{Colors.ENDC}")
+                
+                # Nombre de simulations
+                while True:
+                    try:
+                        n_sims = input("📊 Nombre de simulations (100-100000, défaut: 10000): ").strip()
+                        if not n_sims:
+                            n_sims = 10000
+                        else:
+                            n_sims = int(n_sims)
+                        
+                        if n_sims < 100 or n_sims > 100000:
+                            print("❌ Le nombre de simulations doit être entre 100 et 100,000")
+                            continue
+                        break
+                    except ValueError:
+                        print("❌ Veuillez entrer un nombre valide")
+                
+                # Nombre de processeurs
+                import multiprocessing as mp
+                max_cores = mp.cpu_count()
+                default_cores = max_cores - 1 if max_cores > 1 else 1
+                
+                while True:
+                    try:
+                        n_cores = input(f"🔄 Nombre de processeurs (1-{max_cores}, défaut: {default_cores}): ").strip()
+                        if not n_cores:
+                            n_cores = default_cores
+                        else:
+                            n_cores = int(n_cores)
+                        
+                        if n_cores < 1 or n_cores > max_cores:
+                            print(f"❌ Le nombre de processeurs doit être entre 1 et {max_cores}")
+                            continue
+                        break
+                    except ValueError:
+                        print("❌ Veuillez entrer un nombre valide")
+                
+                command = f"python loto/loto_generator_advanced_Version2.py -s {n_sims} -c {n_cores} --silent"
+                description = f"Générateur Loto Avancé ({n_sims:,} simulations, {n_cores} cœurs)"
+            else:
+                print("❌ Choix invalide")
+                self.wait_and_continue()
+                return
+            
+            # Confirmation finale
+            print(f"\n{Colors.OKGREEN}✅ Configuration choisie:{Colors.ENDC}")
+            print(f"   Commande: {command}")
+            print()
+            confirm = input("Lancer le générateur avancé ? (o/N): ").strip().lower()
+            
             if confirm in ['o', 'oui', 'y', 'yes']:
                 print(f"\n{Colors.OKBLUE}🚀 Lancement du générateur avancé...{Colors.ENDC}")
                 print("⚠️  Note: Ce processus peut prendre plusieurs minutes")
-                self.execute_command("python loto/loto_generator_advanced_Version2.py", "Générateur Loto Avancé (ML + IA)")
+                self.execute_command(command, description)
             else:
                 print("Opération annulée.")
                 self.wait_and_continue()
