@@ -68,8 +68,8 @@ class SystemeReduit:
         self.nb_favoris = len(self.nombres_favoris)
         
         # Validation
-        if self.nb_favoris < 7:
-            raise ValueError("Il faut au minimum 7 numéros favoris")
+        if self.nb_favoris < self.taille_grille:
+            raise ValueError(f"Il faut au minimum {self.taille_grille} numéros favoris pour des grilles de {self.taille_grille} numéros")
         if self.nb_favoris > 20:
             raise ValueError("Maximum 20 numéros favoris")
         if self.garantie < 2 or self.garantie > 5:
@@ -280,30 +280,51 @@ class SystemeReduit:
         - Sélection aléatoire dans les favoris
         - Optimisations pour éviter les doublons exacts
         - Garantie de diversité
+        - Gestion des cas où il y a peu de numéros favoris
         """
         
         print(f"\n🎲 Génération de {nb_grilles} grilles aléatoires intelligentes...")
         
         grilles = []
-        tentatives_max = nb_grilles * 10
         
-        for i in range(nb_grilles):
-            tentatives = 0
-            while tentatives < tentatives_max:
-                # Génère une grille candidate
-                grille = sorted(random.sample(self.nombres_favoris, self.taille_grille))
-                
-                # Vérifie qu'elle n'existe pas déjà
-                if grille not in grilles:
-                    grilles.append(grille)
-                    break
-                
-                tentatives += 1
+        # Cas spécial : Si on a exactement le nombre de numéros requis pour une grille
+        if len(self.nombres_favoris) == self.taille_grille:
+            # On ne peut faire qu'une seule grille avec tous les numéros
+            grille_unique = sorted(self.nombres_favoris)
+            for i in range(nb_grilles):
+                grilles.append(grille_unique.copy())
+            print(f"   ⚠️  Une seule combinaison possible (tous les numéros favoris)")
+        
+        # Cas spécial : Pas assez de numéros favoris
+        elif len(self.nombres_favoris) < self.taille_grille:
+            # Impossible de générer des grilles complètes
+            taille_possible = len(self.nombres_favoris)
+            print(f"   ⚠️  Réduction taille grille: {self.taille_grille} -> {taille_possible} numéros")
+            grille_reduite = sorted(self.nombres_favoris)
+            for i in range(nb_grilles):
+                grilles.append(grille_reduite.copy())
+        
+        # Cas normal : Assez de numéros pour faire des combinaisons variées
+        else:
+            tentatives_max = nb_grilles * 10
             
-            # Si impossible de trouver une grille unique, force l'ajout
-            if len(grilles) <= i:
-                grille = sorted(random.sample(self.nombres_favoris, self.taille_grille))
-                grilles.append(grille)
+            for i in range(nb_grilles):
+                tentatives = 0
+                while tentatives < tentatives_max:
+                    # Génère une grille candidate
+                    grille = sorted(random.sample(self.nombres_favoris, self.taille_grille))
+                    
+                    # Vérifie qu'elle n'existe pas déjà
+                    if grille not in grilles:
+                        grilles.append(grille)
+                        break
+                    
+                    tentatives += 1
+                
+                # Si impossible de trouver une grille unique, force l'ajout
+                if len(grilles) <= i:
+                    grille = sorted(random.sample(self.nombres_favoris, self.taille_grille))
+                    grilles.append(grille)
         
         print(f"   ✅ {len(grilles)} grilles générées")
         return grilles
@@ -468,9 +489,9 @@ class GenerateurGrilles:
         # Filtre les numéros valides selon le jeu
         nombres_valides = [n for n in nombres if self.min_numero <= n <= self.max_numero]
         
-        min_requis = max(7, self.taille_grille)  # Au minimum taille_grille ou 7
+        min_requis = self.taille_grille  # Au minimum la taille de grille
         if len(nombres_valides) < min_requis:
-            raise ValueError(f"Au moins {min_requis} numéros valides requis ({self.min_numero}-{self.max_numero}) pour {self.nom_jeu}. Trouvés : {len(nombres_valides)}")
+            raise ValueError(f"Au moins {min_requis} numéros valides requis ({self.min_numero}-{self.max_numero}) pour des grilles de {self.taille_grille} numéros ({self.nom_jeu}). Trouvés : {len(nombres_valides)}")
         
         if len(nombres_valides) > 20:
             print(f"⚠️  Trop de numéros ({len(nombres_valides)}), limitation à 20")
@@ -757,9 +778,10 @@ class GenerateurGrilles:
         
         # Sélection du nombre de numéros à utiliser
         if nb_nombres_utilises is not None:
-            min_requis = max(7, self.taille_grille)  # Au minimum taille_grille ou 7
+            # Le minimum requis doit être adapté à la taille de grille actuelle
+            min_requis = self.taille_grille  # Au minimum la taille de grille
             if nb_nombres_utilises < min_requis:
-                raise ValueError(f"Au moins {min_requis} numéros sont requis pour générer des grilles {self.nom_jeu}")
+                raise ValueError(f"Au moins {min_requis} numéros sont requis pour générer des grilles de {self.taille_grille} numéros ({self.nom_jeu})")
             if nb_nombres_utilises > len(nombres_valides):
                 raise ValueError(f"Impossible d'utiliser {nb_nombres_utilises} numéros parmi {len(nombres_valides)} disponibles")
             
@@ -775,7 +797,23 @@ class GenerateurGrilles:
         
         # Génération des grilles
         if methode.lower() == 'optimal':
-            grilles = systeme.generer_grilles_optimales(nb_grilles)
+            # Vérifier si on a assez de combinaisons pour la méthode optimale
+            combinaisons_possibles = math.comb(len(nombres_valides), self.taille_grille)
+            if combinaisons_possibles < nb_grilles:
+                print(f"⚠️  Basculement automatique vers la méthode aléatoire")
+                print(f"   Raison: {combinaisons_possibles} combinaisons < {nb_grilles} grilles demandées")
+                
+                # Suggérer une taille de grille plus petite si possible
+                if self.jeu == 'keno' and self.taille_grille > 5:
+                    for taille_test in range(self.taille_grille - 1, 4, -1):
+                        combinaisons_test = math.comb(len(nombres_valides), taille_test)
+                        if combinaisons_test >= nb_grilles:
+                            print(f"💡 Conseil: Utilisez --nombres-par-grille {taille_test} pour {combinaisons_test} combinaisons possibles")
+                            break
+                
+                grilles = systeme.generer_grilles_aleatoires_intelligentes(nb_grilles)
+            else:
+                grilles = systeme.generer_grilles_optimales(nb_grilles)
         else:
             grilles = systeme.generer_grilles_aleatoires_intelligentes(nb_grilles)
         
