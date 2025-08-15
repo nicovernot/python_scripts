@@ -24,6 +24,7 @@ keno/keno_analyse/
 !/loto_output/
 loto/data/
 loto/output/
+*.parquet
 
 # Ignore generated loto analysis files
 /loto_analyse_plots/
