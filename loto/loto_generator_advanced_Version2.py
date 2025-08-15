@@ -33,15 +33,58 @@ SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR / 'data'
 DATA_DIR.mkdir(exist_ok=True)
 
-# Chercher le fichier Parquet dans loto/data
-parquet_files = list(DATA_DIR.glob('*.parquet'))
-if parquet_files:
-    parquet_path = parquet_files[0]  # Prendre le premier fichier Parquet trouvé
-    print(f"📂 Utilisation du fichier Parquet : {parquet_path}")
-else:
-    # Fallback vers l'ancienne configuration si pas de parquet
-    parquet_path = Path(os.getenv('LOTO_PARQUET_PATH', '~/Téléchargements/loto_201911.parquet')).expanduser()
-    print(f"⚠️  Parquet non trouvé dans loto/data, utilisation de : {parquet_path}")
+# Fonction pour convertir CSV en Parquet si nécessaire
+def ensure_parquet_file():
+    """S'assure qu'un fichier Parquet existe, en convertissant le CSV si nécessaire"""
+    parquet_files = list(DATA_DIR.glob('*.parquet'))
+    csv_files = list(DATA_DIR.glob('*.csv'))
+    
+    if parquet_files:
+        # Vérifier si le Parquet est plus récent que le CSV
+        parquet_path = parquet_files[0]
+        if csv_files:
+            csv_path = csv_files[0]
+            if csv_path.stat().st_mtime > parquet_path.stat().st_mtime:
+                print(f"� Le fichier CSV est plus récent, reconversion nécessaire...")
+                convert_csv_to_parquet(csv_path, parquet_path)
+        return parquet_path
+    elif csv_files:
+        # Pas de Parquet, mais CSV disponible - conversion automatique
+        csv_path = csv_files[0]
+        parquet_path = DATA_DIR / csv_path.with_suffix('.parquet').name
+        print(f"📂 Fichier CSV trouvé : {csv_path.name}")
+        print(f"🔄 Conversion automatique en Parquet pour de meilleures performances...")
+        convert_csv_to_parquet(csv_path, parquet_path)
+        return parquet_path
+    else:
+        # Aucun fichier trouvé - fallback
+        fallback_path = Path(os.getenv('LOTO_PARQUET_PATH', '~/Téléchargements/loto_201911.parquet')).expanduser()
+        print(f"⚠️  Aucun fichier CSV/Parquet trouvé dans {DATA_DIR}")
+        print(f"⚠️  Utilisation du fallback : {fallback_path}")
+        return fallback_path
+
+def convert_csv_to_parquet(csv_path, parquet_path):
+    """Convertit un fichier CSV en Parquet en utilisant DuckDB"""
+    import duckdb
+    try:
+        con = duckdb.connect()
+        con.execute(f"COPY (SELECT * FROM read_csv_auto('{str(csv_path)}')) TO '{str(parquet_path)}' (FORMAT PARQUET);")
+        
+        # Vérifier la taille des fichiers pour information
+        csv_size = csv_path.stat().st_size / (1024*1024)
+        parquet_size = parquet_path.stat().st_size / (1024*1024)
+        compression_ratio = (1 - parquet_size/csv_size) * 100 if csv_size > 0 else 0
+        
+        print(f"✅ Conversion terminée : {csv_path.name} → {parquet_path.name}")
+        print(f"📊 Compression : {compression_ratio:.1f}% ({csv_size:.1f}MB → {parquet_size:.1f}MB)")
+        con.close()
+    except Exception as e:
+        print(f"❌ Erreur lors de la conversion : {e}")
+        raise
+
+# Obtenir le fichier Parquet (avec conversion automatique si nécessaire)
+parquet_path = ensure_parquet_file()
+print(f"📂 Utilisation du fichier Parquet : {parquet_path}")
 
 GLOBAL_SEED = 42
 random.seed(GLOBAL_SEED)
