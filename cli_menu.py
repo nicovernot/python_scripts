@@ -50,6 +50,10 @@ class LotoKenoMenu:
     def __init__(self):
         self.base_path = Path(__file__).parent
         
+        # Configuration de l'environnement Python
+        venv_python = self.base_path / "venv" / "bin" / "python"
+        self.python_path = str(venv_python) if venv_python.exists() else "python"
+        
         # Chargement de la configuration
         self.config = load_config()
         
@@ -603,13 +607,13 @@ class LotoKenoMenu:
                 self.wait_and_continue()
                 return
             elif config_choice == "1":
-                command = "python loto/loto_generator_advanced_Version2.py --quick --silent"
+                command = f"{self.python_path} loto/loto_generator_advanced_Version2.py --quick --silent"
                 description = "Générateur Loto Avancé (Mode Rapide)"
             elif config_choice == "2":
-                command = "python loto/loto_generator_advanced_Version2.py --silent"
+                command = f"{self.python_path} loto/loto_generator_advanced_Version2.py --silent"
                 description = "Générateur Loto Avancé (Mode Standard)"
             elif config_choice == "3":
-                command = "python loto/loto_generator_advanced_Version2.py --intensive"
+                command = f"{self.python_path} loto/loto_generator_advanced_Version2.py --intensive"
                 description = "Générateur Loto Avancé (Mode Intensif)"
             elif config_choice == "4":
                 # Configuration personnalisée
@@ -651,7 +655,7 @@ class LotoKenoMenu:
                     except ValueError:
                         print("❌ Veuillez entrer un nombre valide")
                 
-                command = f"python loto/loto_generator_advanced_Version2.py -s {n_sims} -c {n_cores} --silent"
+                command = f"{self.python_path} loto/loto_generator_advanced_Version2.py -s {n_sims} -c {n_cores} --silent"
                 description = f"Générateur Loto Avancé ({n_sims:,} simulations, {n_cores} cœurs)"
             else:
                 print("❌ Choix invalide")
