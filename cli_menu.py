@@ -122,6 +122,7 @@ class LotoKenoMenu:
         print("  5️⃣  Générer 5 grilles Loto (complet)")
         print("  6️⃣  Générer grilles avec visualisations")
         print("  7️⃣  Analyse Loto personnalisée")
+        print("  2️⃣2️⃣ Générateur Loto avancé (ML + IA)")
         print()
         
         print(f"{Colors.OKCYAN}🎰 ANALYSE KENO{Colors.ENDC}")
@@ -578,6 +579,23 @@ class LotoKenoMenu:
                 
             print(f"\n{Colors.OKCYAN}💡 Astuce: Utilisez un explorateur de fichiers pour ouvrir les images{Colors.ENDC}")
             self.wait_and_continue()
+            
+        elif choice == "22":
+            print(f"\n{Colors.WARNING}🚧 Générateur Loto Avancé (ML + IA){Colors.ENDC}")
+            print("Ce générateur utilise des techniques avancées:")
+            print("  • Machine Learning (XGBoost)")
+            print("  • Analyse statistique approfondie") 
+            print("  • Optimisation multi-critères")
+            print("  • Cache Redis pour les performances")
+            print()
+            confirm = input("Continuer avec le générateur avancé ? (o/N): ").strip().lower()
+            if confirm in ['o', 'oui', 'y', 'yes']:
+                print(f"\n{Colors.OKBLUE}🚀 Lancement du générateur avancé...{Colors.ENDC}")
+                print("⚠️  Note: Ce processus peut prendre plusieurs minutes")
+                self.execute_command("python loto/loto_generator_advanced_Version2.py", "Générateur Loto Avancé (ML + IA)")
+            else:
+                print("Opération annulée.")
+                self.wait_and_continue()
             
         elif choice == "0":
             print(f"\n{Colors.OKGREEN}👋 Au revoir ! Bonne chance pour vos analyses !{Colors.ENDC}")
