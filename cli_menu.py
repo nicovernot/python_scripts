@@ -483,10 +483,10 @@ class LotoKenoMenu:
             self.execute_command("python loto/result.py", "Téléchargement des données Loto")
             
         elif choice == "2":
-            self.execute_command("python keno/results_clean.py", "Téléchargement des données Keno")
+            self.execute_command("python keno/extracteur_donnees_fdj_v2.py", "Téléchargement des données Keno")
             
         elif choice == "3":
-            self.execute_command("python loto/result.py && python keno/results_clean.py", "Mise à jour de toutes les données")
+            self.execute_command("python loto/result.py && python keno/extracteur_donnees_fdj_v2.py", "Mise à jour de toutes les données")
             
         elif choice == "4":
             command = f"python loto/duckdb_loto.py --csv {self.loto_csv} --grids {self.default_loto_grids} --config {self.loto_config_file}"

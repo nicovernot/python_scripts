@@ -375,24 +375,58 @@ class SystemeReduit:
 class GenerateurGrilles:
     """Classe principale pour la génération de grilles Loto/Keno avec systèmes réduits"""
     
-    def __init__(self, jeu: str = 'loto'):
+    def __init__(self, jeu: str = 'auto'):
         self.base_path = Path(__file__).parent
         self.output_path = self.base_path / "sorties"
         self.output_path.mkdir(exist_ok=True)
         
         # Configuration selon le type de jeu
         if jeu.lower() == 'keno':
-            self.jeu = 'keno'
-            self.min_numero = 1
-            self.max_numero = 70
-            self.taille_grille = 10  # Keno: 10 numéros par grille
-            self.nom_jeu = "Keno"
+            self._configurer_keno()
+        elif jeu.lower() == 'loto':
+            self._configurer_loto()
         else:
-            self.jeu = 'loto'
+            # Mode auto - sera configuré lors de l'analyse des numéros
+            self.jeu = 'auto'
             self.min_numero = 1
-            self.max_numero = 49
-            self.taille_grille = 5   # Loto: 5 numéros par grille
-            self.nom_jeu = "Loto"
+            self.max_numero = 70  # Plage la plus large
+            self.taille_grille = 5   # Par défaut Loto
+            self.nom_jeu = "Auto"
+    
+    def _configurer_loto(self):
+        """Configure pour le jeu Loto"""
+        self.jeu = 'loto'
+        self.min_numero = 1
+        self.max_numero = 49
+        self.taille_grille = 5
+        self.nom_jeu = "Loto"
+    
+    def _configurer_keno(self):
+        """Configure pour le jeu Keno"""
+        self.jeu = 'keno'
+        self.min_numero = 1
+        self.max_numero = 70
+        self.taille_grille = 10
+        self.nom_jeu = "Keno"
+    
+    def detecter_jeu_automatique(self, nombres: List[int]) -> str:
+        """
+        Détecte automatiquement le type de jeu selon les numéros
+        
+        Logique :
+        - Si tous les numéros sont ≤ 49 → Loto
+        - Si au moins un numéro est > 49 → Keno
+        """
+        max_numero = max(nombres) if nombres else 1
+        
+        if max_numero > 49:
+            jeu_detecte = 'keno'
+            print(f"🔍 Détection automatique : **KENO** (numéro max: {max_numero})")
+        else:
+            jeu_detecte = 'loto'
+            print(f"🔍 Détection automatique : **LOTO** (numéros ≤ 49)")
+        
+        return jeu_detecte
     
     def charger_nombres_depuis_fichier(self, fichier: str) -> List[int]:
         """Charge une liste de numéros depuis un fichier"""
@@ -470,8 +504,9 @@ class GenerateurGrilles:
         with open(fichier_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             
-            # En-têtes
-            writer.writerow(['Grille', 'Numero_1', 'Numero_2', 'Numero_3', 'Numero_4', 'Numero_5'])
+            # En-têtes adaptés au nombre de numéros
+            en_tetes = ['Grille'] + [f'Numero_{i}' for i in range(1, self.taille_grille + 1)]
+            writer.writerow(en_tetes)
             
             # Grilles
             for i, grille in enumerate(grilles, 1):
@@ -563,7 +598,7 @@ class GenerateurGrilles:
         fichier_path = self.output_path / f"{nom_fichier}.md"
         
         with open(fichier_path, 'w', encoding='utf-8') as f:
-            f.write("# 🎯 Grilles Loto - Système Réduit\n\n")
+            f.write(f"# 🎯 Grilles {self.nom_jeu} - Système Réduit\n\n")
             
             f.write("## 📊 Informations Générales\n\n")
             f.write(f"- **📅 Date de génération :** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
@@ -572,8 +607,22 @@ class GenerateurGrilles:
             f.write(f"- **💡 Recommandation :** {analyse['recommandation']}\n\n")
             
             f.write("## 🎲 Grilles Générées\n\n")
-            f.write("| Grille | Numéro 1 | Numéro 2 | Numéro 3 | Numéro 4 | Numéro 5 |\n")
-            f.write("|--------|----------|----------|----------|----------|----------|\n")
+            
+            # En-tête du tableau adapté au nombre de numéros
+            if self.taille_grille <= 5:
+                f.write("| Grille | Numéro 1 | Numéro 2 | Numéro 3 | Numéro 4 | Numéro 5 |\n")
+                f.write("|--------|----------|----------|----------|----------|----------|\n")
+            elif self.taille_grille <= 10:
+                headers = "| Grille |" + "".join([f" N°{i} |" for i in range(1, self.taille_grille + 1)]) + "\n"
+                separator = "|--------|" + "-----|" * self.taille_grille + "\n"
+                f.write(headers)
+                f.write(separator)
+            else:
+                # Pour plus de 10 numéros, format compact
+                headers = "| Grille |" + "".join([f" {i} |" for i in range(1, self.taille_grille + 1)]) + "\n"
+                separator = "|--------|" + "---|" * self.taille_grille + "\n"
+                f.write(headers)
+                f.write(separator)
             
             for i, grille in enumerate(grilles, 1):
                 numeros = " | ".join(f"**{n:02d}**" for n in grille)
@@ -638,7 +687,7 @@ class GenerateurGrilles:
     
     def generer(self, nombres: List[int], nb_grilles: int, garantie: int = 3, 
                methode: str = 'optimal', nb_nombres_utilises: int = None,
-               export: bool = False, format_export: str = 'csv') -> Dict[str, Any]:
+               nombres_par_grille: int = None, export: bool = False, format_export: str = 'csv') -> Dict[str, Any]:
         """
         Génère des grilles selon les paramètres spécifiés
         
@@ -648,6 +697,7 @@ class GenerateurGrilles:
             garantie: Niveau de garantie (2-5)
             methode: 'optimal' ou 'aleatoire'
             nb_nombres_utilises: Nombre de numéros à utiliser parmi les favoris (None = tous)
+            nombres_par_grille: Nombre de numéros par grille (None = automatique selon le jeu)
             export: Exporter les résultats
             format_export: Format d'export ('csv', 'json', 'txt', 'md')
         
@@ -655,12 +705,55 @@ class GenerateurGrilles:
             Dictionnaire avec les grilles et l'analyse
         """
         
+        # Détection automatique du jeu si nécessaire
+        if self.jeu == 'auto':
+            jeu_detecte = self.detecter_jeu_automatique(nombres)
+            if jeu_detecte == 'keno':
+                self._configurer_keno()
+            else:
+                self._configurer_loto()
+        
+        # Gestion du paramètre nombres_par_grille
+        if nombres_par_grille is not None:
+            min_par_grille = 3 if self.jeu == 'keno' else 5
+            max_par_grille = 20 if self.jeu == 'keno' else 10
+            
+            if nombres_par_grille < min_par_grille:
+                print(f"⚠️  Minimum {min_par_grille} numéros par grille pour {self.nom_jeu}. Ajustement automatique.")
+                nombres_par_grille = min_par_grille
+            elif nombres_par_grille > max_par_grille:
+                print(f"⚠️  Maximum {max_par_grille} numéros par grille pour {self.nom_jeu}. Ajustement automatique.")
+                nombres_par_grille = max_par_grille
+            
+            # Mise à jour de la taille de grille
+            self.taille_grille = nombres_par_grille
+            print(f"🎯 Taille de grille personnalisée : {self.taille_grille} numéros par grille")
+        
+        # Application des minimums selon le jeu
+        min_grilles = 3 if self.jeu == 'keno' else 5
+        if nb_grilles < min_grilles:
+            print(f"⚠️  Minimum {min_grilles} grilles requis pour {self.nom_jeu}. Ajustement automatique.")
+            nb_grilles = min_grilles
+        
         print(f"\n🎯 GÉNÉRATEUR DE GRILLES {self.nom_jeu.upper()} - SYSTÈME RÉDUIT")
         print("=" * 60)
         
         # Validation des paramètres
         nombres_valides = self.valider_nombres(nombres)
         print(f"📊 Numéros favoris validés : {nombres_valides}")
+        
+        # Vérification si on a assez de numéros pour générer le nombre de grilles demandé
+        import itertools
+        combinaisons_possibles = len(list(itertools.combinations(nombres_valides, self.taille_grille)))
+        
+        if combinaisons_possibles < nb_grilles:
+            print(f"⚠️  Seulement {combinaisons_possibles} combinaisons possibles avec {len(nombres_valides)} numéros.")
+            print(f"💡 Pour obtenir {nb_grilles} grilles {self.nom_jeu}, ajoutez plus de numéros favoris.")
+            print(f"📊 Minimum recommandé : {self.taille_grille + (nb_grilles - 1)} numéros")
+            
+            # On continue quand même avec ce qu'on a
+            if combinaisons_possibles == 0:
+                raise ValueError(f"Impossible de générer des grilles avec {len(nombres_valides)} numéros pour {self.nom_jeu}")
         
         # Sélection du nombre de numéros à utiliser
         if nb_nombres_utilises is not None:
@@ -800,10 +893,16 @@ Exemples d'utilisation :
     )
     
     parser.add_argument(
+        '--nombres-par-grille',
+        type=int,
+        help='Nombre de numéros par grille (Loto: min 5, Keno: min 3, défaut: automatique selon le jeu)'
+    )
+    
+    parser.add_argument(
         '--jeu',
-        choices=['loto', 'keno'],
-        default='loto',
-        help='Type de jeu (loto: 1-49/5 numéros, keno: 1-70/10 numéros, défaut: loto)'
+        choices=['auto', 'loto', 'keno'],
+        default='auto',
+        help='Type de jeu (auto: détection automatique, loto: 1-49/5 numéros, keno: 1-70/10 numéros, défaut: auto)'
     )
     
     parser.add_argument(
@@ -872,6 +971,7 @@ Exemples d'utilisation :
             garantie=args.garantie,
             methode=args.methode,
             nb_nombres_utilises=getattr(args, 'nombres_utilises', None),
+            nombres_par_grille=getattr(args, 'nombres_par_grille', None),
             export=args.export,
             format_export=args.format
         )
