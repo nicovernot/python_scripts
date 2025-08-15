@@ -1,16 +1,13 @@
 # Ignore virtual environment
 /venv/
 
-# Ignore keno data and generated files
+# Ignore data directories and generated files
 /keno_data/*
 !/keno_data/
-
 /keno_models/*
 !/keno_models/
-
 /keno_results/*
 !/keno_results/
-
 /keno_output/*
 !/keno_output/
 
@@ -23,9 +20,10 @@ keno/keno_analyse/
 # Ignore loto data and generated files
 /loto_data/*
 !/loto_data/
-
 /loto_output/*
 !/loto_output/
+loto/data/
+loto/output/
 
 # Ignore generated loto analysis files
 /loto_analyse_plots/
@@ -53,6 +51,20 @@ viz_cache.pkl
 *.json
 model_*.joblib
 xgb_*.pkl
+
+# Ignore test files and temporary scripts
+test_*.py
+*_test.py
+quick_fix.py
+analyse_keno_unique.py
+demo_*.py
+exemple_*.py
+
+# Ignore documentation reports and temporary markdown files
+RAPPORT_*.md
+RESUME_*.md
+AJOUT_*.md
+SORTIES_*.md
 
 # Ignore Python bytecode files
 *.pyc
