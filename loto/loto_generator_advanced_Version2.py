@@ -27,7 +27,22 @@ warnings.filterwarnings("ignore")
 
 # --- Configuration Générale et Reproductibilité ---
 load_dotenv()
-parquet_path = Path(os.getenv('LOTO_PARQUET_PATH', '~/Téléchargements/loto_201911.parquet')).expanduser()
+
+# Configuration des chemins pour loto/data
+SCRIPT_DIR = Path(__file__).parent
+DATA_DIR = SCRIPT_DIR / 'data'
+DATA_DIR.mkdir(exist_ok=True)
+
+# Chercher le fichier Parquet dans loto/data
+parquet_files = list(DATA_DIR.glob('*.parquet'))
+if parquet_files:
+    parquet_path = parquet_files[0]  # Prendre le premier fichier Parquet trouvé
+    print(f"📂 Utilisation du fichier Parquet : {parquet_path}")
+else:
+    # Fallback vers l'ancienne configuration si pas de parquet
+    parquet_path = Path(os.getenv('LOTO_PARQUET_PATH', '~/Téléchargements/loto_201911.parquet')).expanduser()
+    print(f"⚠️  Parquet non trouvé dans loto/data, utilisation de : {parquet_path}")
+
 GLOBAL_SEED = 42
 random.seed(GLOBAL_SEED)
 np.random.seed(GLOBAL_SEED)
