@@ -101,6 +101,8 @@ Exemples d'utilisation :
   python loto_generator_advanced_Version2.py -s 20000 -c 8    # 20k simulations sur 8 cœurs
   python loto_generator_advanced_Version2.py --quick          # Mode rapide (1000 simulations)
   python loto_generator_advanced_Version2.py --intensive      # Mode intensif (50000 simulations)
+  python loto_generator_advanced_Version2.py --exclude 1,5,12 # Exclure les numéros 1, 5 et 12
+  python loto_generator_advanced_Version2.py --exclude auto   # Exclure les 3 derniers tirages (défaut)
         """
     )
     
@@ -131,6 +133,11 @@ Exemples d'utilisation :
                         action='store_true',
                         help='Mode silencieux (pas de confirmation)')
     
+    parser.add_argument('--exclude', 
+                        type=str, 
+                        default=None,
+                        help='Numéros à exclure, séparés par des virgules (ex: --exclude 1,5,12,30) ou "auto" pour les 3 derniers tirages (défaut: auto)')
+    
     args = parser.parse_args()
     
     # Gestion des modes prédéfinis
@@ -151,6 +158,26 @@ Exemples d'utilisation :
             if confirm != 'o':
                 sys.exit(0)
     
+    # Validation des numéros exclus
+    if args.exclude and args.exclude.lower() != 'auto':
+        try:
+            excluded_nums = [int(x.strip()) for x in args.exclude.split(',')]
+            # Vérifier que tous les numéros sont valides (1-49)
+            invalid_nums = [num for num in excluded_nums if num < 1 or num > 49]
+            if invalid_nums:
+                print(f"❌ Erreur: Numéros invalides détectés: {invalid_nums}. Les numéros doivent être entre 1 et 49.")
+                sys.exit(1)
+            # Vérifier qu'il ne faut pas exclure trop de numéros
+            if len(excluded_nums) > 44:  # Il faut au moins 5 numéros pour faire une grille
+                print(f"❌ Erreur: Trop de numéros exclus ({len(excluded_nums)}). Maximum autorisé: 44.")
+                sys.exit(1)
+            args.excluded_numbers = set(excluded_nums)
+        except ValueError:
+            print("❌ Erreur: Format invalide pour --exclude. Utilisez des numéros séparés par des virgules (ex: 1,5,12)")
+            sys.exit(1)
+    else:
+        args.excluded_numbers = None  # Sera défini plus tard avec les 3 derniers tirages
+    
     # Configuration automatique des cores si non spécifié
     if args.cores is None:
         args.cores = mp.cpu_count() - 1 if mp.cpu_count() > 1 else 1
@@ -167,6 +194,7 @@ ARGS = parse_arguments()
 GLOBAL_SEED = ARGS.seed
 N_SIMULATIONS = ARGS.simulations
 N_CORES = ARGS.cores
+EXCLUDED_NUMBERS = ARGS.excluded_numbers
 
 random.seed(GLOBAL_SEED)
 np.random.seed(GLOBAL_SEED)
@@ -242,6 +270,16 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
     freq = pd.Series(df_pandas[balls_cols].values.flatten()).value_counts().reindex(BALLS, fill_value=0)
     last_3_draws = df_pandas.iloc[-3:][balls_cols].values.flatten()
     last_3_numbers_set = set(last_3_draws)
+    
+    # Utiliser les numéros exclus configurables
+    if EXCLUDED_NUMBERS is not None:
+        numbers_to_exclude = EXCLUDED_NUMBERS
+        exclusion_source = "paramètre utilisateur"
+    else:
+        numbers_to_exclude = last_3_numbers_set
+        exclusion_source = "3 derniers tirages (auto)"
+    
+    print(f"   ✓ Numéros exclus ({exclusion_source}): {sorted(numbers_to_exclude)}")
 
     last_appearance = df_pandas.melt(
         id_vars=['date_de_tirage'], 
@@ -284,7 +322,7 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
         GROUP BY numero
     """
     gaps_df = db_con.execute(gaps_query).fetchdf()
-    gaps = pd.Series(gaps_df.set_index('numero')['periodicite']) if not gaps_df.empty else pd.Series(dtype='float64')
+    gaps = pd.Series(gaps_df.set_index('numero')['periodicite']) if not gaps_df.empty else pd.Series(dtype='float64', index=BALLS)
 
     pair_impair_dist = (df_pandas[balls_cols] % 2 == 0).sum(axis=1).value_counts().sort_index()
 
@@ -314,12 +352,93 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
     sums = df_pandas[balls_cols].sum(axis=1)
     stds = df_pandas[balls_cols].std(axis=1)
 
-    variances = {
-        'sum': 1/np.var(sums),
-        'std': 1/np.var(stds),
-        'pair_impair': 1/np.var((pair_impair_dist/pair_impair_dist.sum()).values)
+    # === NOUVEAUX CRITÈRES STATISTIQUES ===
+    
+    # 1. Distribution par dizaines (0-9, 10-19, 20-29, 30-39, 40-49)
+    decades_dist = []
+    for _, row in df_pandas.iterrows():
+        grid = row[balls_cols].values
+        decades = [(n-1)//10 for n in grid]  # 0,1,2,3,4 pour les dizaines
+        decades_count = pd.Series(decades).value_counts()
+        decades_dist.append(decades_count.reindex(range(5), fill_value=0).values)
+    decades_dist = np.array(decades_dist)
+    decades_entropy = -np.sum(decades_dist * np.log(decades_dist + 1e-10), axis=1)
+    
+    # 2. Espacement entre numéros consécutifs (gaps)
+    gaps_between_numbers = []
+    for _, row in df_pandas.iterrows():
+        sorted_nums = sorted(row[balls_cols].values)
+        local_gaps = [sorted_nums[i+1] - sorted_nums[i] for i in range(4)]
+        gaps_between_numbers.append(np.std(local_gaps))  # Écart-type des espacements
+    gaps_between_numbers = np.array(gaps_between_numbers)
+    
+    # 3. Répartition haute/basse (1-25 vs 26-49)
+    high_low_ratio = []
+    for _, row in df_pandas.iterrows():
+        grid = row[balls_cols].values
+        low_count = sum(1 for n in grid if n <= 25)
+        high_count = 5 - low_count
+        ratio = low_count / 5.0  # Proportion de numéros bas
+        high_low_ratio.append(ratio)
+    high_low_ratio = np.array(high_low_ratio)
+    
+    # 4. Nombres premiers vs composés
+    primes = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47}
+    prime_ratio = []
+    for _, row in df_pandas.iterrows():
+        grid = row[balls_cols].values
+        prime_count = sum(1 for n in grid if n in primes)
+        prime_ratio.append(prime_count / 5.0)
+    prime_ratio = np.array(prime_ratio)
+    
+    # 5. Variance des positions (mesure de dispersion)
+    position_variance = []
+    for _, row in df_pandas.iterrows():
+        grid = sorted(row[balls_cols].values)
+        positions = [(n-1)/48.0 for n in grid]  # Normalisation 0-1
+        position_variance.append(np.var(positions))
+    position_variance = np.array(position_variance)
+
+    # Calcul des variances pour tous les critères
+    sum_var = np.var(sums)
+    std_var = np.var(stds)
+    pair_impair_var = np.var((pair_impair_dist/pair_impair_dist.sum()).values)
+    decades_entropy_var = np.var(decades_entropy)
+    gaps_var = np.var(gaps_between_numbers)
+    high_low_var = np.var(high_low_ratio)
+    prime_var = np.var(prime_ratio)
+    position_var = np.var(position_variance)
+    
+    # Poids équilibrés basés sur l'inverse des variances, mais avec normalisation
+    raw_weights = {
+        'sum': 1.0 / (1.0 + sum_var),
+        'std': 1.0 / (1.0 + std_var), 
+        'pair_impair': 1.0 / (1.0 + pair_impair_var),
+        'decades_entropy': 1.0 / (1.0 + decades_entropy_var),
+        'gaps': 1.0 / (1.0 + gaps_var),
+        'high_low': 1.0 / (1.0 + high_low_var),
+        'prime_ratio': 1.0 / (1.0 + prime_var),
+        'position_variance': 1.0 / (1.0 + position_var)
     }
-    dynamic_weights = {key: value / sum(variances.values()) for key, value in variances.items()}
+    
+    # Normalisation pour que les poids soient plus équilibrés (pas de domination extrême)
+    total_weight = sum(raw_weights.values())
+    dynamic_weights = {key: value / total_weight for key, value in raw_weights.items()}
+    
+    # Ajustement pour éviter qu'un critère domine complètement (max 25% pour un critère maintenant)
+    max_weight = 0.25
+    for key in dynamic_weights:
+        if dynamic_weights[key] > max_weight:
+            excess = dynamic_weights[key] - max_weight
+            dynamic_weights[key] = max_weight
+            # Redistribuer l'excès sur les autres critères
+            other_keys = [k for k in dynamic_weights.keys() if k != key]
+            for other_key in other_keys:
+                dynamic_weights[other_key] += excess / len(other_keys)
+    
+    # Re-normalisation finale
+    total_weight = sum(dynamic_weights.values())
+    dynamic_weights = {key: value / total_weight for key, value in dynamic_weights.items()}
 
     delta = pd.to_datetime('now').normalize() - pd.to_datetime(last_appearance.reindex(BALLS))
     numbers_analysis = pd.DataFrame({
@@ -340,14 +459,20 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
         'pair_impair_probs': pair_impair_dist / pair_impair_dist.sum(),
         'consecutive_counts': consecutive_counts,
         'pair_counts': pair_counts,
-        'numbers_to_exclude': last_3_numbers_set,
+        'numbers_to_exclude': numbers_to_exclude,
         'sums': sums,
         'stds': stds,
         'dynamic_weights': dynamic_weights,
         'last_appearance': last_appearance,
         'numbers_analysis': numbers_analysis,
         'correlation_matrix': correlation_matrix,
-        'regression_results': regression_results
+        'regression_results': regression_results,
+        # Nouveaux critères statistiques
+        'decades_entropy': decades_entropy,
+        'gaps_between_numbers': gaps_between_numbers,
+        'high_low_ratio': high_low_ratio,
+        'prime_ratio': prime_ratio,
+        'position_variance': position_variance
     }
 
 # --- Fonctions d'analyse de cycles et motifs ---
@@ -458,26 +583,81 @@ def load_saved_models() -> list:
     return models
 
 # --- Fonctions de Scoring et Génération ---
-def score_grid(grid: np.ndarray, criteria: dict) -> float:
+def score_grid(grid: np.ndarray, criteria: dict, diversity_factor: float = 0.0) -> float:
     W = criteria['dynamic_weights']
-    W_DECADES, W_PAIRS, W_CONSECUTIVE, PENALTY_OVERLAP = 0.1, 0.1, 0.1, 0.1
-    W_HOT_NUMBERS = 0.05
+    W_DECADES, W_PAIRS, W_CONSECUTIVE, PENALTY_OVERLAP = 0.05, 0.05, 0.05, 0.1
+    W_HOT_NUMBERS = 0.03
     PENALTY_TOO_MANY_HOT = 0.08
 
     score = 0
-    score += W.get('sum', 0.2) * scipy.stats.norm.pdf(
+    
+    # Critères principaux avec poids dynamiques
+    score += W.get('sum', 0.125) * scipy.stats.norm.pdf(
         np.sum(grid), 
         loc=criteria['sums'].mean(), 
         scale=criteria['sums'].std()
     )
 
-    score += W.get('std', 0.2) * scipy.stats.norm.pdf(
+    score += W.get('std', 0.125) * scipy.stats.norm.pdf(
         np.std(grid), 
         loc=criteria['stds'].mean(), 
         scale=criteria['stds'].std()
     )
 
-    score += W.get('pair_impair', 0.15) * criteria['pair_impair_probs'].get(np.sum(grid % 2 == 0), 0)
+    score += W.get('pair_impair', 0.125) * criteria['pair_impair_probs'].get(np.sum(grid % 2 == 0), 0)
+    
+    # === NOUVEAUX CRITÈRES STATISTIQUES ===
+    
+    # 1. Entropie des dizaines
+    grid_decades = [(n-1)//10 for n in grid]
+    grid_decades_count = pd.Series(grid_decades).value_counts()
+    grid_decades_dist = grid_decades_count.reindex(range(5), fill_value=0).values
+    grid_decades_entropy = -np.sum(grid_decades_dist * np.log(grid_decades_dist + 1e-10))
+    score += W.get('decades_entropy', 0.125) * scipy.stats.norm.pdf(
+        grid_decades_entropy,
+        loc=criteria['decades_entropy'].mean(),
+        scale=criteria['decades_entropy'].std() + 1e-10
+    )
+    
+    # 2. Espacement entre numéros
+    sorted_grid = sorted(grid)
+    grid_gaps = [sorted_grid[i+1] - sorted_grid[i] for i in range(4)]
+    grid_gaps_std = np.std(grid_gaps)
+    score += W.get('gaps', 0.125) * scipy.stats.norm.pdf(
+        grid_gaps_std,
+        loc=criteria['gaps_between_numbers'].mean(),
+        scale=criteria['gaps_between_numbers'].std() + 1e-10
+    )
+    
+    # 3. Répartition haute/basse
+    low_count = sum(1 for n in grid if n <= 25)
+    grid_high_low_ratio = low_count / 5.0
+    score += W.get('high_low', 0.125) * scipy.stats.norm.pdf(
+        grid_high_low_ratio,
+        loc=criteria['high_low_ratio'].mean(),
+        scale=criteria['high_low_ratio'].std() + 1e-10
+    )
+    
+    # 4. Ratio de nombres premiers
+    primes = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47}
+    prime_count = sum(1 for n in grid if n in primes)
+    grid_prime_ratio = prime_count / 5.0
+    score += W.get('prime_ratio', 0.125) * scipy.stats.norm.pdf(
+        grid_prime_ratio,
+        loc=criteria['prime_ratio'].mean(),
+        scale=criteria['prime_ratio'].std() + 1e-10
+    )
+    
+    # 5. Variance des positions
+    grid_positions = [(n-1)/48.0 for n in grid]
+    grid_position_variance = np.var(grid_positions)
+    score += W.get('position_variance', 0.125) * scipy.stats.norm.pdf(
+        grid_position_variance,
+        loc=criteria['position_variance'].mean(),
+        scale=criteria['position_variance'].std() + 1e-10
+    )
+
+    # Critères traditionnels avec poids réduits
     score += W_DECADES * (len(set((n - 1) // 10 for n in grid)) / 5.0)
 
     grid_pairs = set(combinations(sorted(grid), 2))
@@ -498,6 +678,14 @@ def score_grid(grid: np.ndarray, criteria: dict) -> float:
 
     if hot_count > 3:
         score -= PENALTY_TOO_MANY_HOT * (hot_count - 3)
+
+    # Ajout d'un facteur de diversité pour éviter la convergence vers des grilles identiques
+    if diversity_factor > 0:
+        # Ajouter une petite perturbation aléatoire basée sur le hash de la grille
+        grid_hash = hash(tuple(sorted(grid))) 
+        np.random.seed(grid_hash % 2**31)  # Seed basé sur le hash pour reproductibilité
+        diversity_bonus = np.random.normal(0, diversity_factor)
+        score += diversity_bonus
 
     return max(0, score)
 
@@ -567,8 +755,11 @@ def generate_grid_vectorized(criteria: dict, models: list, X_last: np.ndarray) -
 
     candidates_matrix = np.array(candidates)
     scores = np.zeros(len(candidates))
+    
+    # Ajouter un facteur de diversité (5% de perturbation) pour éviter la convergence
+    diversity_factor = 0.05
     for i, grid in enumerate(candidates_matrix):
-        scores[i] = score_grid(grid, criteria)
+        scores[i] = score_grid(grid, criteria, diversity_factor)
 
     top_n = max(1, int(len(candidates) * TOP_PERCENT_SELECTION))
     best_indices = np.argpartition(scores, -top_n)[-top_n:]
@@ -587,7 +778,8 @@ def simulate_chunk(args_tuple):
     for _ in range(n_sims_chunk):
         grid = generate_grid_vectorized(criteria, models, X_last_shared)
         if grid and len(grid) >= 5:
-            score = score_grid(np.array(grid[:-1]), criteria)
+            # Pas de facteur de diversité dans le scoring final pour garder la précision
+            score = score_grid(np.array(grid[:-1]), criteria, diversity_factor=0.0)
             results.append({'grid': grid, 'score': score})
     return results
 

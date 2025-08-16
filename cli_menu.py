@@ -655,8 +655,38 @@ class LotoKenoMenu:
                     except ValueError:
                         print("❌ Veuillez entrer un nombre valide")
                 
+                # Numéros à exclure
+                excluded_numbers = None
+                while True:
+                    exclude_input = input(f"🚫 Numéros à exclure (1-49, séparés par des virgules, ou 'auto' pour les 3 derniers tirages, défaut: auto): ").strip()
+                    if not exclude_input or exclude_input.lower() == 'auto':
+                        excluded_numbers = None
+                        break
+                    
+                    try:
+                        excluded_nums = [int(x.strip()) for x in exclude_input.split(',')]
+                        # Vérifier que tous les numéros sont valides (1-49)
+                        invalid_nums = [num for num in excluded_nums if num < 1 or num > 49]
+                        if invalid_nums:
+                            print(f"❌ Numéros invalides détectés: {invalid_nums}. Les numéros doivent être entre 1 et 49.")
+                            continue
+                        # Vérifier qu'il ne faut pas exclure trop de numéros
+                        if len(excluded_nums) > 44:
+                            print(f"❌ Trop de numéros exclus ({len(excluded_nums)}). Maximum autorisé: 44.")
+                            continue
+                        excluded_numbers = excluded_nums
+                        break
+                    except ValueError:
+                        print("❌ Format invalide. Utilisez des numéros séparés par des virgules (ex: 1,5,12)")
+                
+                # Construction de la commande
                 command = f"{self.python_path} loto/loto_generator_advanced_Version2.py -s {n_sims} -c {n_cores} --silent"
-                description = f"Générateur Loto Avancé ({n_sims:,} simulations, {n_cores} cœurs)"
+                if excluded_numbers:
+                    exclude_str = ','.join(map(str, excluded_numbers))
+                    command += f" --exclude {exclude_str}"
+                    description = f"Générateur Loto Avancé ({n_sims:,} simulations, {n_cores} cœurs, excluant {len(excluded_numbers)} numéros)"
+                else:
+                    description = f"Générateur Loto Avancé ({n_sims:,} simulations, {n_cores} cœurs, exclusion auto)"
             else:
                 print("❌ Choix invalide")
                 self.wait_and_continue()
