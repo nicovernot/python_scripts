@@ -715,6 +715,17 @@ def train_xgboost_parallel(df: pd.DataFrame):
         return model
     
     models = Parallel(n_jobs=min(5, N_CORES))(delayed(train_single_model)(i) for i in range(5))
+    
+    # Sauvegarder les métadonnées
+    metadata = {
+        'features_count': len(feature_cols),
+        'model_type': 'xgboost',
+        'created_date': datetime.now().strftime('%Y-%m-%d'),
+        'version': '2.0'
+    }
+    with open(MODEL_DIR / 'metadata.json', 'w') as f:
+        json.dump(metadata, f, indent=4)
+    
     print("   ✓ Entraînement terminé et modèles sauvegardés.")
     return models
 
@@ -731,8 +742,8 @@ def load_saved_models() -> list:
         print(f"   📊 Modèles attendus avec {expected_features} features")
         
         # Si incompatibilité détectée, signaler
-        if expected_features != 15:  # 15 = nouvelles features avec cycliques
-            print(f"   ⚠️ INCOMPATIBILITÉ: Modèles avec {expected_features} features, code actuel avec 15 features")
+        if expected_features != 19:  # 19 = nouvelles features avec cycliques complètes
+            print(f"   ⚠️ INCOMPATIBILITÉ: Modèles avec {expected_features} features, code actuel avec 19 features")
             print(f"   🔄 Recommandation: Ré-entraîner les modèles avec --retrain")
     
     for i in range(1, 6):
@@ -866,7 +877,9 @@ def generate_grid_vectorized(criteria: dict, models: list, X_last: np.ndarray) -
     ml_weight, freq_weight = adaptive_strategy.get_adaptive_weights()
 
     # Ajout des features cycliques pour la grille à prédire
+    # Créer un DataFrame avec une date fictive pour générer toutes les features
     df_last = pd.DataFrame([X_last[0]], columns=[f'boule_{i}' for i in range(1, 6)])
+    df_last['date_de_tirage'] = pd.Timestamp.now()  # Date fictive pour générer les features cycliques
     df_last_features = add_cyclic_features(df_last)
     feature_cols = [f'boule_{i}' for i in range(1, 6)] + [col for col in df_last_features.columns if col.startswith('sin_') or col.startswith('cos_')]
     X_last_features = df_last_features[feature_cols].values
