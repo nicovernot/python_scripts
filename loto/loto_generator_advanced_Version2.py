@@ -24,6 +24,8 @@ import redis
 import stumpy
 from statsmodels.tsa.seasonal import STL
 from scipy.fft import fft, fftfreq
+import json
+import time
 
 warnings.filterwarnings("ignore")
 
@@ -126,8 +128,8 @@ Exemples d'utilisation :
     
     parser.add_argument('--seed', 
                         type=int, 
-                        default=42,
-                        help='Graine pour la reproductibilité (défaut: 42)')
+                        default=None,
+                        help='Graine pour la reproductibilité (défaut: aléatoire)')
     
     parser.add_argument('--silent', 
                         action='store_true',
@@ -137,6 +139,10 @@ Exemples d'utilisation :
                         type=str, 
                         default=None,
                         help='Numéros à exclure, séparés par des virgules (ex: --exclude 1,5,12,30) ou "auto" pour les 3 derniers tirages (défaut: auto)')
+    
+    parser.add_argument('--retrain', 
+                        action='store_true',
+                        help='Force le ré-entraînement des modèles ML pour compatibilité avec les nouvelles features')
     
     args = parser.parse_args()
     
@@ -191,7 +197,14 @@ Exemples d'utilisation :
 
 # Configuration globale (sera mise à jour par les arguments)
 ARGS = parse_arguments()
-GLOBAL_SEED = ARGS.seed
+
+# Gestion de la seed : aléatoire si non spécifiée
+if ARGS.seed is None:
+    import time
+    GLOBAL_SEED = int(time.time()) % 2**31  # Seed basée sur le timestamp
+else:
+    GLOBAL_SEED = ARGS.seed
+
 N_SIMULATIONS = ARGS.simulations
 N_CORES = ARGS.cores
 EXCLUDED_NUMBERS = ARGS.excluded_numbers
@@ -210,6 +223,146 @@ OUTPUT_DIR = BASE_DIR / 'output'
 MODEL_DIR = BASE_DIR / 'boost_models'
 for directory in [OUTPUT_DIR, MODEL_DIR]:
     directory.mkdir(exist_ok=True)
+
+# --- Stratégie Adaptative ---
+class AdaptiveStrategy:
+    """Stratégie adaptative qui ajuste les paramètres selon les performances récentes"""
+    
+    def __init__(self, history_file=None):
+        self.history_file = history_file or (MODEL_DIR / 'performance_history.json')
+        self.performance_history = self.load_history()
+        self.ml_weight = 0.6  # Poids initial pour ML vs fréquences
+        self.adaptation_rate = 0.1  # Vitesse d'adaptation
+        
+    def load_history(self):
+        """Charge l'historique des performances"""
+        if self.history_file.exists():
+            try:
+                with open(self.history_file, 'r') as f:
+                    return json.load(f)
+            except:
+                pass
+        return {
+            'predictions': [],
+            'actuals': [],
+            'ml_scores': [],
+            'freq_scores': [],
+            'dates': [],
+            'ml_weight_history': []
+        }
+    
+    def save_history(self):
+        """Sauvegarde l'historique des performances"""
+        try:
+            with open(self.history_file, 'w') as f:
+                json.dump(self.performance_history, f, indent=2)
+        except Exception as e:
+            print(f"⚠️ Erreur sauvegarde historique: {e}")
+    
+    def evaluate_prediction_accuracy(self, predicted_probs, actual_draw):
+        """Évalue la précision des prédictions ML vs fréquences"""
+        if len(predicted_probs) != 5 or len(actual_draw) != 5:
+            return 0.0, 0.0
+            
+        # Score ML : probabilité moyenne des boules tirées
+        ml_score = np.mean([predicted_probs[i][actual_draw[i]-1] for i in range(5)])
+        
+        # Score fréquences : score basé sur les fréquences historiques
+        freq_weights = np.ones(49) / 49  # Uniforme en fallback
+        freq_score = np.mean([freq_weights[actual_draw[i]-1] for i in range(5)])
+        
+        return ml_score, freq_score
+    
+    def update_performance(self, prediction, actual_draw, ml_probs=None):
+        """Met à jour les performances et ajuste la stratégie"""
+        if ml_probs is not None:
+            ml_score, freq_score = self.evaluate_prediction_accuracy(ml_probs, actual_draw)
+            
+            # Ajouter à l'historique
+            self.performance_history['predictions'].append(prediction)
+            self.performance_history['actuals'].append(actual_draw)
+            self.performance_history['ml_scores'].append(float(ml_score))
+            self.performance_history['freq_scores'].append(float(freq_score))
+            self.performance_history['dates'].append(datetime.now().isoformat())
+            
+            # Adapter le poids ML
+            self.adapt_ml_weight(ml_score, freq_score)
+            
+            # Garder seulement les 100 dernières prédictions
+            for key in self.performance_history:
+                if len(self.performance_history[key]) > 100:
+                    self.performance_history[key] = self.performance_history[key][-100:]
+            
+            self.save_history()
+    
+    def adapt_ml_weight(self, ml_score, freq_score):
+        """Adapte le poids du ML selon les performances relatives"""
+        if len(self.performance_history['ml_scores']) >= 10:  # Minimum 10 observations
+            recent_ml = np.mean(self.performance_history['ml_scores'][-10:])
+            recent_freq = np.mean(self.performance_history['freq_scores'][-10:])
+            
+            # Si ML performe mieux, augmenter son poids
+            if recent_ml > recent_freq:
+                self.ml_weight = min(0.9, self.ml_weight + self.adaptation_rate)
+            else:
+                self.ml_weight = max(0.1, self.ml_weight - self.adaptation_rate)
+                
+            self.performance_history['ml_weight_history'].append(float(self.ml_weight))
+    
+    def get_adaptive_weights(self):
+        """Retourne les poids adaptés pour ML vs fréquences"""
+        return self.ml_weight, 1.0 - self.ml_weight
+    
+    def get_performance_summary(self):
+        """Retourne un résumé des performances"""
+        if len(self.performance_history['ml_scores']) < 5:
+            return "Données insuffisantes pour l'analyse adaptative"
+        
+        recent_ml = np.mean(self.performance_history['ml_scores'][-10:])
+        recent_freq = np.mean(self.performance_history['freq_scores'][-10:])
+        
+        return {
+            'ml_score_recent': recent_ml,
+            'freq_score_recent': recent_freq,
+            'current_ml_weight': self.ml_weight,
+            'total_predictions': len(self.performance_history['ml_scores'])
+        }
+
+# Initialiser la stratégie adaptative
+adaptive_strategy = AdaptiveStrategy()
+
+def update_adaptive_strategy_with_recent_draws(con, strategy):
+    """Met à jour la stratégie adaptative avec les tirages récents"""
+    try:
+        # Récupérer les 5 derniers tirages pour évaluation
+        recent_draws = con.execute("""
+            SELECT boule_1, boule_2, boule_3, boule_4, boule_5, date_de_tirage
+            FROM loto_draws 
+            ORDER BY date_de_tirage DESC 
+            LIMIT 5
+        """).fetchdf()
+        
+        if len(recent_draws) >= 2:
+            print("   🎯 Mise à jour de la stratégie adaptative...")
+            
+            # Simuler des prédictions pour les tirages passés
+            for i in range(1, min(len(recent_draws), 4)):
+                actual_draw = recent_draws.iloc[i-1][['boule_1', 'boule_2', 'boule_3', 'boule_4', 'boule_5']].values
+                previous_draw = recent_draws.iloc[i][['boule_1', 'boule_2', 'boule_3', 'boule_4', 'boule_5']].values
+                
+                # Mettre à jour la stratégie (sans probabilities ML pour simplifier)
+                strategy.update_performance(
+                    prediction=previous_draw.tolist(), 
+                    actual_draw=actual_draw.tolist()
+                )
+            
+            # Afficher le résumé des performances
+            summary = strategy.get_performance_summary()
+            if isinstance(summary, dict):
+                print(f"      ML Weight: {summary['current_ml_weight']:.2f}")
+                print(f"      Total Predictions: {summary['total_predictions']}")
+    except Exception as e:
+        print(f"   ⚠️ Erreur mise à jour stratégie: {e}")
 
 try:
     redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=False)
@@ -567,6 +720,21 @@ def train_xgboost_parallel(df: pd.DataFrame):
 
 def load_saved_models() -> list:
     models = []
+    
+    # Vérifier la compatibilité des features
+    metadata_path = MODEL_DIR / 'metadata.json'
+    if metadata_path.exists():
+        import json
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+        expected_features = metadata.get('features_count', 9)
+        print(f"   📊 Modèles attendus avec {expected_features} features")
+        
+        # Si incompatibilité détectée, signaler
+        if expected_features != 15:  # 15 = nouvelles features avec cycliques
+            print(f"   ⚠️ INCOMPATIBILITÉ: Modèles avec {expected_features} features, code actuel avec 15 features")
+            print(f"   🔄 Recommandation: Ré-entraîner les modèles avec --retrain")
+    
     for i in range(1, 6):
         model_path = MODEL_DIR / f'model_boule_{i}.joblib'
         if model_path.exists():
@@ -694,6 +862,9 @@ def generate_grid_vectorized(criteria: dict, models: list, X_last: np.ndarray) -
     use_models = all(m is not None for m in models)
     freq_weights = criteria['freq'].reindex(BALLS, fill_value=0).values / criteria['freq'].sum()
 
+    # Obtenir les poids adaptatifs
+    ml_weight, freq_weight = adaptive_strategy.get_adaptive_weights()
+
     # Ajout des features cycliques pour la grille à prédire
     df_last = pd.DataFrame([X_last[0]], columns=[f'boule_{i}' for i in range(1, 6)])
     df_last_features = add_cyclic_features(df_last)
@@ -716,8 +887,13 @@ def generate_grid_vectorized(criteria: dict, models: list, X_last: np.ndarray) -
                 model_predictions.append(probs)
             if model_predictions:
                 probs_model = np.mean(model_predictions, axis=0)
-                exploitation_weights = (0.6 * probs_model + 0.4 * freq_weights)
+                # Utilisation des poids adaptatifs au lieu de poids fixes
+                exploitation_weights = (ml_weight * probs_model + freq_weight * freq_weights)
                 exploitation_weights /= exploitation_weights.sum()
+                
+                # Affichage des poids adaptatifs si en mode debug
+                if not ARGS.silent:
+                    print(f"   🎯 Poids adaptatifs: ML={ml_weight:.2f}, Freq={freq_weight:.2f}")
             else:
                 exploitation_weights = freq_weights
         except Exception as e:
@@ -899,7 +1075,7 @@ def create_visualizations(criteria: dict, grids_df: pd.DataFrame, output_dir: Pa
     print(f"   ✓ Visualisations sauvegardées dans '{output_dir}'.")
 
 # --- Génération de Rapports ---
-def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time: float):
+def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time: float, adaptive_strategy=None):
     print("Génération du rapport Markdown...")
     
     top_5_grids_str = "\n".join([
@@ -918,6 +1094,35 @@ def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time:
         ])
         
     excluded_numbers_str = ", ".join(map(str, sorted(criteria.get('numbers_to_exclude', []))))    
+
+    # Informations sur la stratégie adaptative
+    adaptive_info = ""
+    if adaptive_strategy:
+        history = adaptive_strategy.performance_history
+        if history and 'ml_scores' in history and len(history['ml_scores']) > 0:
+            recent_count = min(5, len(history['ml_scores']))
+            avg_ml_acc = np.mean(history['ml_scores'][-recent_count:])  # Moyenne sur les dernières évaluations
+            avg_freq_acc = np.mean(history['freq_scores'][-recent_count:])
+            current_ml_weight = adaptive_strategy.ml_weight
+            current_freq_weight = 1.0 - adaptive_strategy.ml_weight
+            last_date = history['dates'][-1] if 'dates' in history and history['dates'] else "N/A"
+            
+            adaptive_info = f"""
+## 🤖 Stratégie Adaptative Machine Learning
+- **Poids ML actuel**: `{current_ml_weight:.3f}` ({current_ml_weight*100:.1f}%)
+- **Poids Fréquence actuel**: `{current_freq_weight:.3f}` ({current_freq_weight*100:.1f}%)
+- **Précision ML récente**: `{avg_ml_acc:.3f}` (moyenne {recent_count} dernières évaluations)
+- **Précision Fréquence récente**: `{avg_freq_acc:.3f}` (moyenne {recent_count} dernières évaluations)
+- **Évaluations effectuées**: `{len(history['ml_scores'])}`
+- **Dernière évaluation**: `{last_date[:19] if last_date != "N/A" else "N/A"}`
+"""
+        else:
+            adaptive_info = f"""
+## 🤖 Stratégie Adaptative Machine Learning
+- **Poids ML initial**: `{adaptive_strategy.ml_weight:.3f}` ({adaptive_strategy.ml_weight*100:.1f}%)
+- **Poids Fréquence initial**: `{1.0 - adaptive_strategy.ml_weight:.3f}` ({(1.0 - adaptive_strategy.ml_weight)*100:.1f}%)
+- **État**: Première utilisation - collecte des données de performance en cours
+"""    
 
     report_content = f"""# Rapport d'Analyse Loto - {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
@@ -944,6 +1149,7 @@ def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time:
 
 ### 🔗 Top 5 Paires Fréquentes
 {top_pairs_str}
+{adaptive_info}
 
 ## 📈 Fichiers Générés
 - **Analyse détaillée**: `numbers_analysis.csv`
@@ -981,6 +1187,15 @@ def main():
         print(f"❌ ERREUR: Fichier Parquet '{parquet_path}' non trouvé.")
         return
 
+    # Gestion du ré-entraînement forcé
+    if hasattr(parse_arguments(), 'retrain') and parse_arguments().retrain:
+        print("🔄 FORCE RE-TRAINING: Suppression des anciens modèles...")
+        import shutil
+        if MODEL_DIR.exists():
+            shutil.rmtree(MODEL_DIR)
+        MODEL_DIR.mkdir(exist_ok=True)
+        print("   ✓ Dossier modèles nettoyé, entraînement forcé.")
+
     criteria = None
     cache_key = f"loto_criteria:{parquet_path.stat().st_mtime}"
     if redis_client:
@@ -998,6 +1213,10 @@ def main():
             print(f"1. Chargement et analyse des données depuis '{parquet_path}'...")
             con.execute(f"CREATE TABLE loto_draws AS SELECT * FROM read_parquet('{str(parquet_path)}')")
             criteria = analyze_criteria_duckdb(con, 'loto_draws')
+            
+            # Mise à jour de la stratégie adaptative avec les données récentes
+            update_adaptive_strategy_with_recent_draws(con, adaptive_strategy)
+            
             if redis_client:
                 print("Sauvegarde des nouveaux critères dans Redis (expiration: 4h)...")
                 ttl_seconds = int(timedelta(hours=4).total_seconds())
@@ -1011,14 +1230,31 @@ def main():
     print(f"   ✓ Analyse détaillée des numéros exportée vers '{analysis_csv_path}'.")
 
     print("\n2. Gestion des modèles XGBoost...")
-    models = load_saved_models()
-    if not all(m is not None for m in models):
-        print("  Certains modèles sont manquants, ré-entraînement complet...")
+    
+    if ARGS.retrain:
+        print("  ⚠️ FLAG --retrain détecté : Nettoyage et ré-entraînement forcé...")
+        # Nettoyage complet des modèles existants
+        import shutil
+        boost_dir = Path("boost_models")
+        if boost_dir.exists():
+            print("  🗑️ Suppression du répertoire boost_models existant...")
+            shutil.rmtree(boost_dir)
+        # Recréer le répertoire
+        boost_dir.mkdir(exist_ok=True)
         con = duckdb.connect(database=':memory:', read_only=False)
         con.execute(f"CREATE TABLE loto_draws AS SELECT * FROM read_parquet('{str(parquet_path)}')")
         df_full = con.table('loto_draws').fetchdf()
         con.close()
         models = train_xgboost_parallel(df_full)
+    else:
+        models = load_saved_models()
+        if not all(m is not None for m in models):
+            print("  Certains modèles sont manquants, ré-entraînement complet...")
+            con = duckdb.connect(database=':memory:', read_only=False)
+            con.execute(f"CREATE TABLE loto_draws AS SELECT * FROM read_parquet('{str(parquet_path)}')")
+            df_full = con.table('loto_draws').fetchdf()
+            con.close()
+            models = train_xgboost_parallel(df_full)
 
     print("\n3. Simulation intelligente des grilles...")
     X_last = np.array(criteria['last_draw']).reshape(1, -1)
@@ -1046,7 +1282,7 @@ def main():
     else:
         print("⚠️ Pas de visualisations créées car aucune grille n'a été générée.")
     execution_time = (datetime.now() - start_time).total_seconds()
-    create_report(criteria, grids, OUTPUT_DIR, execution_time)
+    create_report(criteria, grids, OUTPUT_DIR, execution_time, adaptive_strategy)
 
     print(f"\n✅ Analyse terminée avec succès en {execution_time:.2f} secondes.")
     print(f"📁 Tous les résultats sont disponibles dans : '{OUTPUT_DIR.resolve()}'")
@@ -1065,6 +1301,24 @@ def main():
         print(f"   - Score médian : {np.median([g['score'] for g in grids]):.4f}")
         print(f"   - Meilleur score : {grids[0]['score']:.4f}")
         print(f"   - Pire score : {grids[-1]['score']:.4f}")
+        
+        # Affichage des informations de stratégie adaptative
+        if adaptive_strategy:
+            freq_weight = 1.0 - adaptive_strategy.ml_weight
+            print(f"\n🤖 Stratégie Adaptative Machine Learning :")
+            print(f"   - Poids ML actuel : {adaptive_strategy.ml_weight:.3f} ({adaptive_strategy.ml_weight*100:.1f}%)")
+            print(f"   - Poids Fréquence actuel : {freq_weight:.3f} ({freq_weight*100:.1f}%)")
+            
+            history = adaptive_strategy.performance_history
+            if history and 'ml_scores' in history and len(history['ml_scores']) > 0:
+                recent_count = min(5, len(history['ml_scores']))
+                avg_ml_acc = np.mean(history['ml_scores'][-recent_count:])
+                avg_freq_acc = np.mean(history['freq_scores'][-recent_count:])
+                print(f"   - Précision ML récente : {avg_ml_acc:.3f} (moyenne sur {recent_count} évaluations)")
+                print(f"   - Précision Fréquence récente : {avg_freq_acc:.3f}")
+                print(f"   - Total évaluations : {len(history['ml_scores'])}")
+            else:
+                print(f"   - État : Première utilisation - collecte des données en cours")
     else:
         print("\n⚠️ Aucune grille n'a été générée.")
         print("Vérifiez les critères d'exclusion et la configuration.")
