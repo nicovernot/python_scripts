@@ -260,16 +260,21 @@ class AdaptiveStrategy:
             print(f"⚠️ Erreur sauvegarde historique: {e}")
     
     def evaluate_prediction_accuracy(self, predicted_probs, actual_draw):
-        """Évalue la précision des prédictions ML vs fréquences"""
-        if len(predicted_probs) != 5 or len(actual_draw) != 5:
+        """Évalue la précision des prédictions ML vs fréquences avec modèles binaires"""
+        if len(actual_draw) != 5:
             return 0.0, 0.0
-            
-        # Score ML : probabilité moyenne des boules tirées
-        ml_score = np.mean([predicted_probs[i][actual_draw[i]-1] for i in range(5)])
         
+        # Avec les modèles binaires, predicted_probs contient les probabilités pour chaque boule (1-49)
+        if isinstance(predicted_probs, np.ndarray) and len(predicted_probs) == 49:
+            # Score ML : probabilité moyenne des boules tirées (predicted_probs[boule-1])
+            ml_score = np.mean([predicted_probs[boule-1] for boule in actual_draw])
+        else:
+            # Fallback si format ancien ou erreur
+            ml_score = 0.0
+            
         # Score fréquences : score basé sur les fréquences historiques
         freq_weights = np.ones(49) / 49  # Uniforme en fallback
-        freq_score = np.mean([freq_weights[actual_draw[i]-1] for i in range(5)])
+        freq_score = np.mean([freq_weights[boule-1] for boule in actual_draw])
         
         return ml_score, freq_score
     
@@ -698,30 +703,79 @@ def train_xgboost_parallel(df: pd.DataFrame):
     df_features = add_cyclic_features(df)
     feature_cols = balls_cols + [col for col in df_features.columns if col.startswith('sin_') or col.startswith('cos_')]
     X = df_features[feature_cols].iloc[:-1].values
-    y = df_features[balls_cols].iloc[1:].values - 1
-
-    def train_single_model(i):
-        print(f"  - Entraînement pour la position de boule {i+1}...")
+    
+    def train_ball_model(ball_num):
+        """Entraîne un modèle binaire pour prédire si une boule sera tirée"""
+        print(f"  - Entraînement modèle boule principale {ball_num}/49...")
+        
+        # Créer les labels binaires : 1 si la boule est tirée, 0 sinon
+        y = np.zeros(len(X))
+        for i, row in enumerate(df_features[balls_cols].iloc[1:].values):
+            if ball_num in row:
+                y[i] = 1
+        
+        # Vérifier qu'il y a assez d'occurrences positives
+        positive_samples = np.sum(y)
+        if positive_samples < 10:
+            print(f"   ⚠️  Boule {ball_num}: seulement {positive_samples} occurrences")
+        
         model = xgb.XGBClassifier(
-            n_estimators=100, 
-            random_state=GLOBAL_SEED, 
-            use_label_encoder=False, 
-            objective='multi:softprob', 
-            num_class=len(BALLS), 
+            n_estimators=100,
+            random_state=GLOBAL_SEED,
+            use_label_encoder=False,
+            objective='binary:logistic',
             n_jobs=1
         )
-        model.fit(X, y[:, i])
-        dump(model, MODEL_DIR / f'model_boule_{i+1}.joblib')
+        model.fit(X, y)
+        dump(model, MODEL_DIR / f'model_ball_{ball_num}.joblib')
         return model
     
-    models = Parallel(n_jobs=min(5, N_CORES))(delayed(train_single_model)(i) for i in range(5))
+    def train_chance_model(chance_num):
+        """Entraîne un modèle binaire pour prédire si un numéro chance sera tiré"""
+        print(f"  - Entraînement modèle numéro chance {chance_num}/10...")
+        
+        # Créer les labels binaires pour le numéro chance
+        y = np.zeros(len(X))
+        for i, chance_val in enumerate(df_features['numero_chance'].iloc[1:].values):
+            if chance_val == chance_num:
+                y[i] = 1
+        
+        positive_samples = np.sum(y)
+        if positive_samples < 5:
+            print(f"   ⚠️  Chance {chance_num}: seulement {positive_samples} occurrences")
+        
+        model = xgb.XGBClassifier(
+            n_estimators=100,
+            random_state=GLOBAL_SEED,
+            use_label_encoder=False,
+            objective='binary:logistic',
+            n_jobs=1
+        )
+        model.fit(X, y)
+        dump(model, MODEL_DIR / f'model_chance_{chance_num}.joblib')
+        return model
+    
+    print("  📊 Entraînement de 49 modèles pour les boules principales...")
+    ball_models = Parallel(n_jobs=min(8, N_CORES))(
+        delayed(train_ball_model)(ball) for ball in range(1, 50)
+    )
+    
+    print("  🎯 Entraînement de 10 modèles pour les numéros chance...")
+    chance_models = Parallel(n_jobs=min(8, N_CORES))(
+        delayed(train_chance_model)(chance) for chance in range(1, 11)
+    )
+    
+    models = ball_models + chance_models
     
     # Sauvegarder les métadonnées
     metadata = {
         'features_count': len(feature_cols),
-        'model_type': 'xgboost',
+        'model_type': 'xgboost_binary',
         'created_date': datetime.now().strftime('%Y-%m-%d'),
-        'version': '2.0'
+        'version': '3.0',
+        'ball_models': 49,
+        'chance_models': 10,
+        'total_models': 59
     }
     with open(MODEL_DIR / 'metadata.json', 'w') as f:
         json.dump(metadata, f, indent=4)
@@ -729,8 +783,9 @@ def train_xgboost_parallel(df: pd.DataFrame):
     print("   ✓ Entraînement terminé et modèles sauvegardés.")
     return models
 
-def load_saved_models() -> list:
-    models = []
+def load_saved_models() -> dict:
+    """Charge les 59 modèles binaires (49 boules + 10 numéros chance)"""
+    models = {'balls': {}, 'chance': {}}
     
     # Vérifier la compatibilité des features
     metadata_path = MODEL_DIR / 'metadata.json'
@@ -738,27 +793,49 @@ def load_saved_models() -> list:
         import json
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
-        expected_features = metadata.get('features_count', 9)
-        print(f"   📊 Modèles attendus avec {expected_features} features")
+        expected_features = metadata.get('features_count', 19)
+        total_models = metadata.get('total_models', 59)
+        print(f"   📊 Modèles attendus avec {expected_features} features ({total_models} modèles)")
         
         # Si incompatibilité détectée, signaler
         if expected_features != 19:  # 19 = nouvelles features avec cycliques complètes
             print(f"   ⚠️ INCOMPATIBILITÉ: Modèles avec {expected_features} features, code actuel avec 19 features")
             print(f"   🔄 Recommandation: Ré-entraîner les modèles avec --retrain")
     
-    for i in range(1, 6):
-        model_path = MODEL_DIR / f'model_boule_{i}.joblib'
+    # Charger les modèles pour les boules (1-49)
+    loaded_balls = 0
+    for ball in range(1, 50):
+        model_path = MODEL_DIR / f'model_ball_{ball}.joblib'
         if model_path.exists():
             try:
-                models.append(load(model_path))
+                models['balls'][ball] = load(model_path)
+                loaded_balls += 1
             except Exception as e:
-                print(f"⚠️ Erreur chargement modèle {i}: {e}. Il sera ignoré.")
-                models.append(None)
+                print(f"⚠️ Erreur chargement modèle boule {ball}: {e}")
+                models['balls'][ball] = None
         else:
-            models.append(None)
+            models['balls'][ball] = None
     
-    if all(m is not None for m in models):
-        print(f"   ✓ 5 modèles XGBoost chargés depuis '{MODEL_DIR}'.")
+    # Charger les modèles pour les numéros chance (1-10)
+    loaded_chance = 0
+    for chance in range(1, 11):
+        model_path = MODEL_DIR / f'model_chance_{chance}.joblib'
+        if model_path.exists():
+            try:
+                models['chance'][chance] = load(model_path)
+                loaded_chance += 1
+            except Exception as e:
+                print(f"⚠️ Erreur chargement modèle chance {chance}: {e}")
+                models['chance'][chance] = None
+        else:
+            models['chance'][chance] = None
+    
+    total_loaded = loaded_balls + loaded_chance
+    if total_loaded == 59:
+        print(f"   ✓ 59 modèles XGBoost binaires chargés depuis '{MODEL_DIR}' ({loaded_balls} boules + {loaded_chance} chance).")
+    else:
+        print(f"   ⚠️ Seulement {total_loaded}/59 modèles chargés ({loaded_balls}/49 boules + {loaded_chance}/10 chance)")
+    
     return models
 
 # --- Fonctions de Scoring et Génération ---
@@ -868,9 +945,15 @@ def score_grid(grid: np.ndarray, criteria: dict, diversity_factor: float = 0.0) 
 
     return max(0, score)
 
-def generate_grid_vectorized(criteria: dict, models: list, X_last: np.ndarray) -> list:
+def generate_grid_vectorized(criteria: dict, models: dict, X_last: np.ndarray) -> list:
+    """Génération de grille avec 59 modèles binaires (49 boules + 10 chance)"""
     N_CANDIDATES, EXPLORATION_RATE, TOP_PERCENT_SELECTION = 500, 0.2, 0.05
-    use_models = all(m is not None for m in models)
+    
+    # Vérifier si les modèles sont disponibles
+    has_ball_models = models and 'balls' in models and any(models['balls'].values())
+    has_chance_models = models and 'chance' in models and any(models['chance'].values())
+    use_models = has_ball_models
+    
     freq_weights = criteria['freq'].reindex(BALLS, fill_value=0).values / criteria['freq'].sum()
 
     # Obtenir les poids adaptatifs
@@ -886,27 +969,43 @@ def generate_grid_vectorized(criteria: dict, models: list, X_last: np.ndarray) -
 
     if use_models:
         try:
-            model_predictions = []
-            for m in models:
-                if hasattr(m, 'predict_proba'):
-                    probs = m.predict_proba(X_last_features)[0]
-                elif hasattr(m, 'predict'):
-                    predictions = m.predict(X_last_features)
-                    probs = np.exp(predictions) / np.sum(np.exp(predictions))
+            # Prédictions pour chaque boule (1-49) avec modèles binaires
+            ball_predictions = np.zeros(49)
+            successful_predictions = 0
+            
+            for ball in range(1, 50):
+                model = models['balls'].get(ball)
+                if model is not None:
+                    try:
+                        if hasattr(model, 'predict_proba'):
+                            # Classification binaire : probabilité de la classe 1 (boule tirée)
+                            prob = model.predict_proba(X_last_features)[0][1]
+                        elif hasattr(model, 'predict'):
+                            # Si pas de predict_proba, utiliser predict et convertir en probabilité
+                            prediction = model.predict(X_last_features)[0]
+                            prob = max(0.01, min(0.99, prediction))  # Borner entre 0.01 et 0.99
+                        else:
+                            prob = freq_weights[ball-1]  # Fallback sur fréquence historique
+                        
+                        ball_predictions[ball-1] = prob
+                        successful_predictions += 1
+                    except Exception as e:
+                        # En cas d'erreur, utiliser la fréquence historique
+                        ball_predictions[ball-1] = freq_weights[ball-1]
                 else:
-                    probs = freq_weights
-                if len(probs) != len(BALLS):
-                    probs = freq_weights
-                model_predictions.append(probs)
-            if model_predictions:
-                probs_model = np.mean(model_predictions, axis=0)
-                # Utilisation des poids adaptatifs au lieu de poids fixes
-                exploitation_weights = (ml_weight * probs_model + freq_weight * freq_weights)
+                    # Modèle manquant, utiliser fréquence historique
+                    ball_predictions[ball-1] = freq_weights[ball-1]
+            
+            if successful_predictions > 0:
+                # Normaliser les probabilités
+                ball_predictions = ball_predictions / ball_predictions.sum()
+                # Combiner avec les fréquences historiques selon les poids adaptatifs
+                exploitation_weights = (ml_weight * ball_predictions + freq_weight * freq_weights)
                 exploitation_weights /= exploitation_weights.sum()
                 
                 # Affichage des poids adaptatifs si en mode debug
                 if not ARGS.silent:
-                    print(f"   🎯 Poids adaptatifs: ML={ml_weight:.2f}, Freq={freq_weight:.2f}")
+                    print(f"   🎯 Poids adaptatifs: ML={ml_weight:.2f}, Freq={freq_weight:.2f} ({successful_predictions}/49 modèles)")
             else:
                 exploitation_weights = freq_weights
         except Exception as e:
@@ -955,6 +1054,75 @@ def generate_grid_vectorized(criteria: dict, models: list, X_last: np.ndarray) -
     chosen_index = np.random.choice(best_indices)
 
     best_grid_list = [int(b) for b in candidates_matrix[chosen_index]]
+    
+    # Génération du numéro chance avec modèles si disponibles
+    if has_chance_models:
+        try:
+            chance_predictions = np.zeros(10)
+            successful_chance_predictions = 0
+            
+            for chance in range(1, 11):
+                model = models['chance'].get(chance)
+                if model is not None:
+                    try:
+                        if hasattr(model, 'predict_proba'):
+                            prob = model.predict_proba(X_last_features)[0][1]
+                        elif hasattr(model, 'predict'):
+                            prediction = model.predict(X_last_features)[0]
+                            prob = max(0.01, min(0.99, prediction))
+                        else:
+                            prob = 1.0 / 10  # Probabilité uniforme
+                        
+                        chance_predictions[chance-1] = prob
+                        successful_chance_predictions += 1
+                    except Exception as e:
+                        chance_predictions[chance-1] = 1.0 / 10
+                else:
+                    chance_predictions[chance-1] = 1.0 / 10
+            
+            if successful_chance_predictions > 0:
+                chance_predictions = chance_predictions / chance_predictions.sum()
+                chance_ball = int(np.random.choice(CHANCE_BALLS, p=chance_predictions))
+                if not ARGS.silent:
+                    print(f"   🎲 Numéro chance prédit avec {successful_chance_predictions}/10 modèles")
+            else:
+                chance_ball = int(np.random.choice(CHANCE_BALLS))
+        except Exception as e:
+            print(f"⚠️ Erreur avec les modèles chance: {e}")
+            chance_ball = int(np.random.choice(CHANCE_BALLS))
+    else:
+        chance_ball = int(np.random.choice(CHANCE_BALLS))
+    
+    return sorted(best_grid_list) + [chance_ball]
+    max_attempts = N_CANDIDATES * 10
+    attempts = 0
+
+    while len(candidates) < N_CANDIDATES and attempts < max_attempts:
+        attempts += 1
+        p = freq_weights if random.random() < EXPLORATION_RATE else exploitation_weights
+        candidate = np.random.choice(BALLS, size=5, replace=False, p=p)
+        if not any(num in excluded_numbers for num in candidate):
+            candidates.append(candidate)
+
+    print(f"DEBUG: Candidats générés: {len(candidates)}/{N_CANDIDATES} en {attempts} tentatives")
+
+    if not candidates:
+        print("❌ ERREUR: Aucun candidat généré!")
+        return []
+
+    candidates_matrix = np.array(candidates)
+    scores = np.zeros(len(candidates))
+    
+    # Ajouter un facteur de diversité (5% de perturbation) pour éviter la convergence
+    diversity_factor = 0.05
+    for i, grid in enumerate(candidates_matrix):
+        scores[i] = score_grid(grid, criteria, diversity_factor)
+
+    top_n = max(1, int(len(candidates) * TOP_PERCENT_SELECTION))
+    best_indices = np.argpartition(scores, -top_n)[-top_n:]
+    chosen_index = np.random.choice(best_indices)
+
+    best_grid_list = [int(b) for b in candidates_matrix[chosen_index]]
     chance_ball = int(np.random.choice(CHANCE_BALLS))
     return sorted(best_grid_list) + [chance_ball]
 
@@ -972,7 +1140,7 @@ def simulate_chunk(args_tuple):
             results.append({'grid': grid, 'score': score})
     return results
 
-def simulate_grids_parallel(n_simulations: int, criteria: dict, X_last: np.ndarray, models: list):
+def simulate_grids_parallel(n_simulations: int, criteria: dict, X_last: np.ndarray, models: dict):
     chunk_size = max(1, n_simulations // (N_CORES * 4))
     chunks_args = []
     sims_left, i = n_simulations, 0
@@ -1261,13 +1429,20 @@ def main():
         models = train_xgboost_parallel(df_full)
     else:
         models = load_saved_models()
-        if not all(m is not None for m in models):
-            print("  Certains modèles sont manquants, ré-entraînement complet...")
+        # Vérifier si on a suffisamment de modèles fonctionnels (au moins 70% des modèles)
+        ball_models_available = sum(1 for m in models.get('balls', {}).values() if m is not None)
+        chance_models_available = sum(1 for m in models.get('chance', {}).values() if m is not None)
+        total_available = ball_models_available + chance_models_available
+        
+        if total_available < 42:  # Au moins 70% des 59 modèles (42/59)
+            print(f"  Insuffisamment de modèles disponibles ({total_available}/59), ré-entraînement complet...")
             con = duckdb.connect(database=':memory:', read_only=False)
             con.execute(f"CREATE TABLE loto_draws AS SELECT * FROM read_parquet('{str(parquet_path)}')")
             df_full = con.table('loto_draws').fetchdf()
             con.close()
             models = train_xgboost_parallel(df_full)
+        else:
+            print(f"  ✓ {total_available}/59 modèles disponibles ({ball_models_available} boules + {chance_models_available} chance)")
 
     print("\n3. Simulation intelligente des grilles...")
     X_last = np.array(criteria['last_draw']).reshape(1, -1)
