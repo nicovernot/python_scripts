@@ -130,9 +130,11 @@ class LotoKenoMenu:
         print()
         
         print(f"{Colors.OKCYAN}🎰 ANALYSE KENO{Colors.ENDC}")
-        print("  8️⃣  Analyse Keno (rapide)")
-        print("  9️⃣  Analyse Keno avec visualisations")
+        print("  8️⃣  Analyse Keno complète (nouveaux algorithmes)")
+        print("  9️⃣  Pipeline Keno complet avec visualisations + nettoyage auto")
         print("  1️⃣0️⃣ Analyse Keno personnalisée")
+        print("  2️⃣4️⃣ Analyse avancée DuckDB (11 stratégies + optimisé)")
+        print("  2️⃣5️⃣ Générateur Keno avancé (ML + IA)")
         print()
         
         print(f"{Colors.OKGREEN}🧪 TESTS ET MAINTENANCE{Colors.ENDC}")
@@ -156,6 +158,7 @@ class LotoKenoMenu:
         print("  1️⃣9️⃣ Voir les dernières grilles Loto")
         print("  2️⃣0️⃣ Voir les recommandations Keno")
         print("  2️⃣1️⃣ Ouvrir dossier des graphiques")
+        print("  2️⃣3️⃣ Statut détaillé du système")
         print()
         
         print(f"{Colors.FAIL}🚪 QUITTER{Colors.ENDC}")
@@ -267,24 +270,57 @@ class LotoKenoMenu:
         print(f"\n{Colors.BOLD}🎰 Configuration Keno Personnalisée{Colors.ENDC}")
         print()
         
-        # Options
-        plots = input("Générer les visualisations ? (o/N) [N]: ").strip().lower()
-        export_stats = input("Exporter les statistiques ? (o/N) [N]: ").strip().lower()
-        deep_analysis = input("Analyse approfondie (plus lent) ? (o/N) [N]: ").strip().lower()
+        # Options du nouveau système
+        print("Choisissez votre analyse :")
+        print(f"  {Colors.OKGREEN}1{Colors.ENDC} - Extraction seule")
+        print(f"  {Colors.OKBLUE}2{Colors.ENDC} - Analyse statistique seule")
+        print(f"  {Colors.OKCYAN}3{Colors.ENDC} - Génération de grilles")
+        print(f"  {Colors.WARNING}4{Colors.ENDC} - Pipeline complet personnalisé")
+        print(f"  {Colors.HEADER}5{Colors.ENDC} - Analyse DuckDB avancée")
         
-        # Construction de la commande
-        command = f"python keno/duckdb_keno.py --csv {self.keno_csv}"
+        choice = input(f"\n{Colors.BOLD}Votre choix (1-5): {Colors.ENDC}").strip()
         
-        if plots in ['o', 'oui', 'y', 'yes']:
-            command += " --plots"
+        if choice == "1":
+            self.execute_command("python keno_cli.py extract", "Extraction des Données Keno")
             
-        if export_stats in ['o', 'oui', 'y', 'yes']:
-            command += " --export-stats"
+        elif choice == "2":
+            self.execute_command("python keno_cli.py analyze", "Analyse Statistique Keno")
             
-        if deep_analysis in ['o', 'oui', 'y', 'yes']:
-            command += " --deep-analysis"
+        elif choice == "3":
+            nb_grilles = input("Nombre de grilles à générer (1-10) [3]: ").strip() or "3"
+            command = f"python keno_cli.py generate --grids {nb_grilles}"
+            self.execute_command(command, f"Génération de {nb_grilles} Grilles Keno")
             
-        self.execute_command(command, "Analyse Keno Personnalisée")
+        elif choice == "4":
+            nb_grilles = input("Nombre de grilles pour le pipeline complet (1-10) [5]: ").strip() or "5"
+            command = f"python keno_cli.py all --grids {nb_grilles}"
+            self.execute_command(command, f"Pipeline Complet Keno ({nb_grilles} grilles)")
+            
+        elif choice == "5":
+            # Analyse DuckDB avancée avec options
+            plots = input("Générer les visualisations ? (o/N) [N]: ").strip().lower()
+            export_stats = input("Exporter les statistiques ? (o/N) [N]: ").strip().lower()
+            
+            # Trouver le fichier de données le plus récent
+            data_files = list(Path("keno/keno_data").glob("keno_*.csv"))
+            if data_files:
+                latest_file = max(data_files, key=lambda f: f.stat().st_mtime)
+                command = f"python keno/duckdb_keno.py --csv {latest_file}"
+                
+                if plots in ['o', 'oui', 'y', 'yes']:
+                    command += " --plots"
+                    
+                if export_stats in ['o', 'oui', 'y', 'yes']:
+                    command += " --export-stats"
+                    
+                self.execute_command(command, "Analyse DuckDB Avancée Keno")
+            else:
+                print(f"{Colors.FAIL}❌ Aucun fichier de données Keno trouvé{Colors.ENDC}")
+                print("Lancez d'abord l'extraction des données (option 1)")
+                self.wait_and_continue()
+        else:
+            print(f"{Colors.FAIL}Choix invalide{Colors.ENDC}")
+            self.wait_and_continue()
         
     def handle_systeme_reduit_simple(self):
         """Générateur simple de système réduit"""
@@ -488,10 +524,10 @@ class LotoKenoMenu:
             self.execute_command("python loto/result.py", "Téléchargement des données Loto")
             
         elif choice == "2":
-            self.execute_command("python keno/extracteur_donnees_fdj_v2.py", "Téléchargement des données Keno")
+            self.execute_command("python keno_cli.py extract", "Extraction des données Keno (FDJ)")
             
         elif choice == "3":
-            self.execute_command("python loto/result.py && python keno/extracteur_donnees_fdj_v2.py", "Mise à jour de toutes les données")
+            self.execute_command("python loto/result.py && python keno_cli.py extract", "Mise à jour de toutes les données")
             
         elif choice == "4":
             command = f"python loto/duckdb_loto.py --csv {self.loto_csv} --grids {self.default_loto_grids} --config {self.loto_config_file}"
@@ -509,10 +545,10 @@ class LotoKenoMenu:
             self.handle_loto_custom()
             
         elif choice == "8":
-            self.execute_command(f"python keno/duckdb_keno.py --csv {self.keno_csv}", "Analyse Keno (Rapide)")
+            self.execute_command("python keno_cli.py analyze", "Analyse Keno Complète")
             
         elif choice == "9":
-            self.execute_command(f"python keno/duckdb_keno.py --csv {self.keno_csv} --plots --export-stats", "Analyse Keno avec Visualisations")
+            self.execute_command("python keno_cli.py all --grids 3", "Pipeline Keno Complet avec Visualisations")
             
         elif choice == "10":
             self.handle_keno_custom()
@@ -528,8 +564,22 @@ class LotoKenoMenu:
             
         elif choice == "14":
             print(f"\n{Colors.BOLD}🧹 Nettoyage et Optimisation{Colors.ENDC}")
-            print("Cette fonctionnalité sera bientôt disponible...")
-            self.wait_and_continue()
+            print("Choisissez le type de nettoyage :")
+            print(f"  {Colors.OKGREEN}1{Colors.ENDC} - Nettoyage standard (fichiers temporaires)")
+            print(f"  {Colors.WARNING}2{Colors.ENDC} - Nettoyage approfondi (inclut les anciens backups)")
+            print(f"  {Colors.OKCYAN}3{Colors.ENDC} - Afficher le statut seulement")
+            
+            clean_choice = input(f"\n{Colors.BOLD}Votre choix (1-3): {Colors.ENDC}").strip()
+            
+            if clean_choice == "1":
+                self.execute_command("python keno_cli.py clean", "Nettoyage Standard")
+            elif clean_choice == "2":
+                self.execute_command("python keno_cli.py clean --deep", "Nettoyage Approfondi")
+            elif clean_choice == "3":
+                self.execute_command("python keno_cli.py status", "Statut du Système")
+            else:
+                print(f"{Colors.FAIL}Choix invalide{Colors.ENDC}")
+                self.wait_and_continue()
             
         elif choice == "15":
             self.execute_command("./lancer_api.sh", "Lancement de l'API Flask")
@@ -705,7 +755,87 @@ class LotoKenoMenu:
             else:
                 print("Opération annulée.")
                 self.wait_and_continue()
+        
+        elif choice == "23":
+            self.execute_command("python keno_cli.py status", "Statut Détaillé du Système")
             
+        elif choice == "24":
+            print(f"\n{Colors.OKCYAN}🧠 ANALYSE AVANCÉE DUCKDB - 11 STRATÉGIES{Colors.ENDC}")
+            print("Cette analyse utilise le fichier consolidé pour une performance optimale")
+            print("11 stratégies différentes seront analysées avec scoring avancé")
+            
+            self.execute_command("python keno_cli.py analyze-advanced --export-stats", 
+                               "Analyse Avancée DuckDB")
+        
+        elif choice == "25":
+            print(f"\n{Colors.OKCYAN}🧠 GÉNÉRATEUR KENO AVANCÉ (ML + IA){Colors.ENDC}")
+            print("Ce générateur utilise des techniques avancées:")
+            print("  • Machine Learning pour la prédiction")
+            print("  • Analyse statistique poussée")
+            print("  • Optimisation des patterns")
+            print("  • Intelligence artificielle")
+            print()
+            
+            # Configuration des paramètres
+            print(f"{Colors.OKBLUE}⚙️  Configuration des paramètres:{Colors.ENDC}")
+            print("1️⃣  Mode rapide (10 grilles + entraînement)")
+            print("2️⃣  Mode standard (5 grilles sans réentraînement)")
+            print("3️⃣  Mode intensif (20 grilles + réentraînement complet)")
+            print("4️⃣  Configuration personnalisée")
+            print("0️⃣  Retour au menu principal")
+            
+            config_choice = input("\n🎯 Votre choix de configuration: ").strip()
+            
+            if config_choice == "0":
+                self.wait_and_continue()
+                return True
+            elif config_choice == "1":
+                command = "python keno_cli.py generate-advanced --quick"
+                description = "Générateur Keno Avancé (Mode Rapide)"
+            elif config_choice == "2":
+                command = "python keno_cli.py generate-advanced --grids 5"
+                description = "Générateur Keno Avancé (Mode Standard)"
+            elif config_choice == "3":
+                command = "python keno_cli.py generate-advanced --grids 20 --retrain"
+                description = "Générateur Keno Avancé (Mode Intensif)"
+            elif config_choice == "4":
+                # Configuration personnalisée
+                print(f"\n{Colors.OKBLUE}🔧 Configuration personnalisée:{Colors.ENDC}")
+                
+                try:
+                    grids = input("Nombre de grilles à générer (5-50): ").strip()
+                    grids = int(grids) if grids.isdigit() and 5 <= int(grids) <= 50 else 5
+                    
+                    retrain = input("Réentraîner les modèles ? (o/N): ").strip().lower()
+                    retrain_flag = "--retrain" if retrain in ['o', 'oui', 'y', 'yes'] else ""
+                    
+                    command = f"python keno_cli.py generate-advanced --grids {grids} {retrain_flag}".strip()
+                    description = f"Générateur Keno Avancé ({grids} grilles personnalisées)"
+                    
+                except ValueError:
+                    print(f"{Colors.FAIL}❌ Configuration invalide, utilisation des paramètres par défaut{Colors.ENDC}")
+                    command = "python keno_cli.py generate-advanced --grids 5"
+                    description = "Générateur Keno Avancé (Mode Standard)"
+            else:
+                print(f"{Colors.FAIL}Choix invalide{Colors.ENDC}")
+                self.wait_and_continue()
+                return True
+            
+            # Confirmation avant exécution
+            print(f"\n{Colors.WARNING}⚠️  Paramètres sélectionnés:{Colors.ENDC}")
+            print(f"   Commande: {command}")
+            print(f"   Description: {description}")
+            print(f"\n{Colors.BOLD}💡 Le générateur avancé peut prendre quelques minutes{Colors.ENDC}")
+            
+            confirm = input(f"\n{Colors.OKGREEN}Confirmer l'exécution ? (O/n): {Colors.ENDC}").strip().lower()
+            if confirm in ['', 'o', 'oui', 'y', 'yes']:
+                print(f"\n{Colors.OKBLUE}🚀 Lancement du générateur avancé...{Colors.ENDC}")
+                print("⚠️  Note: Ce processus peut prendre plusieurs minutes")
+                self.execute_command(command, description)
+            else:
+                print("Opération annulée.")
+                self.wait_and_continue()
+                
         elif choice == "0":
             print(f"\n{Colors.OKGREEN}👋 Au revoir ! Bonne chance pour vos analyses !{Colors.ENDC}")
             return False

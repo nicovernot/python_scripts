@@ -10,6 +10,7 @@ et recommandations stratégiques.
 
 Utilisation:
     python keno/duckdb_keno.py --csv keno_data/extracted/keno_202010.csv --plots --export-stats
+    python keno/duckdb_keno.py --auto-consolidated  # Utilise automatiquement le fichier consolidé
 """
 
 import os
@@ -23,6 +24,15 @@ from itertools import combinations
 from collections import Counter, defaultdict
 import pickle
 from functools import lru_cache
+
+# --- Import utilitaires consolidation ---
+try:
+    from utils_consolidation import load_keno_data, is_consolidated_available, recommend_consolidation
+except ImportError:
+    print("⚠️  Module utils_consolidation non trouvé - fonctionnalité de consolidation désactivée")
+    load_keno_data = None
+    is_consolidated_available = None
+    recommend_consolidation = None
 
 # --- Dépendances ---
 try:
@@ -58,8 +68,8 @@ class KenoAnalyzer:
         self.numbers_per_draw = numbers_per_draw
         self.NUMBERS = list(range(1, max_number + 1))
         
-        # Colonnes des boules Keno (20 numéros par tirage)
-        self.balls_cols = [f'boule{i}' for i in range(1, numbers_per_draw + 1)]
+        # Colonnes des boules Keno (format unifié: b1, b2, ..., b20)
+        self.balls_cols = [f'b{i}' for i in range(1, numbers_per_draw + 1)]
         
         # Cache pour optimiser les performances
         self._features_cache = {}
@@ -80,28 +90,50 @@ class KenoAnalyzer:
         self.logger.info(f"📁 Chargement et validation de {csv_path}")
         
         try:
-            # Détecter le délimiteur automatiquement
-            sample_df = pd.read_csv(csv_path, nrows=5, sep=';')
-            if len(sample_df.columns) < 10:  # Essayer avec ','
-                sample_df = pd.read_csv(csv_path, nrows=5, sep=',')
+            # Essayer le nouveau format d'abord (b1, b2, ..., b20)
+            sample_df = pd.read_csv(csv_path, nrows=5)
+            new_format_cols = [f'b{i}' for i in range(1, 21)]
             
-            # Vérifier les colonnes nécessaires
-            required_cols = self.balls_cols
-            missing_cols = [col for col in required_cols if col not in sample_df.columns]
-            
-            if missing_cols:
-                self.logger.warning(f"⚠️ Colonnes manquantes: {missing_cols}")
-                # Essayer de détecter les colonnes automatiquement
-                ball_columns = [col for col in sample_df.columns if 'boule' in col.lower()]
-                if len(ball_columns) >= 20:
-                    self.balls_cols = ball_columns[:20]
-                    self.logger.info(f"✅ Colonnes boules détectées: {self.balls_cols[:5]}...")
+            if all(col in sample_df.columns for col in new_format_cols):
+                # Nouveau format détecté
+                self.balls_cols = new_format_cols
+                self.logger.info("✅ Format unifié détecté (b1, b2, ..., b20)")
+            else:
+                # Ancien format - détecter le délimiteur
+                sample_df = pd.read_csv(csv_path, nrows=5, sep=';')
+                if len(sample_df.columns) < 10:  # Essayer avec ','
+                    sample_df = pd.read_csv(csv_path, nrows=5, sep=',')
+                
+                # Vérifier les colonnes boule1, boule2, etc.
+                old_format_cols = [f'boule{i}' for i in range(1, 21)]
+                if all(col in sample_df.columns for col in old_format_cols):
+                    self.balls_cols = old_format_cols
+                    self.logger.info("✅ Ancien format détecté (boule1, boule2, ...)")
                 else:
-                    raise ValueError(f"Impossible de trouver 20 colonnes de boules. Trouvé: {ball_columns}")
+                    # Essayer de détecter automatiquement
+                    ball_columns = [col for col in sample_df.columns if 'boule' in col.lower() or col.startswith('b')]
+                    if len(ball_columns) >= 20:
+                        self.balls_cols = ball_columns[:20]
+                        self.logger.info(f"✅ Colonnes boules détectées: {self.balls_cols[:5]}...")
+                    else:
+                        raise ValueError(f"Impossible de trouver 20 colonnes de boules. Trouvé: {ball_columns}")
             
-            # Créer la table dans DuckDB
+            # Créer la table dans DuckDB avec détection correcte du délimiteur
             table_name = "keno_historical_data"
-            delimiter = ';' if len(sample_df.columns) > 10 else ','
+            
+            # Détecter le bon délimiteur en vérifiant le nombre de colonnes
+            if len(sample_df.columns) >= 20:  # Format correct attendu (date + 20 boules)
+                delimiter = ','
+                self.logger.info(f"✅ Délimiteur ',' détecté ({len(sample_df.columns)} colonnes)")
+            else:
+                # Essayer avec point-virgule
+                test_df = pd.read_csv(csv_path, nrows=1, sep=';')
+                if len(test_df.columns) >= 20:
+                    delimiter = ';'
+                    self.logger.info(f"✅ Délimiteur ';' détecté ({len(test_df.columns)} colonnes)")
+                else:
+                    delimiter = ','
+                    self.logger.warning(f"⚠️ Délimiteur par défaut ',' utilisé ({len(sample_df.columns)} colonnes)")
             
             db_con.execute(f"""
                 CREATE OR REPLACE TABLE {table_name} AS 
@@ -121,15 +153,20 @@ class KenoAnalyzer:
         # Créer la vue avec numérotation des tirages
         date_col = self._detect_date_column(db_con, table_name)
         
-        db_con.execute(f"""
+        balls_list = ', '.join(self.balls_cols)
+        null_checks = ' AND '.join(f'{col} IS NOT NULL' for col in self.balls_cols[:5])
+        
+        sql_query = f"""
             CREATE OR REPLACE TEMPORARY VIEW BaseData AS
             SELECT ROW_NUMBER() OVER (ORDER BY {date_col}) AS draw_index,
                    {date_col} as date_tirage,
-                   {', '.join(self.balls_cols)}
+                   {balls_list}
             FROM {table_name}
             WHERE {date_col} IS NOT NULL 
-            AND {' AND '.join(f'{col} IS NOT NULL' for col in self.balls_cols[:5])}
-        """)
+            AND {null_checks}
+        """
+        
+        db_con.execute(sql_query)
         
         df_pandas = db_con.table('BaseData').fetchdf()
         
@@ -141,15 +178,23 @@ class KenoAnalyzer:
 
     def _detect_date_column(self, db_con, table_name):
         """Détecte automatiquement la colonne de date."""
-        columns = db_con.execute(f"PRAGMA table_info('{table_name}')").fetchall()
-        
-        for col_info in columns:
-            col_name = col_info[1]  # Nom de la colonne
-            if any(keyword in col_name.lower() for keyword in ['date', 'jour', 'time']):
-                return col_name
-        
-        # Par défaut, utiliser la première colonne
-        return columns[0][1] if columns else "date_de_tirage"
+        try:
+            # Essayer d'abord avec DESCRIBE car PRAGMA table_info peut être problématique avec CSV
+            columns = db_con.execute(f"DESCRIBE {table_name}").fetchall()
+            
+            for col_info in columns:
+                col_name = col_info[0]  # Première colonne = nom
+                if any(keyword in col_name.lower() for keyword in ['date', 'jour', 'time']):
+                    return col_name
+            
+            # Par défaut, utiliser la première colonne
+            first_col = columns[0][0] if columns else "date"
+            return first_col
+            
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la détection de colonne de date: {e}")
+            # Fallback vers la colonne date standard
+            return "date"
 
     def analyze_frequencies(self, db_con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         """Analyse la fréquence d'apparition de chaque numéro."""
@@ -1585,21 +1630,49 @@ class KenoAnalyzer:
 def main():
     """Fonction principale."""
     parser = argparse.ArgumentParser(description='Analyseur Keno avec DuckDB')
-    parser.add_argument('--csv', required=True, help='Chemin vers le fichier CSV Keno')
+    
+    # Création d'un groupe pour les sources de données mutuellement exclusives
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument('--csv', help='Chemin vers le fichier CSV Keno')
+    source_group.add_argument('--auto-consolidated', action='store_true', 
+                            help='Utilise automatiquement le fichier consolidé s\'il est disponible')
+    
     parser.add_argument('--plots', action='store_true', help='Créer les graphiques')
     parser.add_argument('--export-stats', action='store_true', help='Exporter les statistiques')
     
     args = parser.parse_args()
+    
+    # Déterminer le fichier CSV à utiliser
+    csv_path = None
+    
+    if args.auto_consolidated:
+        if load_keno_data and is_consolidated_available:
+            if is_consolidated_available():
+                from pathlib import Path
+                csv_path = Path("keno/keno_data/keno_consolidated.csv")
+                print(f"📊 Utilisation du fichier consolidé: {csv_path}")
+            else:
+                print("❌ Fichier consolidé non disponible")
+                if recommend_consolidation:
+                    recommend_consolidation()
+                return 1
+        else:
+            print("❌ Module de consolidation non disponible")
+            return 1
+    else:
+        csv_path = args.csv
     
     # Créer l'analyseur
     analyzer = KenoAnalyzer()
     
     # Lancer l'analyse
     analyzer.run_complete_analysis(
-        csv_path=args.csv,
+        csv_path=str(csv_path),
         create_plots=args.plots,
         export_stats=args.export_stats
     )
+    
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

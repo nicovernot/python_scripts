@@ -660,8 +660,8 @@ class KenoGeneratorAdvanced:
             str: Chemin du fichier sauvegardé
         """
         if not filename:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"grilles_keno_{timestamp}.csv"
+            # Utilisation d'un nom fixe qui remplace le fichier précédent
+            filename = "grilles_keno.csv"
         
         filepath = self.output_dir / filename
         

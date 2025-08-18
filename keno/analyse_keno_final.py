@@ -23,32 +23,48 @@ def analyze_keno_data():
     OUTPUT_DIR = Path(__file__).parent / "keno_analyse"
     OUTPUT_DIR.mkdir(exist_ok=True)
     
-    # Charger les données
-    csv_files = list(KENO_DATA_DIR.glob("*.csv"))
+    # Charger TOUS les fichiers CSV avec le nouveau format
+    csv_files = sorted(list(KENO_DATA_DIR.glob("keno_*.csv")))
     if not csv_files:
         print("❌ Aucun fichier CSV trouvé")
+        print("💡 Lancez d'abord: python keno_cli.py extract")
         return
     
-    file_path = csv_files[0]
-    print(f"📂 Analyse du fichier : {file_path.name}")
+    print(f"📂 Chargement de {len(csv_files)} fichiers...")
+    
+    all_data = []
+    total_tirages = 0
     
     try:
-        df = pd.read_csv(file_path, delimiter=';')
-        print(f"📊 {len(df)} tirages chargés")
+        for csv_file in csv_files:
+            df = pd.read_csv(csv_file)
+            all_data.append(df)
+            total_tirages += len(df)
+            print(f"   ✓ {csv_file.name}: {len(df)} tirages")
+        
+        # Concaténer toutes les données
+        if all_data:
+            df = pd.concat(all_data, ignore_index=True)
+            df = df.sort_values('date').reset_index(drop=True)
+        else:
+            print("❌ Aucune donnée chargée")
+            return
+            
+        print(f"📊 {total_tirages} tirages chargés au total")
+        print(f"📅 Période: {df['date'].min()} → {df['date'].max()}")
         
         # 1. ANALYSE DES FRÉQUENCES
         print(f"\n📈 1. ANALYSE DES FRÉQUENCES")
         print("-" * 30)
         
-        ball_columns = [f'boule{i}' for i in range(1, 21)]
+        # Nouvelles colonnes format unifié: b1, b2, ..., b20
+        ball_columns = [f'b{i}' for i in range(1, 21)]
         all_numbers = Counter()
         
         # Compter toutes les occurrences
         for col in ball_columns:
             if col in df.columns:
-                for num in df[col].dropna():
-                    if pd.notna(num):
-                        all_numbers[int(num)] += 1
+                all_numbers.update(df[col].dropna().astype(int))
         
         # Statistiques des fréquences
         total_occurrences = sum(all_numbers.values())

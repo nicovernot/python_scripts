@@ -429,14 +429,18 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
     last_3_draws = df_pandas.iloc[-3:][balls_cols].values.flatten()
     last_3_numbers_set = set(last_3_draws)
     
+    # Filtre de fréquence : exclure les numéros avec fréquence < 80 ou > 100
+    freq_excluded = set(freq[(freq < 80) | (freq > 100)].index.tolist())
+    
     # Utiliser les numéros exclus configurables
     if EXCLUDED_NUMBERS is not None:
-        numbers_to_exclude = EXCLUDED_NUMBERS
-        exclusion_source = "paramètre utilisateur"
+        numbers_to_exclude = EXCLUDED_NUMBERS.union(freq_excluded)
+        exclusion_source = "paramètre utilisateur + filtre fréquence"
     else:
-        numbers_to_exclude = last_3_numbers_set
-        exclusion_source = "3 derniers tirages (auto)"
+        numbers_to_exclude = last_3_numbers_set.union(freq_excluded)
+        exclusion_source = "3 derniers tirages (auto) + filtre fréquence"
     
+    print(f"   ✓ Numéros exclus par fréquence (<80 ou >100): {sorted(freq_excluded)}")
     print(f"   ✓ Numéros exclus ({exclusion_source}): {sorted(numbers_to_exclude)}")
 
     last_appearance = df_pandas.melt(
@@ -618,6 +622,7 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
         'consecutive_counts': consecutive_counts,
         'pair_counts': pair_counts,
         'numbers_to_exclude': numbers_to_exclude,
+        'freq_excluded': freq_excluded,  # Nouveaux numéros exclus par fréquence
         'sums': sums,
         'stds': stds,
         'dynamic_weights': dynamic_weights,
@@ -1024,16 +1029,26 @@ def generate_grid_vectorized(criteria: dict, models: dict, X_last: np.ndarray) -
         print(f"⚠️ ATTENTION: Seulement {len(available_numbers)} numéros disponibles, génération impossible!")
         return []
 
+    # Créer des poids de probabilité seulement pour les numéros disponibles
+    if use_models:
+        available_exploitation_weights = np.array([exploitation_weights[n-1] for n in available_numbers])
+        available_exploitation_weights = available_exploitation_weights / available_exploitation_weights.sum()
+    
+    available_freq_weights = np.array([freq_weights[n-1] for n in available_numbers])
+    available_freq_weights = available_freq_weights / available_freq_weights.sum()
+
     candidates = []
     max_attempts = N_CANDIDATES * 10
     attempts = 0
 
     while len(candidates) < N_CANDIDATES and attempts < max_attempts:
         attempts += 1
-        p = freq_weights if random.random() < EXPLORATION_RATE else exploitation_weights
-        candidate = np.random.choice(BALLS, size=5, replace=False, p=p)
-        if not any(num in excluded_numbers for num in candidate):
-            candidates.append(candidate)
+        if use_models:
+            p = available_freq_weights if random.random() < EXPLORATION_RATE else available_exploitation_weights
+        else:
+            p = available_freq_weights
+        candidate = np.random.choice(available_numbers, size=5, replace=False, p=p)
+        candidates.append(candidate)
 
     print(f"DEBUG: Candidats générés: {len(candidates)}/{N_CANDIDATES} en {attempts} tentatives")
 
@@ -1188,6 +1203,118 @@ def analyze_generated_grids(grids: list, criteria: dict):
     print(evens.value_counts(normalize=True).sort_index().to_string())
 
 # --- Fonctions de Visualisation ---
+def plot_frequencies_with_filter(criteria: dict, output_dir: Path):
+    """Visualisation des fréquences avec mise en évidence des numéros filtrés"""
+    plt.figure(figsize=(16, 10))
+    
+    # Préparer les données
+    freq = criteria['freq']
+    freq_excluded = criteria.get('freq_excluded', set())
+    hot_numbers = set(criteria['hot_numbers'])
+    cold_numbers = set(criteria['cold_numbers'])
+    
+    # Créer les couleurs selon les catégories
+    colors = []
+    labels = []
+    for num in freq.index:
+        if num in freq_excluded:
+            colors.append('red')
+            labels.append('Exclu (fréq < 80 ou > 100)')
+        elif num in hot_numbers:
+            colors.append('orange')
+            labels.append('Numéro chaud')
+        elif num in cold_numbers:
+            colors.append('lightblue')
+            labels.append('Numéro froid')
+        else:
+            colors.append('lightgreen')
+            labels.append('Numéro normal')
+    
+    # Graphique principal
+    plt.subplot(2, 2, 1)
+    bars = plt.bar(freq.index, freq.values, color=colors, alpha=0.8, edgecolor='black', linewidth=0.5)
+    plt.title("Fréquences des numéros avec filtre appliqué", fontsize=14, fontweight='bold')
+    plt.xlabel('Numéro')
+    plt.ylabel('Fréquence')
+    plt.grid(True, alpha=0.3)
+    
+    # Ajouter les lignes de seuil
+    plt.axhline(y=80, color='red', linestyle='--', alpha=0.7, label='Seuil min (80)')
+    plt.axhline(y=100, color='red', linestyle='--', alpha=0.7, label='Seuil max (100)')
+    
+    # Légende personnalisée
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='red', alpha=0.8, label=f'Exclus par fréquence ({len(freq_excluded)})'),
+        Patch(facecolor='orange', alpha=0.8, label=f'Numéros chauds ({len(hot_numbers)})'),
+        Patch(facecolor='lightblue', alpha=0.8, label=f'Numéros froids ({len(cold_numbers)})'),
+        Patch(facecolor='lightgreen', alpha=0.8, label='Numéros normaux')
+    ]
+    plt.legend(handles=legend_elements, loc='upper right', fontsize=10)
+    
+    # Histogramme des fréquences
+    plt.subplot(2, 2, 2)
+    plt.hist(freq.values, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+    plt.axvline(x=80, color='red', linestyle='--', alpha=0.7, label='Seuil min (80)')
+    plt.axvline(x=100, color='red', linestyle='--', alpha=0.7, label='Seuil max (100)')
+    plt.title("Distribution des fréquences", fontsize=14)
+    plt.xlabel('Fréquence')
+    plt.ylabel('Nombre de numéros')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Comparaison avant/après filtre
+    plt.subplot(2, 2, 3)
+    available_nums = [n for n in freq.index if n not in freq_excluded]
+    excluded_nums = list(freq_excluded)
+    
+    data_comparison = [
+        len(available_nums),
+        len(excluded_nums)
+    ]
+    labels_comparison = [f'Disponibles\n({len(available_nums)})', f'Exclus\n({len(excluded_nums)})']
+    colors_comparison = ['lightgreen', 'red']
+    
+    wedges, texts, autotexts = plt.pie(data_comparison, labels=labels_comparison, 
+                                      colors=colors_comparison, autopct='%1.1f%%', 
+                                      startangle=90)
+    plt.title("Répartition après filtre de fréquence", fontsize=14)
+    
+    # Tableau des numéros exclus
+    plt.subplot(2, 2, 4)
+    plt.axis('off')
+    if freq_excluded:
+        excluded_with_freq = [(num, freq[num]) for num in sorted(freq_excluded)]
+        table_data = []
+        for i in range(0, len(excluded_with_freq), 3):  # Grouper par 3
+            row = []
+            for j in range(3):
+                if i + j < len(excluded_with_freq):
+                    num, f = excluded_with_freq[i + j]
+                    row.extend([f"N°{num}", f"{f}"])
+                else:
+                    row.extend(["", ""])
+            table_data.append(row)
+        
+        table = plt.table(cellText=table_data,
+                         colLabels=['Numéro', 'Fréq', 'Numéro', 'Fréq', 'Numéro', 'Fréq'],
+                         cellLoc='center',
+                         loc='center',
+                         colWidths=[0.15, 0.15, 0.15, 0.15, 0.15, 0.15])
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(1, 2)
+        plt.title("Numéros exclus par le filtre de fréquence", fontsize=14, pad=20)
+    else:
+        plt.text(0.5, 0.5, "Aucun numéro exclu\npar le filtre de fréquence", 
+                ha='center', va='center', fontsize=14, 
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.7))
+        plt.title("Numéros exclus par le filtre de fréquence", fontsize=14)
+    
+    plt.tight_layout()
+    plt.savefig(output_dir / 'frequencies_with_filter.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
 def plot_frequency_analysis(criteria: dict, output_dir: Path):
     plt.figure(figsize=(15, 7))
     sns.barplot(x=criteria['freq'].index, y=criteria['freq'].values, palette="viridis")
@@ -1241,6 +1368,9 @@ def create_visualizations(criteria: dict, grids_df: pd.DataFrame, output_dir: Pa
     print("\nCréation des visualisations...")
     plt.style.use('seaborn-v0_8-whitegrid')
 
+    # Nouvelle visualisation des fréquences avec filtre
+    plot_frequencies_with_filter(criteria, output_dir)
+    
     plot_frequency_analysis(criteria, output_dir)
     plot_gap_analysis(criteria, output_dir)
     plot_odd_even_analysis(criteria, output_dir)
@@ -1409,6 +1539,20 @@ def main():
     analysis_csv_path = OUTPUT_DIR / 'numbers_analysis.csv'
     criteria['numbers_analysis'].to_csv(analysis_csv_path, index=False, float_format='%.2f', date_format='%Y-%m-%d')
     print(f"   ✓ Analyse détaillée des numéros exportée vers '{analysis_csv_path}'.")
+
+    # Export des fréquences en CSV
+    frequencies_csv_path = OUTPUT_DIR / 'frequencies_analysis.csv'
+    freq_df = pd.DataFrame({
+        'numero': criteria['freq'].index,
+        'frequence': criteria['freq'].values,
+        'frequence_pourcentage': (criteria['freq'].values / criteria['freq'].sum() * 100),
+        'is_hot': criteria['freq'].index.isin(criteria['hot_numbers']),
+        'is_cold': criteria['freq'].index.isin(criteria['cold_numbers']),
+        'is_excluded_by_frequency': criteria['freq'].index.isin(criteria.get('freq_excluded', set()))
+    })
+    freq_df = freq_df.sort_values('frequence', ascending=False)
+    freq_df.to_csv(frequencies_csv_path, index=False, float_format='%.2f')
+    print(f"   ✓ Analyse des fréquences exportée vers '{frequencies_csv_path}'.")
 
     print("\n2. Gestion des modèles XGBoost...")
     

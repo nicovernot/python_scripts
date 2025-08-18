@@ -76,3 +76,9 @@ __pycache__/
 /bin/
 /models
 /lib64/
+
+# Ignore debug and log files
+debug_*.html
+*.log
+debug_fdj_*.html
+keno_extract.log
