@@ -144,6 +144,10 @@ Exemples d'utilisation :
                         action='store_true',
                         help='Force le ré-entraînement des modèles ML pour compatibilité avec les nouvelles features')
     
+    parser.add_argument('--fast-training',
+                        action='store_true', 
+                        help='Mode entraînement ultra-rapide (paramètres optimisés pour la vitesse)')
+    
     args = parser.parse_args()
     
     # Gestion des modes prédéfinis
@@ -703,6 +707,27 @@ def plot_matrix_profile(series, output_dir, window=10):
 # --- Fonctions de Machine Learning ---
 def train_xgboost_parallel(df: pd.DataFrame):
     print("Entraînement des modèles XGBoost...")
+    
+    # Paramètres selon le mode
+    if hasattr(ARGS, 'fast_training') and ARGS.fast_training:
+        print("  ⚡ Mode entraînement ultra-rapide activé")
+        xgb_params = {
+            'n_estimators': 25,       # Très réduit pour la vitesse
+            'max_depth': 3,           # Profondeur minimale
+            'learning_rate': 0.3,     # Taux d'apprentissage élevé
+            'subsample': 0.7,         # Sous-échantillonnage agressif
+            'colsample_bytree': 0.7,  # Sélection de features réduite
+        }
+    else:
+        print("  🎯 Mode entraînement optimisé standard")
+        xgb_params = {
+            'n_estimators': 50,       # Équilibre vitesse/performance
+            'max_depth': 4,           # Profondeur modérée
+            'learning_rate': 0.2,     # Taux d'apprentissage modéré
+            'subsample': 0.8,         # Sous-échantillonnage modéré
+            'colsample_bytree': 0.8,  # Sélection de features standard
+        }
+    
     balls_cols = [f'boule_{i}' for i in range(1, 6)]
 
     df_features = add_cyclic_features(df)
@@ -725,13 +750,30 @@ def train_xgboost_parallel(df: pd.DataFrame):
             print(f"   ⚠️  Boule {ball_num}: seulement {positive_samples} occurrences")
         
         model = xgb.XGBClassifier(
-            n_estimators=100,
+            **xgb_params,              # Utilise les paramètres du mode sélectionné
             random_state=GLOBAL_SEED,
             use_label_encoder=False,
             objective='binary:logistic',
-            n_jobs=1
+            n_jobs=-1,                 # Utilise tous les cœurs CPU
+            tree_method='hist',        # Méthode plus rapide
+            eval_metric='logloss',     # Métrique d'évaluation explicite
+            verbosity=0,               # Réduit les messages de debug XGBoost
+            early_stopping_rounds=10   # Arrêt précoce si pas d'amélioration
         )
-        model.fit(X, y)
+        
+        # Entraînement avec validation split pour early stopping (boules)
+        if len(X) > 100:  # Seulement si assez de données
+            from sklearn.model_selection import train_test_split
+            X_train, X_val, y_train, y_val = train_test_split(
+                X, y, test_size=0.2, random_state=GLOBAL_SEED, stratify=y
+            )
+            model.fit(
+                X_train, y_train,
+                eval_set=[(X_val, y_val)],
+                verbose=False
+            )
+        else:
+            model.fit(X, y)
         dump(model, MODEL_DIR / f'model_ball_{ball_num}.joblib')
         return model
     
@@ -750,23 +792,41 @@ def train_xgboost_parallel(df: pd.DataFrame):
             print(f"   ⚠️  Chance {chance_num}: seulement {positive_samples} occurrences")
         
         model = xgb.XGBClassifier(
-            n_estimators=100,
+            **xgb_params,              # Utilise les paramètres du mode sélectionné
             random_state=GLOBAL_SEED,
             use_label_encoder=False,
             objective='binary:logistic',
-            n_jobs=1
+            n_jobs=-1,                 # Utilise tous les cœurs CPU
+            tree_method='hist',        # Méthode plus rapide
+            eval_metric='logloss',     # Métrique d'évaluation explicite
+            verbosity=0,               # Réduit les messages de debug XGBoost
+            early_stopping_rounds=10   # Arrêt précoce si pas d'amélioration
         )
-        model.fit(X, y)
+        
+        # Entraînement avec validation split pour early stopping (chance)
+        if len(X) > 50:  # Seulement si assez de données (seuil plus bas pour chance)
+            from sklearn.model_selection import train_test_split
+            X_train, X_val, y_train, y_val = train_test_split(
+                X, y, test_size=0.2, random_state=GLOBAL_SEED, stratify=y
+            )
+            model.fit(
+                X_train, y_train,
+                eval_set=[(X_val, y_val)],
+                verbose=False
+            )
+        else:
+            model.fit(X, y)
         dump(model, MODEL_DIR / f'model_chance_{chance_num}.joblib')
         return model
     
     print("  📊 Entraînement de 49 modèles pour les boules principales...")
-    ball_models = Parallel(n_jobs=min(8, N_CORES))(
+    # Utilise plus de parallélisation pour l'entraînement des modèles
+    ball_models = Parallel(n_jobs=min(N_CORES, 16), backend='threading')(
         delayed(train_ball_model)(ball) for ball in range(1, 50)
     )
     
     print("  🎯 Entraînement de 10 modèles pour les numéros chance...")
-    chance_models = Parallel(n_jobs=min(8, N_CORES))(
+    chance_models = Parallel(n_jobs=min(N_CORES, 10), backend='threading')(
         delayed(train_chance_model)(chance) for chance in range(1, 11)
     )
     

@@ -19,6 +19,7 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
+import pandas as pd
 
 # Import du gestionnaire de configuration
 try:
@@ -59,7 +60,7 @@ class LotoKenoMenu:
         
         # Chemins depuis la configuration
         self.loto_csv = get_config_path('LOTO_CSV_PATH') or self.base_path / "loto" / "loto_data" / "loto_201911.csv"
-        self.keno_csv = get_config_path('KENO_CSV_PATH') or self.base_path / "keno" / "keno_data" / "keno_202010.csv"
+        self.keno_csv = get_config_path('KENO_CSV_PATH') or self.base_path / "keno" / "keno_data" / "keno_consolidated.csv"
         
         # Configuration CLI
         self.colors_enabled = get_config_bool('CLI_COLORS_ENABLED', True)
@@ -75,6 +76,63 @@ class LotoKenoMenu:
         """Nettoie l'écran si activé dans la configuration"""
         if self.clear_screen_enabled:
             os.system('clear' if os.name == 'posix' else 'cls')
+    
+    def format_date_range(self, first_date, last_date):
+        """Formate une plage de dates au format MM/YYYY → MM/YYYY"""
+        try:
+            # Essayer de parser différents formats de date
+            from datetime import datetime
+            
+            # Format ISO (YYYY-MM-DD) pour Keno
+            if '-' in str(first_date) and len(str(first_date)) == 10:
+                first_dt = datetime.strptime(str(first_date), '%Y-%m-%d')
+                last_dt = datetime.strptime(str(last_date), '%Y-%m-%d')
+            # Format français (DD/MM/YYYY) pour Loto
+            elif '/' in str(first_date):
+                first_dt = datetime.strptime(str(first_date), '%d/%m/%Y')
+                last_dt = datetime.strptime(str(last_date), '%d/%m/%Y')
+            else:
+                return None
+                
+            first_formatted = first_dt.strftime('%m/%Y')
+            last_formatted = last_dt.strftime('%m/%Y')
+            
+            return f"{first_formatted} → {last_formatted}"
+        except:
+            return None
+
+    def get_csv_date_range(self, csv_path):
+        """Extrait la première et dernière date d'un fichier CSV"""
+        try:
+            # Essayer d'abord avec délimiteur virgule (pour Keno)
+            df = pd.read_csv(csv_path, nrows=1000)
+            if 'date' in df.columns:
+                first_date = df['date'].iloc[0]
+                df_tail = pd.read_csv(csv_path).tail(1)
+                last_date = df_tail['date'].iloc[0]
+                return first_date, last_date
+        except:
+            pass
+        
+        try:
+            # Essayer avec délimiteur point-virgule (pour Loto)
+            df = pd.read_csv(csv_path, nrows=1000, delimiter=';')
+            
+            date_column = None
+            if 'date' in df.columns:
+                date_column = 'date'
+            elif 'date_de_tirage' in df.columns:
+                date_column = 'date_de_tirage'
+            
+            if date_column:
+                first_date = df[date_column].iloc[0]
+                df_tail = pd.read_csv(csv_path, delimiter=';').tail(1)
+                last_date = df_tail[date_column].iloc[0]
+                return first_date, last_date
+        except:
+            pass
+        
+        return None, None
         
     def print_header(self):
         """Affiche l'en-tête du menu"""
@@ -96,7 +154,13 @@ class LotoKenoMenu:
         if self.loto_csv.exists():
             size = self.loto_csv.stat().st_size / (1024*1024)
             mtime = datetime.fromtimestamp(self.loto_csv.stat().st_mtime)
-            print(f"  🎲 Loto:  {Colors.OKGREEN}✓ Disponible{Colors.ENDC} ({size:.1f}MB, MAJ: {mtime.strftime('%d/%m/%Y')})")
+            first_date, last_date = self.get_csv_date_range(self.loto_csv)
+            date_info = ""
+            if first_date and last_date:
+                date_range = self.format_date_range(first_date, last_date)
+                if date_range:
+                    date_info = f", {date_range}"
+            print(f"  🎲 Loto:  {Colors.OKGREEN}✓ Disponible{Colors.ENDC} ({size:.1f}MB, MAJ: {mtime.strftime('%d/%m/%Y')}{date_info})")
         else:
             print(f"  🎲 Loto:  {Colors.FAIL}✗ Manquant{Colors.ENDC}")
             
@@ -104,7 +168,13 @@ class LotoKenoMenu:
         if self.keno_csv.exists():
             size = self.keno_csv.stat().st_size / (1024*1024)
             mtime = datetime.fromtimestamp(self.keno_csv.stat().st_mtime)
-            print(f"  🎰 Keno:  {Colors.OKGREEN}✓ Disponible{Colors.ENDC} ({size:.1f}MB, MAJ: {mtime.strftime('%d/%m/%Y')})")
+            first_date, last_date = self.get_csv_date_range(self.keno_csv)
+            date_info = ""
+            if first_date and last_date:
+                date_range = self.format_date_range(first_date, last_date)
+                if date_range:
+                    date_info = f", {date_range}"
+            print(f"  🎰 Keno:  {Colors.OKGREEN}✓ Disponible{Colors.ENDC} ({size:.1f}MB, MAJ: {mtime.strftime('%d/%m/%Y')}{date_info})")
         else:
             print(f"  🎰 Keno:  {Colors.FAIL}✗ Manquant{Colors.ENDC}")
             
@@ -135,6 +205,8 @@ class LotoKenoMenu:
         print("  1️⃣0️⃣ Analyse Keno personnalisée")
         print("  2️⃣4️⃣ Analyse avancée DuckDB (11 stratégies + optimisé)")
         print("  2️⃣5️⃣ Générateur Keno avancé (ML + IA)")
+        print("  2️⃣6️⃣ 📊 Statistiques Keno complètes (CSV + graphiques)")
+        print("  2️⃣7️⃣ ⚡ Analyse Keno rapide (recommandations express)")
         print()
         
         print(f"{Colors.OKGREEN}🧪 TESTS ET MAINTENANCE{Colors.ENDC}")
@@ -835,6 +907,54 @@ class LotoKenoMenu:
             else:
                 print("Opération annulée.")
                 self.wait_and_continue()
+                
+        elif choice == "26":
+            print(f"\n{Colors.BOLD}📊 Statistiques Keno Complètes{Colors.ENDC}")
+            print("Génération de toutes les statistiques détaillées :")
+            print("  • Fréquences et retards de tous les numéros")
+            print("  • Analyse pair/impair et zones")
+            print("  • Sommes et tableaux de retards")
+            print("  • Visualisations et graphiques")
+            print("  • Recommandations prioritaires")
+            print()
+            
+            confirm = input(f"{Colors.OKGREEN}Lancer l'analyse complète ? (O/n): {Colors.ENDC}").strip().lower()
+            if confirm in ['', 'o', 'oui', 'y', 'yes']:
+                self.execute_command("python keno/analyse_stats_keno_complet.py", "Statistiques Keno Complètes")
+            else:
+                print("Opération annulée.")
+                self.wait_and_continue()
+                
+        elif choice == "27":
+            print(f"\n{Colors.BOLD}⚡ Analyse Keno Rapide{Colors.ENDC}")
+            print("Analyse express avec les informations essentielles :")
+            print("  • Top des numéros prioritaires")
+            print("  • Retards et tendances récentes")
+            print("  • Recommandations immédiates")
+            print()
+            
+            # Demander le nombre de numéros à afficher
+            while True:
+                try:
+                    top_n = input(f"Nombre de numéros prioritaires à afficher (défaut: 15): ").strip()
+                    if not top_n:
+                        top_n = 15
+                    else:
+                        top_n = int(top_n)
+                    
+                    if top_n < 5 or top_n > 50:
+                        print("❌ Le nombre doit être entre 5 et 50")
+                        continue
+                    break
+                except ValueError:
+                    print("❌ Veuillez entrer un nombre valide")
+            
+            # Demander si on génère les graphiques
+            graphiques = input(f"Générer les graphiques ? (o/N): ").strip().lower()
+            graph_option = "--graphiques" if graphiques in ['o', 'oui', 'y', 'yes'] else ""
+            
+            command = f"python keno/analyse_keno_rapide.py --csv keno/keno_data/keno_consolidated.csv --top {top_n} {graph_option}".strip()
+            self.execute_command(command, f"Analyse Keno Rapide (Top {top_n})")
                 
         elif choice == "0":
             print(f"\n{Colors.OKGREEN}👋 Au revoir ! Bonne chance pour vos analyses !{Colors.ENDC}")
