@@ -42,7 +42,6 @@ def main():
     # Créer les dossiers de sortie
     output_dir = Path("keno_stats_exports")
     output_dir.mkdir(exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     print("\n📊 GÉNÉRATION DES STATISTIQUES...")
     print("-" * 40)
@@ -104,7 +103,7 @@ def main():
     stats_df = stats_df.sort_values('priorite', ascending=False)
     
     # Sauvegarder les fréquences
-    freq_file = output_dir / f"frequences_express_{timestamp}.csv"
+    freq_file = output_dir / "frequences_express.csv"
     stats_df.to_csv(freq_file, index=False)
     print(f"   💾 Sauvegardé: {freq_file}")
     
@@ -123,7 +122,7 @@ def main():
         })
     
     pair_df = pd.DataFrame(pair_impair_stats)
-    pair_file = output_dir / f"pair_impair_express_{timestamp}.csv"
+    pair_file = output_dir / "pair_impair_express.csv"
     pair_df.to_csv(pair_file, index=False)
     print(f"   💾 Sauvegardé: {pair_file}")
     
@@ -142,7 +141,7 @@ def main():
         })
     
     zones_df = pd.DataFrame(zones_stats)
-    zones_file = output_dir / f"zones_express_{timestamp}.csv"
+    zones_file = output_dir / "zones_express.csv"
     zones_df.to_csv(zones_file, index=False)
     print(f"   💾 Sauvegardé: {zones_file}")
     
@@ -160,7 +159,7 @@ def main():
         })
     
     sommes_df = pd.DataFrame(sommes_stats)
-    sommes_file = output_dir / f"sommes_express_{timestamp}.csv"
+    sommes_file = output_dir / "sommes_express.csv"
     sommes_df.to_csv(sommes_file, index=False)
     print(f"   💾 Sauvegardé: {sommes_file}")
     
@@ -240,7 +239,7 @@ def main():
     print(f"🔴 Retard 8+ tirages: {retard_8_plus} numéros")
     
     # Sauvegarde du résumé
-    resume_file = output_dir / f"resume_express_{timestamp}.txt"
+    resume_file = output_dir / "resume_express.txt"
     with open(resume_file, 'w', encoding='utf-8') as f:
         f.write("🎰 RÉSUMÉ EXPRESS KENO 🎰\n")
         f.write("=" * 30 + "\n\n")

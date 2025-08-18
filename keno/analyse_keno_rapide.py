@@ -155,19 +155,17 @@ def analyser_keno_rapide(csv_path, top_n=15, generer_graphiques=False):
         
         plots_dir = Path("keno_analyse_plots")
         plots_dir.mkdir(exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        plt.savefig(plots_dir / f'analyse_rapide_{timestamp}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(plots_dir / 'analyse_rapide.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        print(f"📈 Graphique sauvegardé: {plots_dir}/analyse_rapide_{timestamp}.png")
+        print(f"📈 Graphique sauvegardé: {plots_dir}/analyse_rapide.png")
     
     # Sauvegarder les résultats
     output_dir = Path("keno_stats_exports")
     output_dir.mkdir(exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    stats_df.to_csv(output_dir / f'analyse_rapide_{timestamp}.csv', index=False)
-    print(f"\n💾 Résultats sauvegardés: {output_dir}/analyse_rapide_{timestamp}.csv")
+    stats_df.to_csv(output_dir / 'analyse_rapide.csv', index=False)
+    print(f"\n💾 Résultats sauvegardés: {output_dir}/analyse_rapide.csv")
     
     return stats_df.head(top_n)
 
@@ -176,7 +174,7 @@ def main():
     parser = argparse.ArgumentParser(description='Analyse rapide des statistiques Keno')
     parser.add_argument('--top', type=int, default=15, help='Nombre de numéros prioritaires à afficher (défaut: 15)')
     parser.add_argument('--graphiques', action='store_true', help='Générer les graphiques')
-    parser.add_argument('--csv', default='keno_data/keno_consolidated.csv', help='Chemin vers le fichier CSV')
+    parser.add_argument('--csv', default='keno/keno_data/keno_consolidated.csv', help='Chemin vers le fichier CSV')
     
     args = parser.parse_args()
     

@@ -25,8 +25,8 @@ python keno/analyse_stats_keno_complet.py
 **Sortie :**
 - `keno_stats_exports/` : Tous les CSV détaillés
 - `keno_analyse_plots/` : Graphiques PNG
-- `rapport_complet_YYYYMMDD_HHMMSS.json` : Rapport complet
-- `resume_analyse_YYYYMMDD_HHMMSS.txt` : Résumé textuel
+- `rapport_complet.json` : Rapport complet
+- `resume_analyse.txt` : Résumé textuel
 
 ---
 
@@ -82,21 +82,21 @@ python stats_keno_express.py
 ### CSV Principaux
 | Fichier | Description |
 |---------|-------------|
-| `frequences_*.csv` | Fréquences, retards, statuts de tous les numéros |
-| `pair_impair_*.csv` | Analyse de la répartition pair/impair par tirage |
-| `zones_*.csv` | Répartition zones 1-35 vs 36-70 par tirage |
-| `sommes_*.csv` | Sommes des tirages et écarts théoriques |
-| `tableau_retards_complet_*.csv` | Tableau détaillé avec priorités |
+| `frequences_keno.csv` | Fréquences, retards, statuts de tous les numéros |
+| `pair_impair_keno.csv` | Analyse de la répartition pair/impair par tirage |
+| `zones_keno.csv` | Répartition zones 1-35 vs 36-70 par tirage |
+| `sommes_keno.csv` | Sommes des tirages et écarts théoriques |
+| `tableau_retards_complet.csv` | Tableau détaillé avec priorités |
 
 ### Graphiques
 | Fichier | Description |
 |---------|-------------|
-| `frequences_keno_*.png` | Histogramme des fréquences |
-| `heatmap_retards_*.png` | Carte de chaleur des retards |
-| `pair_impair_*.png` | Distribution et évolution pair/impair |
-| `zones_*.png` | Distribution et évolution des zones |
-| `sommes_*.png` | Distribution et évolution des sommes |
-| `top_retards_*.png` | Top 20 des numéros en retard |
+| `frequences_keno.png` | Histogramme des fréquences |
+| `heatmap_retards.png` | Carte de chaleur des retards |
+| `pair_impair.png` | Distribution et évolution pair/impair |
+| `zones.png` | Distribution et évolution des zones |
+| `sommes.png` | Distribution et évolution des sommes |
+| `top_retards.png` | Top 20 des numéros en retard |
 
 ---
 
@@ -143,7 +143,7 @@ python cli_menu.py
 python stats_keno_express.py
 
 # 2. Consulter le résumé généré
-cat keno_stats_exports/resume_express_*.txt
+cat keno_stats_exports/resume_express.txt
 ```
 
 ### Analyse Approfondie Hebdomadaire
@@ -155,7 +155,7 @@ python keno/analyse_stats_keno_complet.py
 ls keno_analyse_plots/
 
 # 3. Lire le rapport détaillé
-cat keno_stats_exports/resume_analyse_*.txt
+cat keno_stats_exports/resume_analyse.txt
 ```
 
 ### Analyse Personnalisée

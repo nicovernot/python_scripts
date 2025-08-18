@@ -52,8 +52,7 @@ class KenoStatsAnalyzer:
         # Colonnes des boules
         self.ball_cols = [f'b{i}' for i in range(1, 21)]
         
-        # Timestamp pour les fichiers
-        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Note: Pas de timestamp pour les fichiers - ils seront remplacés à chaque exécution
     
     def analyse_frequences(self):
         """Analyse les fréquences de sortie de chaque numéro"""
@@ -102,7 +101,7 @@ class KenoStatsAnalyzer:
         freq_stats = freq_stats.sort_values('frequence', ascending=False)
         
         # Sauvegarder
-        output_file = self.output_dir / f"frequences_keno_{self.timestamp}.csv"
+        output_file = self.output_dir / "frequences_keno.csv"
         freq_stats.to_csv(output_file, index=False)
         print(f"💾 Fréquences sauvegardées: {output_file}")
         
@@ -159,10 +158,10 @@ class KenoStatsAnalyzer:
         }
         
         # Sauvegarder
-        output_file = self.output_dir / f"pair_impair_keno_{self.timestamp}.csv"
+        output_file = self.output_dir / "pair_impair_keno.csv"
         pair_impair_df.to_csv(output_file, index=False)
         
-        summary_file = self.output_dir / f"pair_impair_resume_{self.timestamp}.csv"
+        summary_file = self.output_dir / "pair_impair_resume.csv"
         pd.DataFrame([summary]).to_csv(summary_file, index=False)
         
         print(f"💾 Analyse pair/impair sauvegardée: {output_file}")
@@ -204,10 +203,10 @@ class KenoStatsAnalyzer:
         }
         
         # Sauvegarder
-        output_file = self.output_dir / f"zones_keno_{self.timestamp}.csv"
+        output_file = self.output_dir / "zones_keno.csv"
         zones_df.to_csv(output_file, index=False)
         
-        summary_file = self.output_dir / f"zones_resume_{self.timestamp}.csv"
+        summary_file = self.output_dir / "zones_resume.csv"
         pd.DataFrame([summary]).to_csv(summary_file, index=False)
         
         print(f"💾 Analyse des zones sauvegardée: {output_file}")
@@ -246,10 +245,10 @@ class KenoStatsAnalyzer:
         }
         
         # Sauvegarder
-        output_file = self.output_dir / f"sommes_keno_{self.timestamp}.csv"
+        output_file = self.output_dir / "sommes_keno.csv"
         sommes_df.to_csv(output_file, index=False)
         
-        summary_file = self.output_dir / f"sommes_resume_{self.timestamp}.csv"
+        summary_file = self.output_dir / "sommes_resume.csv"
         pd.DataFrame([summary]).to_csv(summary_file, index=False)
         
         print(f"💾 Analyse des sommes sauvegardée: {output_file}")
@@ -303,7 +302,7 @@ class KenoStatsAnalyzer:
         tableau_df = tableau_df.sort_values('priorite', ascending=False)
         
         # Sauvegarder
-        output_file = self.output_dir / f"tableau_retards_complet_{self.timestamp}.csv"
+        output_file = self.output_dir / "tableau_retards_complet.csv"
         tableau_df.to_csv(output_file, index=False)
         
         print(f"💾 Tableau des retards complet sauvegardé: {output_file}")
@@ -397,7 +396,7 @@ class KenoStatsAnalyzer:
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig(self.plots_dir / f'frequences_keno_{self.timestamp}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(self.plots_dir / 'frequences_keno.png', dpi=300, bbox_inches='tight')
         plt.close()
         
         # 2. Heatmap des retards
@@ -409,7 +408,7 @@ class KenoStatsAnalyzer:
         plt.xlabel('Colonnes')
         plt.ylabel('Lignes')
         plt.tight_layout()
-        plt.savefig(self.plots_dir / f'heatmap_retards_{self.timestamp}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(self.plots_dir / 'heatmap_retards.png', dpi=300, bbox_inches='tight')
         plt.close()
         
         # 3. Distribution pair/impair
@@ -431,7 +430,7 @@ class KenoStatsAnalyzer:
         plt.title('Évolution récente pair/impair')
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig(self.plots_dir / f'pair_impair_{self.timestamp}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(self.plots_dir / 'pair_impair.png', dpi=300, bbox_inches='tight')
         plt.close()
         
         # 4. Distribution des zones
@@ -453,7 +452,7 @@ class KenoStatsAnalyzer:
         plt.title('Évolution récente des zones')
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig(self.plots_dir / f'zones_{self.timestamp}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(self.plots_dir / 'zones.png', dpi=300, bbox_inches='tight')
         plt.close()
         
         # 5. Distribution des sommes
@@ -475,7 +474,7 @@ class KenoStatsAnalyzer:
         plt.title('Évolution récente des sommes')
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig(self.plots_dir / f'sommes_{self.timestamp}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(self.plots_dir / 'sommes.png', dpi=300, bbox_inches='tight')
         plt.close()
         
         # 6. Top 20 des numéros les plus en retard
@@ -487,7 +486,7 @@ class KenoStatsAnalyzer:
         plt.title('Top 20 des numéros les plus en retard')
         plt.grid(True, alpha=0.3, axis='x')
         plt.tight_layout()
-        plt.savefig(self.plots_dir / f'top_retards_{self.timestamp}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(self.plots_dir / 'top_retards.png', dpi=300, bbox_inches='tight')
         plt.close()
         
         print(f"📈 Visualisations sauvegardées dans: {self.plots_dir}")
@@ -534,7 +533,7 @@ class KenoStatsAnalyzer:
         
         # Sauvegarder le rapport
         import json
-        rapport_file = self.output_dir / f"rapport_complet_{self.timestamp}.json"
+        rapport_file = self.output_dir / "rapport_complet.json"
         with open(rapport_file, 'w', encoding='utf-8') as f:
             json.dump(rapport, f, indent=2, ensure_ascii=False, default=str)
         
@@ -567,7 +566,7 @@ class KenoStatsAnalyzer:
     
     def creer_resume_texte(self, rapport):
         """Crée un résumé textuel du rapport"""
-        resume_file = self.output_dir / f"resume_analyse_{self.timestamp}.txt"
+        resume_file = self.output_dir / "resume_analyse.txt"
         
         with open(resume_file, 'w', encoding='utf-8') as f:
             f.write("🎰 RAPPORT D'ANALYSE KENO COMPLET 🎰\n")
@@ -627,7 +626,7 @@ def main():
     print(f"\n✅ Analyse terminée !")
     print(f"📁 Fichiers CSV: {analyzer.output_dir}")
     print(f"📈 Graphiques: {analyzer.plots_dir}")
-    print(f"🎯 Consultez le résumé: {analyzer.output_dir}/resume_analyse_{analyzer.timestamp}.txt")
+    print(f"🎯 Consultez le résumé: {analyzer.output_dir}/resume_analyse.txt")
 
 if __name__ == "__main__":
     main()

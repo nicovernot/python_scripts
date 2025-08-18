@@ -18,24 +18,27 @@ keno/keno_data/
 keno/keno_analyse/
 
 # Ignore all generated stats and analysis files
-*_express_*.csv
-*_express_*.txt
-frequences_express_*.csv
-pair_impair_express_*.csv
-zones_express_*.csv
-sommes_express_*.csv
-resume_express_*.txt
-analyse_rapide_*.csv
-analyse_rapide_*.png
-rapport_complet_*.json
-resume_analyse_*.txt
-frequences_keno_*.csv
-pair_impair_keno_*.csv
-zones_keno_*.csv
-sommes_keno_*.csv
-tableau_retards_complet_*.csv
-heatmap_retards_*.png
-top_retards_*.png
+frequences_express.csv
+pair_impair_express.csv
+zones_express.csv
+sommes_express.csv
+resume_express.txt
+analyse_rapide.csv
+analyse_rapide.png
+rapport_complet.json
+resume_analyse.txt
+frequences_keno.csv
+pair_impair_keno.csv
+zones_keno.csv
+sommes_keno.csv
+tableau_retards_complet.csv
+heatmap_retards.png
+top_retards.png
+frequences_keno.png
+pair_impair.png
+zones.png
+sommes.png
+*_resume.csv
 
 # Ignore loto data and generated files
 /loto_data/*
