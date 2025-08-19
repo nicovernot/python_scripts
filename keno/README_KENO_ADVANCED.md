@@ -36,20 +36,65 @@ pip install pandas numpy xgboost scikit-learn matplotlib seaborn scipy statsmode
 # Script interactif
 ./lancer_keno.sh
 
-# Ou directement
+# Ou directement avec profil par défaut
+python keno_generator_advanced.py
+```
+
+### 🎯 Profils d'Entraînement
+
+Le générateur propose 4 profils d'entraînement pour s'adapter à différents besoins :
+
+#### 🚀 Quick (--quick)
+```bash
 python keno_generator_advanced.py --quick
 ```
+- **Usage** : Tests rapides et développement
+- **Grilles** : 10 par défaut
+- **Temps** : ~10-15 secondes
+- **Paramètres ML** : 50 arbres, profondeur 8
+
+#### ⚖️ Balanced (--balanced) [DÉFAUT]
+```bash
+python keno_generator_advanced.py --balanced
+# ou simplement
+python keno_generator_advanced.py
+```
+- **Usage** : Équilibre optimal performance/temps
+- **Grilles** : 100 par défaut
+- **Temps** : ~1-2 minutes
+- **Paramètres ML** : 100 arbres, profondeur 12
+
+#### 🎯 Comprehensive (--comprehensive)
+```bash
+python keno_generator_advanced.py --comprehensive
+```
+- **Usage** : Entraînement approfondi
+- **Grilles** : 500 par défaut
+- **Temps** : ~5-10 minutes
+- **Paramètres ML** : 200 arbres, profondeur 15
+
+#### 🔥 Intensive (--intensive)
+```bash
+python keno_generator_advanced.py --intensive
+```
+- **Usage** : Performance maximale
+- **Grilles** : 1000 par défaut
+- **Temps** : ~15-30 minutes
+- **Paramètres ML** : 300 arbres, profondeur 20
 
 ### Options Avancées
 ```bash
-# Génération personnalisée
-python keno_generator_advanced.py --grids 100 --output mes_grilles.csv
+# Génération personnalisée avec profil
+python keno_generator_advanced.py --comprehensive --grids 200
 
-# Réentraînement des modèles
-python keno_generator_advanced.py --retrain --grids 50
+# Réentraînement des modèles avec profil spécifique
+python keno_generator_advanced.py --retrain --intensive
 
-# Mode silencieux
-python keno_generator_advanced.py --silent --grids 20
+# Mode silencieux avec profil
+python keno_generator_advanced.py --quick --silent
+
+# Combinaisons personnalisées
+python keno_generator_advanced.py --balanced --grids 50 --output mes_grilles.csv
 ```
 
 ## 📁 Structure des Fichiers

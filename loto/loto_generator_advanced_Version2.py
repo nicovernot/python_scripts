@@ -734,113 +734,94 @@ def train_xgboost_parallel(df: pd.DataFrame):
     feature_cols = balls_cols + [col for col in df_features.columns if col.startswith('sin_') or col.startswith('cos_')]
     X = df_features[feature_cols].iloc[:-1].values
     
-    def train_ball_model(ball_num):
-        """Entraîne un modèle binaire pour prédire si une boule sera tirée"""
-        print(f"  - Entraînement modèle boule principale {ball_num}/49...")
+    def train_balls_multilabel_model():
+        """Entraîne un modèle multi-label pour prédire les 5 boules principales (1-49)"""
+        print("  📊 Entraînement du modèle multi-label pour les boules principales (1-49)...")
         
-        # Créer les labels binaires : 1 si la boule est tirée, 0 sinon
-        y = np.zeros(len(X))
+        # Créer les labels multi-label pour les 49 boules possibles
+        y_balls = np.zeros((len(X), 49))
         for i, row in enumerate(df_features[balls_cols].iloc[1:].values):
-            if ball_num in row:
-                y[i] = 1
+            for ball_num in row:
+                if 1 <= ball_num <= 49:  # Vérification de sécurité
+                    y_balls[i, ball_num - 1] = 1  # -1 car indexage à partir de 0
         
-        # Vérifier qu'il y a assez d'occurrences positives
-        positive_samples = np.sum(y)
-        if positive_samples < 10:
-            print(f"   ⚠️  Boule {ball_num}: seulement {positive_samples} occurrences")
+        # Statistiques sur les données
+        positive_samples_per_ball = np.sum(y_balls, axis=0)
+        print(f"   📈 Moyenne d'occurrences par boule: {np.mean(positive_samples_per_ball):.1f}")
+        print(f"   📊 Min/Max occurrences: {np.min(positive_samples_per_ball):.0f}/{np.max(positive_samples_per_ball):.0f}")
         
-        model = xgb.XGBClassifier(
-            **xgb_params,              # Utilise les paramètres du mode sélectionné
+        # Utilisation de RandomForest avec MultiOutputClassifier pour gérer la multi-label
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.multioutput import MultiOutputClassifier
+        
+        base_estimator = RandomForestClassifier(
+            n_estimators=100,
+            max_depth=10,
+            min_samples_split=5,
+            min_samples_leaf=2,
             random_state=GLOBAL_SEED,
-            use_label_encoder=False,
-            objective='binary:logistic',
-            n_jobs=-1,                 # Utilise tous les cœurs CPU
-            tree_method='hist',        # Méthode plus rapide
-            eval_metric='logloss',     # Métrique d'évaluation explicite
-            verbosity=0,               # Réduit les messages de debug XGBoost
-            early_stopping_rounds=10   # Arrêt précoce si pas d'amélioration
+            n_jobs=-1
         )
         
-        # Entraînement avec validation split pour early stopping (boules)
-        if len(X) > 100:  # Seulement si assez de données
-            from sklearn.model_selection import train_test_split
-            X_train, X_val, y_train, y_val = train_test_split(
-                X, y, test_size=0.2, random_state=GLOBAL_SEED, stratify=y
-            )
-            model.fit(
-                X_train, y_train,
-                eval_set=[(X_val, y_val)],
-                verbose=False
-            )
-        else:
-            model.fit(X, y)
-        dump(model, MODEL_DIR / f'model_ball_{ball_num}.joblib')
+        model = MultiOutputClassifier(base_estimator, n_jobs=-1)
+        model.fit(X, y_balls)
+        
+        dump(model, MODEL_DIR / 'model_balls_multilabel.joblib')
+        print("   ✓ Modèle multi-label boules principales sauvegardé.")
         return model
     
-    def train_chance_model(chance_num):
-        """Entraîne un modèle binaire pour prédire si un numéro chance sera tiré"""
-        print(f"  - Entraînement modèle numéro chance {chance_num}/10...")
+    def train_chance_multilabel_model():
+        """Entraîne un modèle multi-label pour prédire le numéro chance (1-10)"""
+        print("  🎯 Entraînement du modèle multi-label pour les numéros chance (1-10)...")
         
-        # Créer les labels binaires pour le numéro chance
-        y = np.zeros(len(X))
+        # Créer les labels multi-label pour les 10 numéros chance possibles
+        y_chance = np.zeros((len(X), 10))
         for i, chance_val in enumerate(df_features['numero_chance'].iloc[1:].values):
-            if chance_val == chance_num:
-                y[i] = 1
+            if 1 <= chance_val <= 10:  # Vérification de sécurité
+                y_chance[i, chance_val - 1] = 1  # -1 car indexage à partir de 0
         
-        positive_samples = np.sum(y)
-        if positive_samples < 5:
-            print(f"   ⚠️  Chance {chance_num}: seulement {positive_samples} occurrences")
+        # Statistiques sur les données
+        positive_samples_per_chance = np.sum(y_chance, axis=0)
+        print(f"   📈 Moyenne d'occurrences par numéro chance: {np.mean(positive_samples_per_chance):.1f}")
+        print(f"   📊 Min/Max occurrences: {np.min(positive_samples_per_chance):.0f}/{np.max(positive_samples_per_chance):.0f}")
         
-        model = xgb.XGBClassifier(
-            **xgb_params,              # Utilise les paramètres du mode sélectionné
+        # Utilisation de RandomForest avec MultiOutputClassifier pour gérer la multi-label
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.multioutput import MultiOutputClassifier
+        
+        base_estimator = RandomForestClassifier(
+            n_estimators=100,
+            max_depth=8,
+            min_samples_split=3,
+            min_samples_leaf=1,
             random_state=GLOBAL_SEED,
-            use_label_encoder=False,
-            objective='binary:logistic',
-            n_jobs=-1,                 # Utilise tous les cœurs CPU
-            tree_method='hist',        # Méthode plus rapide
-            eval_metric='logloss',     # Métrique d'évaluation explicite
-            verbosity=0,               # Réduit les messages de debug XGBoost
-            early_stopping_rounds=10   # Arrêt précoce si pas d'amélioration
+            n_jobs=-1
         )
         
-        # Entraînement avec validation split pour early stopping (chance)
-        if len(X) > 50:  # Seulement si assez de données (seuil plus bas pour chance)
-            from sklearn.model_selection import train_test_split
-            X_train, X_val, y_train, y_val = train_test_split(
-                X, y, test_size=0.2, random_state=GLOBAL_SEED, stratify=y
-            )
-            model.fit(
-                X_train, y_train,
-                eval_set=[(X_val, y_val)],
-                verbose=False
-            )
-        else:
-            model.fit(X, y)
-        dump(model, MODEL_DIR / f'model_chance_{chance_num}.joblib')
+        model = MultiOutputClassifier(base_estimator, n_jobs=-1)
+        model.fit(X, y_chance)
+        
+        dump(model, MODEL_DIR / 'model_chance_multilabel.joblib')
+        print("   ✓ Modèle multi-label numéros chance sauvegardé.")
         return model
     
-    print("  📊 Entraînement de 49 modèles pour les boules principales...")
-    # Utilise plus de parallélisation pour l'entraînement des modèles
-    ball_models = Parallel(n_jobs=min(N_CORES, 16), backend='threading')(
-        delayed(train_ball_model)(ball) for ball in range(1, 50)
-    )
+    # Entraînement des modèles multi-label
+    balls_model = train_balls_multilabel_model()
+    chance_model = train_chance_multilabel_model()
     
-    print("  🎯 Entraînement de 10 modèles pour les numéros chance...")
-    chance_models = Parallel(n_jobs=min(N_CORES, 10), backend='threading')(
-        delayed(train_chance_model)(chance) for chance in range(1, 11)
-    )
-    
-    models = ball_models + chance_models
+    models = [balls_model, chance_model]
     
     # Sauvegarder les métadonnées
     metadata = {
         'features_count': len(feature_cols),
-        'model_type': 'xgboost_binary',
+        'model_type': 'randomforest_multilabel',
         'created_date': datetime.now().strftime('%Y-%m-%d'),
-        'version': '3.0',
-        'ball_models': 49,
-        'chance_models': 10,
-        'total_models': 59
+        'version': '4.0',
+        'ball_models': 1,  # Un seul modèle multi-label pour les boules
+        'chance_models': 1,  # Un seul modèle multi-label pour les chances
+        'total_models': 2,  # Au lieu de 59 modèles individuels
+        'balls_outputs': 49,  # 49 sorties pour les boules 1-49
+        'chance_outputs': 10   # 10 sorties pour les chances 1-10
     }
     with open(MODEL_DIR / 'metadata.json', 'w') as f:
         json.dump(metadata, f, indent=4)
@@ -849,8 +830,8 @@ def train_xgboost_parallel(df: pd.DataFrame):
     return models
 
 def load_saved_models() -> dict:
-    """Charge les 59 modèles binaires (49 boules + 10 numéros chance)"""
-    models = {'balls': {}, 'chance': {}}
+    """Charge les modèles multi-label (1 pour boules + 1 pour chance)"""
+    models = {'balls_multilabel': None, 'chance_multilabel': None}
     
     # Vérifier la compatibilité des features
     metadata_path = MODEL_DIR / 'metadata.json'
@@ -867,39 +848,56 @@ def load_saved_models() -> dict:
             print(f"   ⚠️ INCOMPATIBILITÉ: Modèles avec {expected_features} features, code actuel avec 19 features")
             print(f"   🔄 Recommandation: Ré-entraîner les modèles avec --retrain")
     
-    # Charger les modèles pour les boules (1-49)
-    loaded_balls = 0
-    for ball in range(1, 50):
-        model_path = MODEL_DIR / f'model_ball_{ball}.joblib'
-        if model_path.exists():
-            try:
-                models['balls'][ball] = load(model_path)
-                loaded_balls += 1
-            except Exception as e:
-                print(f"⚠️ Erreur chargement modèle boule {ball}: {e}")
-                models['balls'][ball] = None
-        else:
-            models['balls'][ball] = None
+def load_saved_models() -> dict:
+    """Charge les modèles multi-label (1 pour boules + 1 pour chance)"""
+    models = {'balls_multilabel': None, 'chance_multilabel': None}
     
-    # Charger les modèles pour les numéros chance (1-10)
-    loaded_chance = 0
-    for chance in range(1, 11):
-        model_path = MODEL_DIR / f'model_chance_{chance}.joblib'
-        if model_path.exists():
-            try:
-                models['chance'][chance] = load(model_path)
-                loaded_chance += 1
-            except Exception as e:
-                print(f"⚠️ Erreur chargement modèle chance {chance}: {e}")
-                models['chance'][chance] = None
-        else:
-            models['chance'][chance] = None
+    # Vérifier la compatibilité des features
+    metadata_path = MODEL_DIR / 'metadata.json'
+    if metadata_path.exists():
+        import json
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+        expected_features = metadata.get('features_count', 19)
+        total_models = metadata.get('total_models', 2)
+        model_type = metadata.get('model_type', 'randomforest_multilabel')
+        print(f"   📊 Modèles attendus: {model_type} avec {expected_features} features ({total_models} modèles)")
+        
+        # Si incompatibilité détectée, signaler
+        if expected_features != 19:  # 19 = nouvelles features avec cycliques complètes
+            print(f"   ⚠️ INCOMPATIBILITÉ: Modèles avec {expected_features} features, code actuel avec 19 features")
+            print(f"   🔄 Recommandation: Ré-entraîner les modèles avec --retrain")
     
-    total_loaded = loaded_balls + loaded_chance
-    if total_loaded == 59:
-        print(f"   ✓ 59 modèles XGBoost binaires chargés depuis '{MODEL_DIR}' ({loaded_balls} boules + {loaded_chance} chance).")
+    # Charger le modèle multi-label pour les boules (1-49)
+    balls_model_path = MODEL_DIR / 'model_balls_multilabel.joblib'
+    if balls_model_path.exists():
+        try:
+            models['balls_multilabel'] = load(balls_model_path)
+            print(f"   ✓ Modèle multi-label boules chargé depuis '{balls_model_path}'")
+        except Exception as e:
+            print(f"⚠️ Erreur chargement modèle boules multi-label: {e}")
+            models['balls_multilabel'] = None
     else:
-        print(f"   ⚠️ Seulement {total_loaded}/59 modèles chargés ({loaded_balls}/49 boules + {loaded_chance}/10 chance)")
+        print(f"   ⚠️ Modèle boules multi-label non trouvé: {balls_model_path}")
+    
+    # Charger le modèle multi-label pour les numéros chance (1-10)
+    chance_model_path = MODEL_DIR / 'model_chance_multilabel.joblib'
+    if chance_model_path.exists():
+        try:
+            models['chance_multilabel'] = load(chance_model_path)
+            print(f"   ✓ Modèle multi-label chance chargé depuis '{chance_model_path}'")
+        except Exception as e:
+            print(f"⚠️ Erreur chargement modèle chance multi-label: {e}")
+            models['chance_multilabel'] = None
+    else:
+        print(f"   ⚠️ Modèle chance multi-label non trouvé: {chance_model_path}")
+    
+    # Vérifier si les modèles sont chargés
+    loaded_models = sum(1 for model in models.values() if model is not None)
+    if loaded_models == 2:
+        print(f"   ✅ 2 modèles RandomForest multi-label chargés avec succès.")
+    else:
+        print(f"   ⚠️ Seulement {loaded_models}/2 modèles multi-label chargés")
     
     return models
 
@@ -1011,13 +1009,13 @@ def score_grid(grid: np.ndarray, criteria: dict, diversity_factor: float = 0.0) 
     return max(0, score)
 
 def generate_grid_vectorized(criteria: dict, models: dict, X_last: np.ndarray) -> list:
-    """Génération de grille avec 59 modèles binaires (49 boules + 10 chance)"""
+    """Génération de grille avec modèles multi-label (1 pour boules + 1 pour chance)"""
     N_CANDIDATES, EXPLORATION_RATE, TOP_PERCENT_SELECTION = 500, 0.2, 0.05
     
-    # Vérifier si les modèles sont disponibles
-    has_ball_models = models and 'balls' in models and any(models['balls'].values())
-    has_chance_models = models and 'chance' in models and any(models['chance'].values())
-    use_models = has_ball_models
+    # Vérifier si les modèles multi-label sont disponibles
+    has_ball_model = models and 'balls_multilabel' in models and models['balls_multilabel'] is not None
+    has_chance_model = models and 'chance_multilabel' in models and models['chance_multilabel'] is not None
+    use_models = has_ball_model
     
     freq_weights = criteria['freq'].reindex(BALLS, fill_value=0).values / criteria['freq'].sum()
 
@@ -1034,47 +1032,36 @@ def generate_grid_vectorized(criteria: dict, models: dict, X_last: np.ndarray) -
 
     if use_models:
         try:
-            # Prédictions pour chaque boule (1-49) avec modèles binaires
-            ball_predictions = np.zeros(49)
-            successful_predictions = 0
-            
-            for ball in range(1, 50):
-                model = models['balls'].get(ball)
-                if model is not None:
-                    try:
-                        if hasattr(model, 'predict_proba'):
-                            # Classification binaire : probabilité de la classe 1 (boule tirée)
-                            prob = model.predict_proba(X_last_features)[0][1]
-                        elif hasattr(model, 'predict'):
-                            # Si pas de predict_proba, utiliser predict et convertir en probabilité
-                            prediction = model.predict(X_last_features)[0]
-                            prob = max(0.01, min(0.99, prediction))  # Borner entre 0.01 et 0.99
-                        else:
-                            prob = freq_weights[ball-1]  # Fallback sur fréquence historique
-                        
-                        ball_predictions[ball-1] = prob
-                        successful_predictions += 1
-                    except Exception as e:
-                        # En cas d'erreur, utiliser la fréquence historique
-                        ball_predictions[ball-1] = freq_weights[ball-1]
+            # Prédictions multi-label pour toutes les boules (1-49) avec un seul modèle
+            ball_model = models['balls_multilabel']
+            if ball_model is not None:
+                # Prédiction multi-label: retourne les probabilités pour les 49 boules
+                if hasattr(ball_model, 'predict_proba'):
+                    # MultiOutputClassifier retourne une liste de 49 arrays (un par boule)
+                    ball_probas_list = ball_model.predict_proba(X_last_features)
+                    # Extraire la probabilité de la classe 1 pour chaque boule
+                    ball_predictions = np.array([probas[0][1] if len(probas[0]) > 1 else probas[0][0] for probas in ball_probas_list])
+                elif hasattr(ball_model, 'predict'):
+                    # Si pas de predict_proba, utiliser predict directement
+                    ball_predictions = ball_model.predict(X_last_features)[0]
                 else:
-                    # Modèle manquant, utiliser fréquence historique
-                    ball_predictions[ball-1] = freq_weights[ball-1]
-            
-            if successful_predictions > 0:
+                    ball_predictions = freq_weights  # Fallback
+                
                 # Normaliser les probabilités
+                ball_predictions = np.clip(ball_predictions, 0.001, 0.999)  # Éviter les valeurs extrêmes
                 ball_predictions = ball_predictions / ball_predictions.sum()
+                
                 # Combiner avec les fréquences historiques selon les poids adaptatifs
                 exploitation_weights = (ml_weight * ball_predictions + freq_weight * freq_weights)
                 exploitation_weights /= exploitation_weights.sum()
                 
                 # Affichage des poids adaptatifs si en mode debug
                 if not ARGS.silent:
-                    print(f"   🎯 Poids adaptatifs: ML={ml_weight:.2f}, Freq={freq_weight:.2f} ({successful_predictions}/49 modèles)")
+                    print(f"   🎯 Poids adaptatifs: ML={ml_weight:.2f}, Freq={freq_weight:.2f} (modèle multi-label)")
             else:
                 exploitation_weights = freq_weights
         except Exception as e:
-            print(f"⚠️ Erreur avec les modèles ML: {e}. Utilisation des fréquences historiques.")
+            print(f"⚠️ Erreur avec le modèle ML multi-label: {e}. Utilisation des fréquences historiques.")
             exploitation_weights = freq_weights
     else:
         exploitation_weights = freq_weights
@@ -1130,75 +1117,38 @@ def generate_grid_vectorized(criteria: dict, models: dict, X_last: np.ndarray) -
 
     best_grid_list = [int(b) for b in candidates_matrix[chosen_index]]
     
-    # Génération du numéro chance avec modèles si disponibles
-    if has_chance_models:
+    # Génération du numéro chance avec modèle multi-label si disponible
+    if has_chance_model:
         try:
-            chance_predictions = np.zeros(10)
-            successful_chance_predictions = 0
-            
-            for chance in range(1, 11):
-                model = models['chance'].get(chance)
-                if model is not None:
-                    try:
-                        if hasattr(model, 'predict_proba'):
-                            prob = model.predict_proba(X_last_features)[0][1]
-                        elif hasattr(model, 'predict'):
-                            prediction = model.predict(X_last_features)[0]
-                            prob = max(0.01, min(0.99, prediction))
-                        else:
-                            prob = 1.0 / 10  # Probabilité uniforme
-                        
-                        chance_predictions[chance-1] = prob
-                        successful_chance_predictions += 1
-                    except Exception as e:
-                        chance_predictions[chance-1] = 1.0 / 10
+            chance_model = models['chance_multilabel']
+            if chance_model is not None:
+                # Prédiction multi-label: retourne les probabilités pour les 10 numéros chance
+                if hasattr(chance_model, 'predict_proba'):
+                    # MultiOutputClassifier retourne une liste de 10 arrays (un par numéro chance)
+                    chance_probas_list = chance_model.predict_proba(X_last_features)
+                    # Extraire la probabilité de la classe 1 pour chaque numéro chance
+                    chance_predictions = np.array([probas[0][1] if len(probas[0]) > 1 else probas[0][0] for probas in chance_probas_list])
+                elif hasattr(chance_model, 'predict'):
+                    # Si pas de predict_proba, utiliser predict directement
+                    chance_predictions = chance_model.predict(X_last_features)[0]
                 else:
-                    chance_predictions[chance-1] = 1.0 / 10
-            
-            if successful_chance_predictions > 0:
+                    chance_predictions = np.ones(10) / 10  # Probabilité uniforme
+                
+                # Normaliser les probabilités
+                chance_predictions = np.clip(chance_predictions, 0.001, 0.999)
                 chance_predictions = chance_predictions / chance_predictions.sum()
+                
                 chance_ball = int(np.random.choice(CHANCE_BALLS, p=chance_predictions))
                 if not ARGS.silent:
-                    print(f"   🎲 Numéro chance prédit avec {successful_chance_predictions}/10 modèles")
+                    print(f"   🎲 Numéro chance prédit avec modèle multi-label")
             else:
                 chance_ball = int(np.random.choice(CHANCE_BALLS))
         except Exception as e:
-            print(f"⚠️ Erreur avec les modèles chance: {e}")
+            print(f"⚠️ Erreur avec le modèle chance multi-label: {e}")
             chance_ball = int(np.random.choice(CHANCE_BALLS))
     else:
         chance_ball = int(np.random.choice(CHANCE_BALLS))
     
-    return sorted(best_grid_list) + [chance_ball]
-    max_attempts = N_CANDIDATES * 10
-    attempts = 0
-
-    while len(candidates) < N_CANDIDATES and attempts < max_attempts:
-        attempts += 1
-        p = freq_weights if random.random() < EXPLORATION_RATE else exploitation_weights
-        candidate = np.random.choice(BALLS, size=5, replace=False, p=p)
-        if not any(num in excluded_numbers for num in candidate):
-            candidates.append(candidate)
-
-    print(f"DEBUG: Candidats générés: {len(candidates)}/{N_CANDIDATES} en {attempts} tentatives")
-
-    if not candidates:
-        print("❌ ERREUR: Aucun candidat généré!")
-        return []
-
-    candidates_matrix = np.array(candidates)
-    scores = np.zeros(len(candidates))
-    
-    # Ajouter un facteur de diversité (5% de perturbation) pour éviter la convergence
-    diversity_factor = 0.05
-    for i, grid in enumerate(candidates_matrix):
-        scores[i] = score_grid(grid, criteria, diversity_factor)
-
-    top_n = max(1, int(len(candidates) * TOP_PERCENT_SELECTION))
-    best_indices = np.argpartition(scores, -top_n)[-top_n:]
-    chosen_index = np.random.choice(best_indices)
-
-    best_grid_list = [int(b) for b in candidates_matrix[chosen_index]]
-    chance_ball = int(np.random.choice(CHANCE_BALLS))
     return sorted(best_grid_list) + [chance_ball]
 
 # --- Simulation Parallèle ---
@@ -1634,19 +1584,19 @@ def main():
     else:
         models = load_saved_models()
         # Vérifier si on a suffisamment de modèles fonctionnels (au moins 70% des modèles)
-        ball_models_available = sum(1 for m in models.get('balls', {}).values() if m is not None)
-        chance_models_available = sum(1 for m in models.get('chance', {}).values() if m is not None)
+        ball_models_available = 1 if models.get('balls_multilabel') is not None else 0
+        chance_models_available = 1 if models.get('chance_multilabel') is not None else 0
         total_available = ball_models_available + chance_models_available
         
-        if total_available < 42:  # Au moins 70% des 59 modèles (42/59)
-            print(f"  Insuffisamment de modèles disponibles ({total_available}/59), ré-entraînement complet...")
+        if total_available < 2:  # Les 2 modèles multi-label doivent être disponibles
+            print(f"  Modèles multi-label insuffisants ({total_available}/2), ré-entraînement complet...")
             con = duckdb.connect(database=':memory:', read_only=False)
             con.execute(f"CREATE TABLE loto_draws AS SELECT * FROM read_parquet('{str(parquet_path)}')")
             df_full = con.table('loto_draws').fetchdf()
             con.close()
             models = train_xgboost_parallel(df_full)
         else:
-            print(f"  ✓ {total_available}/59 modèles disponibles ({ball_models_available} boules + {chance_models_available} chance)")
+            print(f"  ✓ {total_available}/2 modèles multi-label disponibles")
 
     print("\n3. Simulation intelligente des grilles...")
     X_last = np.array(criteria['last_draw']).reshape(1, -1)

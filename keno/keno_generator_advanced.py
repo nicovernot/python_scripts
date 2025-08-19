@@ -97,6 +97,64 @@ ML_CONFIG = {
     'objective': 'binary:logistic'
 }
 
+def get_training_params(profile: str) -> dict:
+    """
+    Retourne les paramètres d'entraînement selon le profil sélectionné
+    
+    Args:
+        profile: Profil d'entraînement ('quick', 'balanced', 'comprehensive', 'intensive')
+    
+    Returns:
+        dict: Paramètres d'entraînement pour RandomForest
+    """
+    if profile == "quick":
+        return {
+            'n_estimators': 50,        # Arbres réduits pour la vitesse
+            'max_depth': 8,            # Profondeur modérée
+            'min_samples_split': 10,   # Éviter l'overfitting
+            'min_samples_leaf': 5,     # Éviter l'overfitting
+            'max_features': 'sqrt',    # Features réduites
+            'random_state': 42,
+            'n_jobs': -1,
+            'class_weight': 'balanced'
+        }
+    elif profile == "balanced":
+        return {
+            'n_estimators': 100,       # Standard
+            'max_depth': 12,           # Profondeur équilibrée
+            'min_samples_split': 5,    # Standard
+            'min_samples_leaf': 3,     # Standard
+            'max_features': 'sqrt',    # Standard
+            'random_state': 42,
+            'n_jobs': -1,
+            'class_weight': 'balanced'
+        }
+    elif profile == "comprehensive":
+        return {
+            'n_estimators': 200,       # Plus d'arbres pour meilleure précision
+            'max_depth': 15,           # Profondeur élevée
+            'min_samples_split': 4,    # Plus de splits
+            'min_samples_leaf': 2,     # Feuilles plus petites
+            'max_features': 'log2',    # Plus de features
+            'random_state': 42,
+            'n_jobs': -1,
+            'class_weight': 'balanced'
+        }
+    elif profile == "intensive":
+        return {
+            'n_estimators': 300,       # Maximum d'arbres
+            'max_depth': 20,           # Profondeur maximale
+            'min_samples_split': 3,    # Splits agressifs
+            'min_samples_leaf': 1,     # Feuilles minimales
+            'max_features': None,      # Toutes les features
+            'random_state': 42,
+            'n_jobs': -1,
+            'class_weight': 'balanced'
+        }
+    else:
+        # Fallback sur balanced
+        return get_training_params("balanced")
+
 @dataclass
 class KenoStats:
     """Structure pour stocker les statistiques Keno"""
@@ -113,18 +171,20 @@ class KenoStats:
 class KenoGeneratorAdvanced:
     """Générateur avancé de grilles Keno avec ML et analyse statistique"""
     
-    def __init__(self, data_path: str = None, silent: bool = False):
+    def __init__(self, data_path: str = None, silent: bool = False, training_profile: str = "balanced"):
         """
         Initialise le générateur Keno
         
         Args:
             data_path: Chemin vers les données historiques
             silent: Mode silencieux pour réduire les sorties
+            training_profile: Profil d'entraînement ('quick', 'balanced', 'comprehensive', 'intensive')
         """
         self.silent = silent
         self.data_path = data_path or str(DATA_DIR / "keno_202010.parquet")
         self.models_dir = MODELS_DIR
         self.output_dir = OUTPUT_DIR
+        self.training_profile = training_profile
         
         # Créer les répertoires nécessaires
         self.models_dir.mkdir(exist_ok=True)
@@ -282,10 +342,10 @@ class KenoGeneratorAdvanced:
     
     def train_xgboost_models(self, retrain: bool = False) -> bool:
         """
-        Entraîne les modèles XGBoost pour prédire les numéros Keno
+        Entraîne un modèle XGBoost multi-label pour prédire les numéros Keno
         
         Args:
-            retrain: Force le réentraînement même si les modèles existent
+            retrain: Force le réentraînement même si le modèle existe
             
         Returns:
             bool: True si l'entraînement est réussi
@@ -294,85 +354,169 @@ class KenoGeneratorAdvanced:
             self._log("❌ Modules ML non disponibles", "ERROR")
             return False
         
-        # Vérification des modèles existants (70 modèles, un pour chaque numéro)
-        model_files = [self.models_dir / f"xgb_keno_num_{i}.pkl" for i in range(1, 71)]
-        if not retrain and all(f.exists() for f in model_files):
-            self._log("✅ Modèles XGBoost Keno existants trouvés")
+        # Vérification du modèle existant (un seul modèle multi-label)
+        model_file = self.models_dir / "xgb_keno_multilabel.pkl"
+        if not retrain and model_file.exists():
+            self._log("✅ Modèle XGBoost Keno multi-label existant trouvé")
             return self.load_ml_models()
         
-        self._log("🤖 Entraînement des modèles XGBoost Keno...")
-        self._log("   📊 Stratégie: 1 modèle binaire par numéro (70 modèles)")
+        self._log("🤖 Entraînement du modèle XGBoost Keno multi-label...")
+        self._log("   📊 Stratégie: 1 modèle multi-label pour apprendre les corrélations")
         
         try:
-            # Préparation des données
+            # Préparation des données avec features enrichies (optimisé pour éviter la fragmentation)
             df_features = self.add_cyclic_features(self.data)
             
-            # Sélection des features temporelles seulement (plus simple et efficace)
+            # Features temporelles
             feature_cols = ['day_sin', 'day_cos', 'month_sin', 'month_cos']
+            
+            # Préparation des features d'historique avec pd.concat pour éviter la fragmentation
+            self._log("   📝 Création des features d'historique...")
+            lag_features = {}
+            
+            for lag in range(1, 6):
+                for ball_num in range(1, 21):
+                    col_name = f'lag{lag}_boule{ball_num}'
+                    if lag < len(df_features):
+                        lag_features[col_name] = df_features[f'boule{ball_num}'].shift(lag).fillna(0)
+                    else:
+                        lag_features[col_name] = pd.Series([0] * len(df_features))
+                    feature_cols.append(col_name)
+            
+            # Ajout des features d'historique en une seule fois
+            lag_df = pd.DataFrame(lag_features, index=df_features.index)
+            df_features = pd.concat([df_features, lag_df], axis=1)
+            
+            # Features de fréquence par zone (calculées efficacement)
+            self._log("   📝 Calcul des features de zones...")
+            zone_features = {
+                'zone1_count': [],
+                'zone2_count': [],
+                'zone3_count': [],
+                'zone4_count': []
+            }
+            
+            for idx, row in df_features.iterrows():
+                draw_numbers = [int(row[f'boule{i}']) for i in range(1, 21)]
+                zone_features['zone1_count'].append(sum(1 for n in draw_numbers if 1 <= n <= 17))
+                zone_features['zone2_count'].append(sum(1 for n in draw_numbers if 18 <= n <= 35))
+                zone_features['zone3_count'].append(sum(1 for n in draw_numbers if 36 <= n <= 52))
+                zone_features['zone4_count'].append(sum(1 for n in draw_numbers if 53 <= n <= 70))
+            
+            # Ajout des features de zones
+            for zone_name, zone_values in zone_features.items():
+                df_features[zone_name] = zone_values
+                feature_cols.append(zone_name)
             
             X = df_features[feature_cols].fillna(0)
             
-            # Entraînement d'un modèle pour chaque numéro (1-70)
-            for num in range(1, KENO_PARAMS['total_numbers'] + 1):
-                self._log(f"   📝 Entraînement modèle numéro {num}/70...")
-                
-                # Target: 1 si le numéro est présent dans le tirage, 0 sinon
-                y = np.zeros(len(df_features))
-                for idx, row in df_features.iterrows():
-                    draw_numbers = [int(row[f'boule{i}']) for i in range(1, 21)]
-                    if num in draw_numbers:
-                        y[idx] = 1
-                
-                # Vérification qu'il y a assez de données positives
-                positive_samples = np.sum(y)
-                if positive_samples < 10:
-                    self._log(f"   ⚠️  Numéro {num}: seulement {positive_samples} occurrences, ignoré")
-                    continue
-                
-                # Entraînement du modèle
-                try:
-                    X_train, X_test, y_train, y_test = train_test_split(
-                        X, y, test_size=0.2, random_state=42, stratify=y
-                    )
-                    
-                    model = xgb.XGBClassifier(**ML_CONFIG)
-                    model.fit(X_train, y_train)
-                    
-                    # Sauvegarde du modèle
-                    model_path = self.models_dir / f"xgb_keno_num_{num}.pkl"
-                    with open(model_path, 'wb') as f:
-                        pickle.dump(model, f)
-                    
-                    self.ml_models[f'number_{num}'] = model
-                    
-                except Exception as e:
-                    self._log(f"   ❌ Erreur modèle numéro {num}: {e}")
-                    continue
+            # Création du target multi-label (matrice 70 colonnes, une par numéro)
+            y = np.zeros((len(df_features), KENO_PARAMS['total_numbers']))
+            
+            for idx, row in df_features.iterrows():
+                draw_numbers = [int(row[f'boule{i}']) for i in range(1, 21)]
+                for num in draw_numbers:
+                    if 1 <= num <= KENO_PARAMS['total_numbers']:
+                        y[idx, num - 1] = 1  # Index 0-69 pour numéros 1-70
+            
+            self._log(f"   📝 Données préparées: {X.shape[0]} tirages, {X.shape[1]} features")
+            self._log(f"   📝 Target multi-label: {y.shape[1]} numéros à prédire")
+            
+            # Split train/test
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42
+            )
+            
+            # Configuration spéciale pour multi-label
+            ml_config = ML_CONFIG.copy()
+            ml_config['objective'] = 'multi:logistic'
+            ml_config['num_class'] = 2  # Binaire pour chaque label
+            
+            # Entraînement du modèle multi-label avec RandomForest (meilleur pour les corrélations)
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.multioutput import MultiOutputClassifier
+            
+            # Obtenir les paramètres selon le profil d'entraînement
+            rf_params = get_training_params(self.training_profile)
+            
+            # Afficher le profil utilisé
+            profile_names = {
+                'quick': 'Ultra-rapide',
+                'balanced': 'Équilibré', 
+                'comprehensive': 'Complet',
+                'intensive': 'Intensif'
+            }
+            profile_name = profile_names.get(self.training_profile, 'Équilibré')
+            self._log(f"📊 Profil d'entraînement: {profile_name} ({self.training_profile})")
+            self._log(f"   • Arbres: {rf_params['n_estimators']}")
+            self._log(f"   • Profondeur max: {rf_params['max_depth']}")
+            self._log(f"   • Features: {rf_params['max_features']}")
+            
+            # RandomForest configuré selon le profil
+            base_model = RandomForestClassifier(**rf_params)
+            
+            # Alternative: Essayer aussi XGBoost avec MultiOutputClassifier
+            # base_model = xgb.XGBClassifier(
+            #     objective='binary:logistic',
+            #     n_estimators=150,
+            #     max_depth=8,
+            #     learning_rate=0.05,
+            #     random_state=42,
+            #     n_jobs=-1
+            # )
+            
+            # Modèle multi-output
+            model = MultiOutputClassifier(base_model, n_jobs=-1)
+            
+            self._log("   🔄 Entraînement du modèle RandomForest multi-label...")
+            model.fit(X_train, y_train)
+            
+            # Évaluation rapide
+            y_pred = model.predict(X_test)
+            
+            # Calcul de l'accuracy moyenne sur tous les labels
+            accuracies = []
+            for i in range(y.shape[1]):
+                acc = accuracy_score(y_test[:, i], y_pred[:, i])
+                accuracies.append(acc)
+            
+            mean_accuracy = np.mean(accuracies)
+            self._log(f"   📊 Accuracy moyenne: {mean_accuracy:.4f}")
+            
+            # Sauvegarde du modèle
+            with open(model_file, 'wb') as f:
+                pickle.dump(model, f)
+            
+            self.ml_models['multilabel'] = model
             
             # Sauvegarde des métadonnées
             self.metadata = {
                 'features_count': len(feature_cols),
-                'model_type': 'xgboost_keno',
+                'model_type': 'xgboost_keno_multilabel',
                 'created_date': datetime.now().strftime('%Y-%m-%d'),
-                'version': '2.0',
-                'keno_params': KENO_PARAMS
+                'version': '3.0',  # Version avec multi-label
+                'keno_params': KENO_PARAMS,
+                'mean_accuracy': mean_accuracy,
+                'feature_names': feature_cols
             }
             
             metadata_path = self.models_dir / "metadata.json"
             with open(metadata_path, 'w') as f:
                 json.dump(self.metadata, f, indent=2)
             
-            self._log("✅ Entraînement des modèles Keno terminé")
+            self._log("✅ Entraînement du modèle multi-label Keno terminé")
             return True
             
         except Exception as e:
             self._log(f"❌ Erreur lors de l'entraînement: {e}", "ERROR")
+            import traceback
+            self._log(f"Détails: {traceback.format_exc()}")
             return False
     
     def load_ml_models(self) -> bool:
-        """Charge les modèles ML pré-entraînés"""
+        """Charge le modèle ML multi-label pré-entraîné"""
         try:
-            self._log("📥 Chargement des modèles ML Keno...")
+            self._log("📥 Chargement du modèle ML Keno multi-label...")
             
             # Chargement des métadonnées
             metadata_path = self.models_dir / "metadata.json"
@@ -380,29 +524,27 @@ class KenoGeneratorAdvanced:
                 with open(metadata_path, 'r') as f:
                     self.metadata = json.load(f)
             
-            # Chargement des modèles (un pour chaque numéro 1-70)
-            models_loaded = 0
-            for num in range(1, KENO_PARAMS['total_numbers'] + 1):
-                model_path = self.models_dir / f"xgb_keno_num_{num}.pkl"
-                if model_path.exists():
-                    with open(model_path, 'rb') as f:
-                        self.ml_models[f'number_{num}'] = pickle.load(f)
-                        models_loaded += 1
-            
-            if models_loaded > 0:
-                self._log(f"✅ {models_loaded}/{KENO_PARAMS['total_numbers']} modèles Keno chargés")
+            # Chargement du modèle multi-label
+            model_path = self.models_dir / "xgb_keno_multilabel.pkl"
+            if model_path.exists():
+                with open(model_path, 'rb') as f:
+                    self.ml_models['multilabel'] = pickle.load(f)
+                
+                self._log("✅ Modèle multi-label Keno chargé avec succès")
+                if 'mean_accuracy' in self.metadata:
+                    self._log(f"   📊 Accuracy du modèle: {self.metadata['mean_accuracy']:.4f}")
                 return True
             else:
-                self._log("❌ Aucun modèle trouvé", "ERROR")
+                self._log("❌ Modèle multi-label non trouvé", "ERROR")
                 return False
                 
         except Exception as e:
-            self._log(f"❌ Erreur lors du chargement des modèles: {e}", "ERROR")
+            self._log(f"❌ Erreur lors du chargement du modèle: {e}", "ERROR")
             return False
     
     def predict_numbers_ml(self, num_grids: int = 10) -> List[List[int]]:
         """
-        Prédit les numéros avec les modèles ML
+        Prédit les numéros avec le modèle ML multi-label
         
         Args:
             num_grids: Nombre de grilles à générer
@@ -410,12 +552,13 @@ class KenoGeneratorAdvanced:
         Returns:
             List[List[int]]: Liste des grilles prédites
         """
-        if not self.ml_models:
-            self._log("❌ Modèles ML non disponibles", "ERROR")
+        if 'multilabel' not in self.ml_models:
+            self._log("❌ Modèle ML multi-label non disponible", "ERROR")
             return []
         
         try:
             predictions = []
+            model = self.ml_models['multilabel']
             
             # Préparation des features pour la prédiction
             current_date = pd.Timestamp.now()
@@ -424,61 +567,137 @@ class KenoGeneratorAdvanced:
                 **{f'boule{i}': [0] for i in range(1, 21)}  # Valeurs dummy
             })
             
+            # Ajout des features temporelles
             df_features = self.add_cyclic_features(df_predict)
+            
+            # Reconstruction des mêmes features que lors de l'entraînement (optimisé)
             feature_cols = ['day_sin', 'day_cos', 'month_sin', 'month_cos']
             
+            # Features d'historique (utiliser les derniers tirages disponibles)
+            lag_features = {}
+            
+            if self.stats and self.stats.derniers_tirages:
+                for lag in range(1, 6):
+                    for ball_num in range(1, 21):
+                        col_name = f'lag{lag}_boule{ball_num}'
+                        # Utiliser les derniers tirages pour construire l'historique
+                        if lag <= len(self.stats.derniers_tirages):
+                            last_draw = self.stats.derniers_tirages[-(lag)]
+                            if ball_num <= len(last_draw):
+                                lag_features[col_name] = last_draw[ball_num - 1] if ball_num <= len(last_draw) else 0
+                            else:
+                                lag_features[col_name] = 0
+                        else:
+                            lag_features[col_name] = 0
+                        feature_cols.append(col_name)
+            else:
+                # Valeurs par défaut si pas d'historique
+                for lag in range(1, 6):
+                    for ball_num in range(1, 21):
+                        col_name = f'lag{lag}_boule{ball_num}'
+                        lag_features[col_name] = 0
+                        feature_cols.append(col_name)
+            
+            # Ajout des features d'historique en une fois pour éviter la fragmentation
+            lag_df = pd.DataFrame(lag_features, index=df_features.index)
+            
+            # Features de zones (moyennes historiques)
+            zone_features = {}
+            if self.stats:
+                total_draws = len(self.stats.derniers_tirages) if self.stats.derniers_tirages else 1
+                zone_features['zone1_count'] = self.stats.zones_freq.get("zone1_17", 0) / total_draws
+                zone_features['zone2_count'] = self.stats.zones_freq.get("zone18_35", 0) / total_draws 
+                zone_features['zone3_count'] = self.stats.zones_freq.get("zone36_52", 0) / total_draws
+                zone_features['zone4_count'] = self.stats.zones_freq.get("zone53_70", 0) / total_draws
+            else:
+                zone_features['zone1_count'] = 5  # Valeurs moyennes
+                zone_features['zone2_count'] = 5
+                zone_features['zone3_count'] = 5
+                zone_features['zone4_count'] = 5
+            
+            # Création du DataFrame pour les zones
+            zone_df = pd.DataFrame([zone_features], index=df_features.index)
+            
+            # Concaténation de toutes les nouvelles features en une seule fois
+            df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
+                
+            feature_cols.extend(['zone1_count', 'zone2_count', 'zone3_count', 'zone4_count'])
+            
+            # Préparation des features pour la prédiction
             X_pred = df_features[feature_cols].fillna(0)
             
-            # Génération de grilles
+            # Génération de grilles avec variation
             for grid_idx in range(num_grids):
-                # Prédiction de probabilité pour chaque numéro
+                # Ajout de petites variations aléatoires pour diversifier les prédictions
+                X_pred_variant = X_pred.copy()
+                
+                # Petites variations sur les features temporelles
+                noise_factor = 0.1 * (grid_idx / max(1, num_grids - 1))  # Variation progressive
+                X_pred_variant['day_sin'] += np.random.normal(0, noise_factor)
+                X_pred_variant['day_cos'] += np.random.normal(0, noise_factor)
+                
+                # Prédiction des probabilités pour tous les numéros
+                probabilities = model.predict_proba(X_pred_variant)
+                
+                # Extraction des probabilités pour la classe positive (numéro tiré)
+                # probabilities est une liste de probabilités pour chaque output
                 number_probs = {}
-                
-                for num in range(1, KENO_PARAMS['total_numbers'] + 1):
-                    model_key = f'number_{num}'
-                    if model_key in self.ml_models:
-                        try:
-                            model = self.ml_models[model_key]
-                            prob = model.predict_proba(X_pred)[0][1]  # Probabilité classe 1
-                            number_probs[num] = prob
-                        except Exception as e:
-                            # En cas d'erreur, utiliser la fréquence historique
-                            if self.stats and num in self.stats.frequences:
-                                total_freq = sum(self.stats.frequences.values())
-                                number_probs[num] = self.stats.frequences[num] / total_freq
-                            else:
-                                number_probs[num] = 1.0 / KENO_PARAMS['total_numbers']
-                
-                # Sélection des 20 numéros les plus probables (comme dans un vrai tirage Keno)
-                # Mais le joueur en sélectionne typiquement 10
-                if number_probs:
-                    # Tri par probabilité décroissante
-                    sorted_numbers = sorted(number_probs.keys(), 
-                                          key=lambda x: number_probs[x], reverse=True)
-                    
-                    # Sélection avec un peu d'aléatoire pour la variabilité
-                    # Top 30 candidats pour introduire de la diversité
-                    top_candidates = sorted_numbers[:30] if len(sorted_numbers) >= 30 else sorted_numbers
-                    
-                    # Sélection aléatoire pondérée des 10 numéros finaux pour le joueur
-                    if len(top_candidates) >= 10:
-                        weights = [number_probs[num] for num in top_candidates]
-                        weights_normalized = np.array(weights) / np.sum(weights)
-                        
-                        selected = np.random.choice(
-                            top_candidates, 
-                            size=10, 
-                            replace=False, 
-                            p=weights_normalized
-                        )
-                        grid_numbers = sorted(selected.tolist())
+                for i in range(KENO_PARAMS['total_numbers']):
+                    num = i + 1  # Numéros de 1 à 70
+                    if len(probabilities[i][0]) > 1:  # Vérifier qu'on a bien les 2 classes
+                        prob = probabilities[i][0][1]  # Probabilité de la classe positive
                     else:
-                        grid_numbers = sorted(top_candidates[:10])
-                else:
-                    # Fallback : sélection aléatoire
-                    grid_numbers = sorted(random.sample(
-                        range(1, KENO_PARAMS['total_numbers'] + 1), 10
-                    ))
+                        prob = 0.5  # Valeur par défaut
+                    number_probs[num] = prob
+                
+                # Simulation d'un tirage réaliste Keno
+                # Dans un vrai tirage, on tire 20 numéros, mais le joueur en sélectionne 10
+                
+                # Sélection des numéros avec pondération par probabilité
+                numbers = list(range(1, KENO_PARAMS['total_numbers'] + 1))
+                probs = [number_probs[num] for num in numbers]
+                
+                # Normalisation des probabilités
+                probs_array = np.array(probs)
+                probs_normalized = probs_array / np.sum(probs_array)
+                
+                # Ajustement pour tenir compte des corrélations
+                # Boost des numéros qui apparaissent souvent ensemble
+                if self.stats and self.stats.paires_freq:
+                    correlation_boost = {num: 0 for num in numbers}
+                    
+                    # Identifier les paires fréquentes
+                    top_pairs = sorted(self.stats.paires_freq.items(), 
+                                     key=lambda x: x[1], reverse=True)[:50]
+                    
+                    for (num1, num2), freq in top_pairs:
+                        if num1 in number_probs and num2 in number_probs:
+                            # Si les deux numéros ont des probabilités élevées, boost mutuel
+                            if number_probs[num1] > 0.5 and number_probs[num2] > 0.5:
+                                correlation_boost[num1] += 0.1 * (freq / 1000)
+                                correlation_boost[num2] += 0.1 * (freq / 1000)
+                    
+                    # Application du boost
+                    for num in numbers:
+                        idx = num - 1
+                        probs_normalized[idx] += correlation_boost[num]
+                    
+                    # Re-normalisation
+                    probs_normalized = probs_normalized / np.sum(probs_normalized)
+                
+                # Sélection pondérée de 10 numéros (pour le joueur)
+                try:
+                    selected = np.random.choice(
+                        numbers, 
+                        size=10, 
+                        replace=False, 
+                        p=probs_normalized
+                    )
+                    grid_numbers = sorted(selected.tolist())
+                except:
+                    # Fallback en cas d'erreur
+                    top_indices = np.argsort(probs_normalized)[-10:]
+                    grid_numbers = sorted([numbers[i] for i in top_indices])
                 
                 predictions.append(grid_numbers)
             
@@ -486,6 +705,8 @@ class KenoGeneratorAdvanced:
             
         except Exception as e:
             self._log(f"❌ Erreur lors de la prédiction ML: {e}", "ERROR")
+            import traceback
+            self._log(f"Détails: {traceback.format_exc()}")
             return []
     
     def generate_frequency_based_grids(self, num_grids: int = 10) -> List[List[int]]:
@@ -841,9 +1062,18 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Exemples d'utilisation:
-  python keno_generator_advanced.py --grids 50
-  python keno_generator_advanced.py --retrain --grids 100
-  python keno_generator_advanced.py --quick --silent
+  python keno_generator_advanced.py --quick                    # 10 grilles, entraînement rapide
+  python keno_generator_advanced.py --balanced                 # 100 grilles, entraînement équilibré (défaut)
+  python keno_generator_advanced.py --comprehensive            # 500 grilles, entraînement complet
+  python keno_generator_advanced.py --intensive                # 1000 grilles, entraînement intensif
+  python keno_generator_advanced.py --retrain --comprehensive  # Force ré-entraînement + mode complet
+  python keno_generator_advanced.py --grids 50 --silent        # 50 grilles en mode silencieux
+
+Profils d'entraînement:
+  - quick:        Rapide (50 arbres, profondeur 8)
+  - balanced:     Équilibré (100 arbres, profondeur 12) [DÉFAUT]
+  - comprehensive: Complet (200 arbres, profondeur 15)
+  - intensive:    Intensif (300 arbres, profondeur 20)
         """
     )
     
@@ -854,7 +1084,13 @@ Exemples d'utilisation:
     parser.add_argument('--retrain', action='store_true',
                        help='Force le réentraînement des modèles ML')
     parser.add_argument('--quick', action='store_true',
-                       help='Mode rapide (10 grilles)')
+                       help='Mode rapide (10 grilles, entraînement ultra-rapide)')
+    parser.add_argument('--balanced', action='store_true',
+                       help='Mode équilibré (100 grilles, entraînement standard)')
+    parser.add_argument('--comprehensive', action='store_true',
+                       help='Mode complet (500 grilles, entraînement optimisé)')
+    parser.add_argument('--intensive', action='store_true',
+                       help='Mode intensif (1000 grilles, entraînement maximal)')
     parser.add_argument('--silent', action='store_true',
                        help='Mode silencieux')
     parser.add_argument('--data', type=str,
@@ -862,23 +1098,52 @@ Exemples d'utilisation:
     
     args = parser.parse_args()
     
-    # Ajustements selon les options
+    # Gestion des profils d'entraînement mutuellement exclusifs
+    profile_count = sum([args.quick, args.balanced, args.comprehensive, args.intensive])
+    if profile_count > 1:
+        print("❌ Erreur: Un seul profil d'entraînement peut être sélectionné à la fois")
+        sys.exit(1)
+    
+    # Configuration selon le profil sélectionné
     if args.quick:
         args.grids = 10
+        training_profile = "quick"
+    elif args.balanced:
+        args.grids = 100
+        training_profile = "balanced"
+    elif args.comprehensive:
+        args.grids = 500
+        training_profile = "comprehensive"
+    elif args.intensive:
+        args.grids = 1000
+        training_profile = "intensive"
+    else:
+        # Mode par défaut (équilibré)
+        training_profile = "balanced"
     
     # Banner
     if not args.silent:
+        profile_names = {
+            'quick': 'Ultra-rapide',
+            'balanced': 'Équilibré', 
+            'comprehensive': 'Complet',
+            'intensive': 'Intensif'
+        }
+        profile_display = profile_names.get(training_profile, 'Équilibré')
+        
         print("=" * 70)
         print("🎲 GÉNÉRATEUR INTELLIGENT DE GRILLES KENO v2.0 🎲")
         print("=" * 70)
         print("Machine Learning + Analyse Statistique")
         print("Optimisation des combinaisons Keno")
+        print(f"📊 Profil: {profile_display} ({args.grids} grilles)")
         print("=" * 70)
     
     # Initialisation et exécution
     generator = KenoGeneratorAdvanced(
         data_path=args.data,
-        silent=args.silent
+        silent=args.silent,
+        training_profile=training_profile
     )
     
     success = generator.run(
