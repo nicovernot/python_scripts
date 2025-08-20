@@ -1,0 +1,17 @@
+# Mes numéros porte-bonheur
+# Dates importantes et numéros significatifs
+
+# Anniversaires
+7   # Jour de naissance
+12  # Mois de naissance
+18  # Âge du permis
+23  # Jour de mariage
+
+# Numéros chanceux
+1   # Premier
+15  # Milieu
+29  # Préféré
+33  # Double
+39  # Avant 40
+45  # Multiple de 9
+49  # Dernier

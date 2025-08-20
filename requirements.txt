@@ -18,3 +18,7 @@ redis
 pyyaml
 stumpy
 statsmodels
+flask
+flask-cors
+pyarrow
+fastparquet

@@ -18,26 +18,208 @@ import pickle
 import scipy.stats
 from numba import njit
 import random
+import argparse
+import sys
 import redis
 import stumpy
 from statsmodels.tsa.seasonal import STL
 from scipy.fft import fft, fftfreq
+import json
+import time
 
 warnings.filterwarnings("ignore")
 
 # --- Configuration Générale et Reproductibilité ---
 load_dotenv()
-parquet_path = Path(os.getenv('LOTO_PARQUET_PATH', '~/Téléchargements/loto_201911.parquet')).expanduser()
-GLOBAL_SEED = 42
+
+# Configuration des chemins pour loto/data
+SCRIPT_DIR = Path(__file__).parent
+DATA_DIR = SCRIPT_DIR / 'data'
+DATA_DIR.mkdir(exist_ok=True)
+
+# Fonction pour convertir CSV en Parquet si nécessaire
+def ensure_parquet_file():
+    """S'assure qu'un fichier Parquet existe, en convertissant le CSV si nécessaire"""
+    parquet_files = list(DATA_DIR.glob('*.parquet'))
+    csv_files = list(DATA_DIR.glob('*.csv'))
+    
+    if parquet_files:
+        # Vérifier si le Parquet est plus récent que le CSV
+        parquet_path = parquet_files[0]
+        if csv_files:
+            csv_path = csv_files[0]
+            if csv_path.stat().st_mtime > parquet_path.stat().st_mtime:
+                print(f"� Le fichier CSV est plus récent, reconversion nécessaire...")
+                convert_csv_to_parquet(csv_path, parquet_path)
+        return parquet_path
+    elif csv_files:
+        # Pas de Parquet, mais CSV disponible - conversion automatique
+        csv_path = csv_files[0]
+        parquet_path = DATA_DIR / csv_path.with_suffix('.parquet').name
+        print(f"📂 Fichier CSV trouvé : {csv_path.name}")
+        print(f"🔄 Conversion automatique en Parquet pour de meilleures performances...")
+        convert_csv_to_parquet(csv_path, parquet_path)
+        return parquet_path
+    else:
+        # Aucun fichier trouvé - fallback
+        fallback_path = Path(os.getenv('LOTO_PARQUET_PATH', '~/Téléchargements/loto_201911.parquet')).expanduser()
+        print(f"⚠️  Aucun fichier CSV/Parquet trouvé dans {DATA_DIR}")
+        print(f"⚠️  Utilisation du fallback : {fallback_path}")
+        return fallback_path
+
+def convert_csv_to_parquet(csv_path, parquet_path):
+    """Convertit un fichier CSV en Parquet en utilisant DuckDB"""
+    import duckdb
+    try:
+        con = duckdb.connect()
+        con.execute(f"COPY (SELECT * FROM read_csv_auto('{str(csv_path)}')) TO '{str(parquet_path)}' (FORMAT PARQUET);")
+        
+        # Vérifier la taille des fichiers pour information
+        csv_size = csv_path.stat().st_size / (1024*1024)
+        parquet_size = parquet_path.stat().st_size / (1024*1024)
+        compression_ratio = (1 - parquet_size/csv_size) * 100 if csv_size > 0 else 0
+        
+        print(f"✅ Conversion terminée : {csv_path.name} → {parquet_path.name}")
+        print(f"📊 Compression : {compression_ratio:.1f}% ({csv_size:.1f}MB → {parquet_size:.1f}MB)")
+        con.close()
+    except Exception as e:
+        print(f"❌ Erreur lors de la conversion : {e}")
+        raise
+
+# Obtenir le fichier Parquet (avec conversion automatique si nécessaire)
+parquet_path = ensure_parquet_file()
+print(f"📂 Utilisation du fichier Parquet : {parquet_path}")
+
+def parse_arguments():
+    """Parse les arguments de ligne de commande"""
+    parser = argparse.ArgumentParser(
+        description="Générateur Loto Avancé avec IA et Machine Learning",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemples d'utilisation :
+  python loto_generator_advanced_Version2.py                    # Configuration par défaut
+  python loto_generator_advanced_Version2.py -s 5000          # 5000 simulations
+  python loto_generator_advanced_Version2.py -c 4             # 4 processeurs
+  python loto_generator_advanced_Version2.py -s 20000 -c 8    # 20k simulations sur 8 cœurs
+  python loto_generator_advanced_Version2.py --quick          # Mode rapide (1000 simulations)
+  python loto_generator_advanced_Version2.py --intensive      # Mode intensif (50000 simulations)
+  python loto_generator_advanced_Version2.py --exclude 1,5,12 # Exclure les numéros 1, 5 et 12
+  python loto_generator_advanced_Version2.py --exclude auto   # Exclure les 3 derniers tirages (défaut)
+        """
+    )
+    
+    parser.add_argument('-s', '--simulations', 
+                        type=int, 
+                        default=10000,
+                        help='Nombre de simulations à effectuer (défaut: 10000)')
+    
+    parser.add_argument('-c', '--cores', 
+                        type=int, 
+                        default=None,
+                        help=f'Nombre de processeurs à utiliser (défaut: auto = {mp.cpu_count() - 1 if mp.cpu_count() > 1 else 1})')
+    
+    parser.add_argument('--quick', 
+                        action='store_true',
+                        help='Mode rapide : 1000 simulations')
+    
+    parser.add_argument('--intensive', 
+                        action='store_true',
+                        help='Mode intensif : 50000 simulations')
+    
+    parser.add_argument('--seed', 
+                        type=int, 
+                        default=None,
+                        help='Graine pour la reproductibilité (défaut: aléatoire)')
+    
+    parser.add_argument('--silent', 
+                        action='store_true',
+                        help='Mode silencieux (pas de confirmation)')
+    
+    parser.add_argument('--exclude', 
+                        type=str, 
+                        default=None,
+                        help='Numéros à exclure, séparés par des virgules (ex: --exclude 1,5,12,30) ou "auto" pour les 3 derniers tirages (défaut: auto)')
+    
+    parser.add_argument('--retrain', 
+                        action='store_true',
+                        help='Force le ré-entraînement des modèles ML pour compatibilité avec les nouvelles features')
+    
+    parser.add_argument('--fast-training',
+                        action='store_true', 
+                        help='Mode entraînement ultra-rapide (paramètres optimisés pour la vitesse)')
+    
+    args = parser.parse_args()
+    
+    # Gestion des modes prédéfinis
+    if args.quick:
+        args.simulations = 1000
+    elif args.intensive:
+        args.simulations = 50000
+    
+    # Validation des arguments
+    if args.simulations < 100:
+        print("❌ Erreur: Le nombre de simulations doit être d'au moins 100")
+        sys.exit(1)
+    
+    if args.simulations > 100000:
+        print("⚠️  Attention: Plus de 100,000 simulations peuvent prendre beaucoup de temps")
+        if not args.silent:
+            confirm = input("Continuer ? (o/N): ").strip().lower()
+            if confirm != 'o':
+                sys.exit(0)
+    
+    # Validation des numéros exclus
+    if args.exclude and args.exclude.lower() != 'auto':
+        try:
+            excluded_nums = [int(x.strip()) for x in args.exclude.split(',')]
+            # Vérifier que tous les numéros sont valides (1-49)
+            invalid_nums = [num for num in excluded_nums if num < 1 or num > 49]
+            if invalid_nums:
+                print(f"❌ Erreur: Numéros invalides détectés: {invalid_nums}. Les numéros doivent être entre 1 et 49.")
+                sys.exit(1)
+            # Vérifier qu'il ne faut pas exclure trop de numéros
+            if len(excluded_nums) > 44:  # Il faut au moins 5 numéros pour faire une grille
+                print(f"❌ Erreur: Trop de numéros exclus ({len(excluded_nums)}). Maximum autorisé: 44.")
+                sys.exit(1)
+            args.excluded_numbers = set(excluded_nums)
+        except ValueError:
+            print("❌ Erreur: Format invalide pour --exclude. Utilisez des numéros séparés par des virgules (ex: 1,5,12)")
+            sys.exit(1)
+    else:
+        args.excluded_numbers = None  # Sera défini plus tard avec les 3 derniers tirages
+    
+    # Configuration automatique des cores si non spécifié
+    if args.cores is None:
+        args.cores = mp.cpu_count() - 1 if mp.cpu_count() > 1 else 1
+    elif args.cores < 1:
+        args.cores = 1
+    elif args.cores > mp.cpu_count():
+        print(f"⚠️  Limitation: {args.cores} cœurs demandés, mais seulement {mp.cpu_count()} disponibles")
+        args.cores = mp.cpu_count()
+    
+    return args
+
+# Configuration globale (sera mise à jour par les arguments)
+ARGS = parse_arguments()
+
+# Gestion de la seed : aléatoire si non spécifiée
+if ARGS.seed is None:
+    import time
+    GLOBAL_SEED = int(time.time()) % 2**31  # Seed basée sur le timestamp
+else:
+    GLOBAL_SEED = ARGS.seed
+
+N_SIMULATIONS = ARGS.simulations
+N_CORES = ARGS.cores
+EXCLUDED_NUMBERS = ARGS.excluded_numbers
+
 random.seed(GLOBAL_SEED)
 np.random.seed(GLOBAL_SEED)
 
-N_SIMULATIONS = 10000
-N_CORES = mp.cpu_count() - 1 if mp.cpu_count() > 1 else 1
 BALLS = np.arange(1, 50)
 CHANCE_BALLS = np.arange(1, 11)
 
-print(f"Configuration : {N_CORES} processeurs, {N_SIMULATIONS} grilles, SEED={GLOBAL_SEED}.")
+print(f"Configuration : {N_CORES} processeurs, {N_SIMULATIONS:,} grilles, SEED={GLOBAL_SEED}.")
 
 # --- Gestion des Dossiers & Connexion Redis ---
 BASE_DIR = Path.cwd()
@@ -45,6 +227,151 @@ OUTPUT_DIR = BASE_DIR / 'output'
 MODEL_DIR = BASE_DIR / 'boost_models'
 for directory in [OUTPUT_DIR, MODEL_DIR]:
     directory.mkdir(exist_ok=True)
+
+# --- Stratégie Adaptative ---
+class AdaptiveStrategy:
+    """Stratégie adaptative qui ajuste les paramètres selon les performances récentes"""
+    
+    def __init__(self, history_file=None):
+        self.history_file = history_file or (MODEL_DIR / 'performance_history.json')
+        self.performance_history = self.load_history()
+        self.ml_weight = 0.6  # Poids initial pour ML vs fréquences
+        self.adaptation_rate = 0.1  # Vitesse d'adaptation
+        
+    def load_history(self):
+        """Charge l'historique des performances"""
+        if self.history_file.exists():
+            try:
+                with open(self.history_file, 'r') as f:
+                    return json.load(f)
+            except:
+                pass
+        return {
+            'predictions': [],
+            'actuals': [],
+            'ml_scores': [],
+            'freq_scores': [],
+            'dates': [],
+            'ml_weight_history': []
+        }
+    
+    def save_history(self):
+        """Sauvegarde l'historique des performances"""
+        try:
+            with open(self.history_file, 'w') as f:
+                json.dump(self.performance_history, f, indent=2)
+        except Exception as e:
+            print(f"⚠️ Erreur sauvegarde historique: {e}")
+    
+    def evaluate_prediction_accuracy(self, predicted_probs, actual_draw):
+        """Évalue la précision des prédictions ML vs fréquences avec modèles binaires"""
+        if len(actual_draw) != 5:
+            return 0.0, 0.0
+        
+        # Avec les modèles binaires, predicted_probs contient les probabilités pour chaque boule (1-49)
+        if isinstance(predicted_probs, np.ndarray) and len(predicted_probs) == 49:
+            # Score ML : probabilité moyenne des boules tirées (predicted_probs[boule-1])
+            ml_score = np.mean([predicted_probs[boule-1] for boule in actual_draw])
+        else:
+            # Fallback si format ancien ou erreur
+            ml_score = 0.0
+            
+        # Score fréquences : score basé sur les fréquences historiques
+        freq_weights = np.ones(49) / 49  # Uniforme en fallback
+        freq_score = np.mean([freq_weights[boule-1] for boule in actual_draw])
+        
+        return ml_score, freq_score
+    
+    def update_performance(self, prediction, actual_draw, ml_probs=None):
+        """Met à jour les performances et ajuste la stratégie"""
+        if ml_probs is not None:
+            ml_score, freq_score = self.evaluate_prediction_accuracy(ml_probs, actual_draw)
+            
+            # Ajouter à l'historique
+            self.performance_history['predictions'].append(prediction)
+            self.performance_history['actuals'].append(actual_draw)
+            self.performance_history['ml_scores'].append(float(ml_score))
+            self.performance_history['freq_scores'].append(float(freq_score))
+            self.performance_history['dates'].append(datetime.now().isoformat())
+            
+            # Adapter le poids ML
+            self.adapt_ml_weight(ml_score, freq_score)
+            
+            # Garder seulement les 100 dernières prédictions
+            for key in self.performance_history:
+                if len(self.performance_history[key]) > 100:
+                    self.performance_history[key] = self.performance_history[key][-100:]
+            
+            self.save_history()
+    
+    def adapt_ml_weight(self, ml_score, freq_score):
+        """Adapte le poids du ML selon les performances relatives"""
+        if len(self.performance_history['ml_scores']) >= 10:  # Minimum 10 observations
+            recent_ml = np.mean(self.performance_history['ml_scores'][-10:])
+            recent_freq = np.mean(self.performance_history['freq_scores'][-10:])
+            
+            # Si ML performe mieux, augmenter son poids
+            if recent_ml > recent_freq:
+                self.ml_weight = min(0.9, self.ml_weight + self.adaptation_rate)
+            else:
+                self.ml_weight = max(0.1, self.ml_weight - self.adaptation_rate)
+                
+            self.performance_history['ml_weight_history'].append(float(self.ml_weight))
+    
+    def get_adaptive_weights(self):
+        """Retourne les poids adaptés pour ML vs fréquences"""
+        return self.ml_weight, 1.0 - self.ml_weight
+    
+    def get_performance_summary(self):
+        """Retourne un résumé des performances"""
+        if len(self.performance_history['ml_scores']) < 5:
+            return "Données insuffisantes pour l'analyse adaptative"
+        
+        recent_ml = np.mean(self.performance_history['ml_scores'][-10:])
+        recent_freq = np.mean(self.performance_history['freq_scores'][-10:])
+        
+        return {
+            'ml_score_recent': recent_ml,
+            'freq_score_recent': recent_freq,
+            'current_ml_weight': self.ml_weight,
+            'total_predictions': len(self.performance_history['ml_scores'])
+        }
+
+# Initialiser la stratégie adaptative
+adaptive_strategy = AdaptiveStrategy()
+
+def update_adaptive_strategy_with_recent_draws(con, strategy):
+    """Met à jour la stratégie adaptative avec les tirages récents"""
+    try:
+        # Récupérer les 5 derniers tirages pour évaluation
+        recent_draws = con.execute("""
+            SELECT boule_1, boule_2, boule_3, boule_4, boule_5, date_de_tirage
+            FROM loto_draws 
+            ORDER BY date_de_tirage DESC 
+            LIMIT 5
+        """).fetchdf()
+        
+        if len(recent_draws) >= 2:
+            print("   🎯 Mise à jour de la stratégie adaptative...")
+            
+            # Simuler des prédictions pour les tirages passés
+            for i in range(1, min(len(recent_draws), 4)):
+                actual_draw = recent_draws.iloc[i-1][['boule_1', 'boule_2', 'boule_3', 'boule_4', 'boule_5']].values
+                previous_draw = recent_draws.iloc[i][['boule_1', 'boule_2', 'boule_3', 'boule_4', 'boule_5']].values
+                
+                # Mettre à jour la stratégie (sans probabilities ML pour simplifier)
+                strategy.update_performance(
+                    prediction=previous_draw.tolist(), 
+                    actual_draw=actual_draw.tolist()
+                )
+            
+            # Afficher le résumé des performances
+            summary = strategy.get_performance_summary()
+            if isinstance(summary, dict):
+                print(f"      ML Weight: {summary['current_ml_weight']:.2f}")
+                print(f"      Total Predictions: {summary['total_predictions']}")
+    except Exception as e:
+        print(f"   ⚠️ Erreur mise à jour stratégie: {e}")
 
 try:
     redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=False)
@@ -105,6 +432,20 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
     freq = pd.Series(df_pandas[balls_cols].values.flatten()).value_counts().reindex(BALLS, fill_value=0)
     last_3_draws = df_pandas.iloc[-3:][balls_cols].values.flatten()
     last_3_numbers_set = set(last_3_draws)
+    
+    # Filtre de fréquence : exclure les numéros avec fréquence < 80 ou > 100
+    freq_excluded = set(freq[(freq < 80) | (freq > 100)].index.tolist())
+    
+    # Utiliser les numéros exclus configurables
+    if EXCLUDED_NUMBERS is not None:
+        numbers_to_exclude = EXCLUDED_NUMBERS.union(freq_excluded)
+        exclusion_source = "paramètre utilisateur + filtre fréquence"
+    else:
+        numbers_to_exclude = last_3_numbers_set.union(freq_excluded)
+        exclusion_source = "3 derniers tirages (auto) + filtre fréquence"
+    
+    print(f"   ✓ Numéros exclus par fréquence (<80 ou >100): {sorted(freq_excluded)}")
+    print(f"   ✓ Numéros exclus ({exclusion_source}): {sorted(numbers_to_exclude)}")
 
     last_appearance = df_pandas.melt(
         id_vars=['date_de_tirage'], 
@@ -147,7 +488,7 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
         GROUP BY numero
     """
     gaps_df = db_con.execute(gaps_query).fetchdf()
-    gaps = pd.Series(gaps_df.set_index('numero')['periodicite']) if not gaps_df.empty else pd.Series(dtype='float64')
+    gaps = pd.Series(gaps_df.set_index('numero')['periodicite']) if not gaps_df.empty else pd.Series(dtype='float64', index=BALLS)
 
     pair_impair_dist = (df_pandas[balls_cols] % 2 == 0).sum(axis=1).value_counts().sort_index()
 
@@ -177,12 +518,93 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
     sums = df_pandas[balls_cols].sum(axis=1)
     stds = df_pandas[balls_cols].std(axis=1)
 
-    variances = {
-        'sum': 1/np.var(sums),
-        'std': 1/np.var(stds),
-        'pair_impair': 1/np.var((pair_impair_dist/pair_impair_dist.sum()).values)
+    # === NOUVEAUX CRITÈRES STATISTIQUES ===
+    
+    # 1. Distribution par dizaines (0-9, 10-19, 20-29, 30-39, 40-49)
+    decades_dist = []
+    for _, row in df_pandas.iterrows():
+        grid = row[balls_cols].values
+        decades = [(n-1)//10 for n in grid]  # 0,1,2,3,4 pour les dizaines
+        decades_count = pd.Series(decades).value_counts()
+        decades_dist.append(decades_count.reindex(range(5), fill_value=0).values)
+    decades_dist = np.array(decades_dist)
+    decades_entropy = -np.sum(decades_dist * np.log(decades_dist + 1e-10), axis=1)
+    
+    # 2. Espacement entre numéros consécutifs (gaps)
+    gaps_between_numbers = []
+    for _, row in df_pandas.iterrows():
+        sorted_nums = sorted(row[balls_cols].values)
+        local_gaps = [sorted_nums[i+1] - sorted_nums[i] for i in range(4)]
+        gaps_between_numbers.append(np.std(local_gaps))  # Écart-type des espacements
+    gaps_between_numbers = np.array(gaps_between_numbers)
+    
+    # 3. Répartition haute/basse (1-25 vs 26-49)
+    high_low_ratio = []
+    for _, row in df_pandas.iterrows():
+        grid = row[balls_cols].values
+        low_count = sum(1 for n in grid if n <= 25)
+        high_count = 5 - low_count
+        ratio = low_count / 5.0  # Proportion de numéros bas
+        high_low_ratio.append(ratio)
+    high_low_ratio = np.array(high_low_ratio)
+    
+    # 4. Nombres premiers vs composés
+    primes = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47}
+    prime_ratio = []
+    for _, row in df_pandas.iterrows():
+        grid = row[balls_cols].values
+        prime_count = sum(1 for n in grid if n in primes)
+        prime_ratio.append(prime_count / 5.0)
+    prime_ratio = np.array(prime_ratio)
+    
+    # 5. Variance des positions (mesure de dispersion)
+    position_variance = []
+    for _, row in df_pandas.iterrows():
+        grid = sorted(row[balls_cols].values)
+        positions = [(n-1)/48.0 for n in grid]  # Normalisation 0-1
+        position_variance.append(np.var(positions))
+    position_variance = np.array(position_variance)
+
+    # Calcul des variances pour tous les critères
+    sum_var = np.var(sums)
+    std_var = np.var(stds)
+    pair_impair_var = np.var((pair_impair_dist/pair_impair_dist.sum()).values)
+    decades_entropy_var = np.var(decades_entropy)
+    gaps_var = np.var(gaps_between_numbers)
+    high_low_var = np.var(high_low_ratio)
+    prime_var = np.var(prime_ratio)
+    position_var = np.var(position_variance)
+    
+    # Poids équilibrés basés sur l'inverse des variances, mais avec normalisation
+    raw_weights = {
+        'sum': 1.0 / (1.0 + sum_var),
+        'std': 1.0 / (1.0 + std_var), 
+        'pair_impair': 1.0 / (1.0 + pair_impair_var),
+        'decades_entropy': 1.0 / (1.0 + decades_entropy_var),
+        'gaps': 1.0 / (1.0 + gaps_var),
+        'high_low': 1.0 / (1.0 + high_low_var),
+        'prime_ratio': 1.0 / (1.0 + prime_var),
+        'position_variance': 1.0 / (1.0 + position_var)
     }
-    dynamic_weights = {key: value / sum(variances.values()) for key, value in variances.items()}
+    
+    # Normalisation pour que les poids soient plus équilibrés (pas de domination extrême)
+    total_weight = sum(raw_weights.values())
+    dynamic_weights = {key: value / total_weight for key, value in raw_weights.items()}
+    
+    # Ajustement pour éviter qu'un critère domine complètement (max 25% pour un critère maintenant)
+    max_weight = 0.25
+    for key in dynamic_weights:
+        if dynamic_weights[key] > max_weight:
+            excess = dynamic_weights[key] - max_weight
+            dynamic_weights[key] = max_weight
+            # Redistribuer l'excès sur les autres critères
+            other_keys = [k for k in dynamic_weights.keys() if k != key]
+            for other_key in other_keys:
+                dynamic_weights[other_key] += excess / len(other_keys)
+    
+    # Re-normalisation finale
+    total_weight = sum(dynamic_weights.values())
+    dynamic_weights = {key: value / total_weight for key, value in dynamic_weights.items()}
 
     delta = pd.to_datetime('now').normalize() - pd.to_datetime(last_appearance.reindex(BALLS))
     numbers_analysis = pd.DataFrame({
@@ -203,14 +625,21 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
         'pair_impair_probs': pair_impair_dist / pair_impair_dist.sum(),
         'consecutive_counts': consecutive_counts,
         'pair_counts': pair_counts,
-        'numbers_to_exclude': last_3_numbers_set,
+        'numbers_to_exclude': numbers_to_exclude,
+        'freq_excluded': freq_excluded,  # Nouveaux numéros exclus par fréquence
         'sums': sums,
         'stds': stds,
         'dynamic_weights': dynamic_weights,
         'last_appearance': last_appearance,
         'numbers_analysis': numbers_analysis,
         'correlation_matrix': correlation_matrix,
-        'regression_results': regression_results
+        'regression_results': regression_results,
+        # Nouveaux critères statistiques
+        'decades_entropy': decades_entropy,
+        'gaps_between_numbers': gaps_between_numbers,
+        'high_low_ratio': high_low_ratio,
+        'prime_ratio': prime_ratio,
+        'position_variance': position_variance
     }
 
 # --- Fonctions d'analyse de cycles et motifs ---
@@ -278,69 +707,276 @@ def plot_matrix_profile(series, output_dir, window=10):
 # --- Fonctions de Machine Learning ---
 def train_xgboost_parallel(df: pd.DataFrame):
     print("Entraînement des modèles XGBoost...")
+    
+    # Paramètres selon le mode
+    if hasattr(ARGS, 'fast_training') and ARGS.fast_training:
+        print("  ⚡ Mode entraînement ultra-rapide activé")
+        xgb_params = {
+            'n_estimators': 25,       # Très réduit pour la vitesse
+            'max_depth': 3,           # Profondeur minimale
+            'learning_rate': 0.3,     # Taux d'apprentissage élevé
+            'subsample': 0.7,         # Sous-échantillonnage agressif
+            'colsample_bytree': 0.7,  # Sélection de features réduite
+        }
+    else:
+        print("  🎯 Mode entraînement optimisé standard")
+        xgb_params = {
+            'n_estimators': 50,       # Équilibre vitesse/performance
+            'max_depth': 4,           # Profondeur modérée
+            'learning_rate': 0.2,     # Taux d'apprentissage modéré
+            'subsample': 0.8,         # Sous-échantillonnage modéré
+            'colsample_bytree': 0.8,  # Sélection de features standard
+        }
+    
     balls_cols = [f'boule_{i}' for i in range(1, 6)]
 
     df_features = add_cyclic_features(df)
     feature_cols = balls_cols + [col for col in df_features.columns if col.startswith('sin_') or col.startswith('cos_')]
     X = df_features[feature_cols].iloc[:-1].values
-    y = df_features[balls_cols].iloc[1:].values - 1
-
-    def train_single_model(i):
-        print(f"  - Entraînement pour la position de boule {i+1}...")
-        model = xgb.XGBClassifier(
-            n_estimators=100, 
-            random_state=GLOBAL_SEED, 
-            use_label_encoder=False, 
-            objective='multi:softprob', 
-            num_class=len(BALLS), 
-            n_jobs=1
+    
+    def train_balls_multilabel_model():
+        """Entraîne un modèle multi-label pour prédire les 5 boules principales (1-49)"""
+        print("  📊 Entraînement du modèle multi-label pour les boules principales (1-49)...")
+        
+        # Créer les labels multi-label pour les 49 boules possibles
+        y_balls = np.zeros((len(X), 49))
+        for i, row in enumerate(df_features[balls_cols].iloc[1:].values):
+            for ball_num in row:
+                if 1 <= ball_num <= 49:  # Vérification de sécurité
+                    y_balls[i, ball_num - 1] = 1  # -1 car indexage à partir de 0
+        
+        # Statistiques sur les données
+        positive_samples_per_ball = np.sum(y_balls, axis=0)
+        print(f"   📈 Moyenne d'occurrences par boule: {np.mean(positive_samples_per_ball):.1f}")
+        print(f"   📊 Min/Max occurrences: {np.min(positive_samples_per_ball):.0f}/{np.max(positive_samples_per_ball):.0f}")
+        
+        # Utilisation de RandomForest avec MultiOutputClassifier pour gérer la multi-label
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.multioutput import MultiOutputClassifier
+        
+        base_estimator = RandomForestClassifier(
+            n_estimators=100,
+            max_depth=10,
+            min_samples_split=5,
+            min_samples_leaf=2,
+            random_state=GLOBAL_SEED,
+            n_jobs=-1
         )
-        model.fit(X, y[:, i])
-        dump(model, MODEL_DIR / f'model_boule_{i+1}.joblib')
+        
+        model = MultiOutputClassifier(base_estimator, n_jobs=-1)
+        model.fit(X, y_balls)
+        
+        dump(model, MODEL_DIR / 'model_balls_multilabel.joblib')
+        print("   ✓ Modèle multi-label boules principales sauvegardé.")
         return model
     
-    models = Parallel(n_jobs=min(5, N_CORES))(delayed(train_single_model)(i) for i in range(5))
+    def train_chance_multilabel_model():
+        """Entraîne un modèle multi-label pour prédire le numéro chance (1-10)"""
+        print("  🎯 Entraînement du modèle multi-label pour les numéros chance (1-10)...")
+        
+        # Créer les labels multi-label pour les 10 numéros chance possibles
+        y_chance = np.zeros((len(X), 10))
+        for i, chance_val in enumerate(df_features['numero_chance'].iloc[1:].values):
+            if 1 <= chance_val <= 10:  # Vérification de sécurité
+                y_chance[i, chance_val - 1] = 1  # -1 car indexage à partir de 0
+        
+        # Statistiques sur les données
+        positive_samples_per_chance = np.sum(y_chance, axis=0)
+        print(f"   📈 Moyenne d'occurrences par numéro chance: {np.mean(positive_samples_per_chance):.1f}")
+        print(f"   📊 Min/Max occurrences: {np.min(positive_samples_per_chance):.0f}/{np.max(positive_samples_per_chance):.0f}")
+        
+        # Utilisation de RandomForest avec MultiOutputClassifier pour gérer la multi-label
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.multioutput import MultiOutputClassifier
+        
+        base_estimator = RandomForestClassifier(
+            n_estimators=100,
+            max_depth=8,
+            min_samples_split=3,
+            min_samples_leaf=1,
+            random_state=GLOBAL_SEED,
+            n_jobs=-1
+        )
+        
+        model = MultiOutputClassifier(base_estimator, n_jobs=-1)
+        model.fit(X, y_chance)
+        
+        dump(model, MODEL_DIR / 'model_chance_multilabel.joblib')
+        print("   ✓ Modèle multi-label numéros chance sauvegardé.")
+        return model
+    
+    # Entraînement des modèles multi-label
+    balls_model = train_balls_multilabel_model()
+    chance_model = train_chance_multilabel_model()
+    
+    models = [balls_model, chance_model]
+    
+    # Sauvegarder les métadonnées
+    metadata = {
+        'features_count': len(feature_cols),
+        'model_type': 'randomforest_multilabel',
+        'created_date': datetime.now().strftime('%Y-%m-%d'),
+        'version': '4.0',
+        'ball_models': 1,  # Un seul modèle multi-label pour les boules
+        'chance_models': 1,  # Un seul modèle multi-label pour les chances
+        'total_models': 2,  # Au lieu de 59 modèles individuels
+        'balls_outputs': 49,  # 49 sorties pour les boules 1-49
+        'chance_outputs': 10   # 10 sorties pour les chances 1-10
+    }
+    with open(MODEL_DIR / 'metadata.json', 'w') as f:
+        json.dump(metadata, f, indent=4)
+    
     print("   ✓ Entraînement terminé et modèles sauvegardés.")
     return models
 
-def load_saved_models() -> list:
-    models = []
-    for i in range(1, 6):
-        model_path = MODEL_DIR / f'model_boule_{i}.joblib'
-        if model_path.exists():
-            try:
-                models.append(load(model_path))
-            except Exception as e:
-                print(f"⚠️ Erreur chargement modèle {i}: {e}. Il sera ignoré.")
-                models.append(None)
-        else:
-            models.append(None)
+def load_saved_models() -> dict:
+    """Charge les modèles multi-label (1 pour boules + 1 pour chance)"""
+    models = {'balls_multilabel': None, 'chance_multilabel': None}
     
-    if all(m is not None for m in models):
-        print(f"   ✓ 5 modèles XGBoost chargés depuis '{MODEL_DIR}'.")
+    # Vérifier la compatibilité des features
+    metadata_path = MODEL_DIR / 'metadata.json'
+    if metadata_path.exists():
+        import json
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+        expected_features = metadata.get('features_count', 19)
+        total_models = metadata.get('total_models', 59)
+        print(f"   📊 Modèles attendus avec {expected_features} features ({total_models} modèles)")
+        
+        # Si incompatibilité détectée, signaler
+        if expected_features != 19:  # 19 = nouvelles features avec cycliques complètes
+            print(f"   ⚠️ INCOMPATIBILITÉ: Modèles avec {expected_features} features, code actuel avec 19 features")
+            print(f"   🔄 Recommandation: Ré-entraîner les modèles avec --retrain")
+    
+def load_saved_models() -> dict:
+    """Charge les modèles multi-label (1 pour boules + 1 pour chance)"""
+    models = {'balls_multilabel': None, 'chance_multilabel': None}
+    
+    # Vérifier la compatibilité des features
+    metadata_path = MODEL_DIR / 'metadata.json'
+    if metadata_path.exists():
+        import json
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+        expected_features = metadata.get('features_count', 19)
+        total_models = metadata.get('total_models', 2)
+        model_type = metadata.get('model_type', 'randomforest_multilabel')
+        print(f"   📊 Modèles attendus: {model_type} avec {expected_features} features ({total_models} modèles)")
+        
+        # Si incompatibilité détectée, signaler
+        if expected_features != 19:  # 19 = nouvelles features avec cycliques complètes
+            print(f"   ⚠️ INCOMPATIBILITÉ: Modèles avec {expected_features} features, code actuel avec 19 features")
+            print(f"   🔄 Recommandation: Ré-entraîner les modèles avec --retrain")
+    
+    # Charger le modèle multi-label pour les boules (1-49)
+    balls_model_path = MODEL_DIR / 'model_balls_multilabel.joblib'
+    if balls_model_path.exists():
+        try:
+            models['balls_multilabel'] = load(balls_model_path)
+            print(f"   ✓ Modèle multi-label boules chargé depuis '{balls_model_path}'")
+        except Exception as e:
+            print(f"⚠️ Erreur chargement modèle boules multi-label: {e}")
+            models['balls_multilabel'] = None
+    else:
+        print(f"   ⚠️ Modèle boules multi-label non trouvé: {balls_model_path}")
+    
+    # Charger le modèle multi-label pour les numéros chance (1-10)
+    chance_model_path = MODEL_DIR / 'model_chance_multilabel.joblib'
+    if chance_model_path.exists():
+        try:
+            models['chance_multilabel'] = load(chance_model_path)
+            print(f"   ✓ Modèle multi-label chance chargé depuis '{chance_model_path}'")
+        except Exception as e:
+            print(f"⚠️ Erreur chargement modèle chance multi-label: {e}")
+            models['chance_multilabel'] = None
+    else:
+        print(f"   ⚠️ Modèle chance multi-label non trouvé: {chance_model_path}")
+    
+    # Vérifier si les modèles sont chargés
+    loaded_models = sum(1 for model in models.values() if model is not None)
+    if loaded_models == 2:
+        print(f"   ✅ 2 modèles RandomForest multi-label chargés avec succès.")
+    else:
+        print(f"   ⚠️ Seulement {loaded_models}/2 modèles multi-label chargés")
+    
     return models
 
 # --- Fonctions de Scoring et Génération ---
-def score_grid(grid: np.ndarray, criteria: dict) -> float:
+def score_grid(grid: np.ndarray, criteria: dict, diversity_factor: float = 0.0) -> float:
     W = criteria['dynamic_weights']
-    W_DECADES, W_PAIRS, W_CONSECUTIVE, PENALTY_OVERLAP = 0.1, 0.1, 0.1, 0.1
-    W_HOT_NUMBERS = 0.05
+    W_DECADES, W_PAIRS, W_CONSECUTIVE, PENALTY_OVERLAP = 0.05, 0.05, 0.05, 0.1
+    W_HOT_NUMBERS = 0.03
     PENALTY_TOO_MANY_HOT = 0.08
 
     score = 0
-    score += W.get('sum', 0.2) * scipy.stats.norm.pdf(
+    
+    # Critères principaux avec poids dynamiques
+    score += W.get('sum', 0.125) * scipy.stats.norm.pdf(
         np.sum(grid), 
         loc=criteria['sums'].mean(), 
         scale=criteria['sums'].std()
     )
 
-    score += W.get('std', 0.2) * scipy.stats.norm.pdf(
+    score += W.get('std', 0.125) * scipy.stats.norm.pdf(
         np.std(grid), 
         loc=criteria['stds'].mean(), 
         scale=criteria['stds'].std()
     )
 
-    score += W.get('pair_impair', 0.15) * criteria['pair_impair_probs'].get(np.sum(grid % 2 == 0), 0)
+    score += W.get('pair_impair', 0.125) * criteria['pair_impair_probs'].get(np.sum(grid % 2 == 0), 0)
+    
+    # === NOUVEAUX CRITÈRES STATISTIQUES ===
+    
+    # 1. Entropie des dizaines
+    grid_decades = [(n-1)//10 for n in grid]
+    grid_decades_count = pd.Series(grid_decades).value_counts()
+    grid_decades_dist = grid_decades_count.reindex(range(5), fill_value=0).values
+    grid_decades_entropy = -np.sum(grid_decades_dist * np.log(grid_decades_dist + 1e-10))
+    score += W.get('decades_entropy', 0.125) * scipy.stats.norm.pdf(
+        grid_decades_entropy,
+        loc=criteria['decades_entropy'].mean(),
+        scale=criteria['decades_entropy'].std() + 1e-10
+    )
+    
+    # 2. Espacement entre numéros
+    sorted_grid = sorted(grid)
+    grid_gaps = [sorted_grid[i+1] - sorted_grid[i] for i in range(4)]
+    grid_gaps_std = np.std(grid_gaps)
+    score += W.get('gaps', 0.125) * scipy.stats.norm.pdf(
+        grid_gaps_std,
+        loc=criteria['gaps_between_numbers'].mean(),
+        scale=criteria['gaps_between_numbers'].std() + 1e-10
+    )
+    
+    # 3. Répartition haute/basse
+    low_count = sum(1 for n in grid if n <= 25)
+    grid_high_low_ratio = low_count / 5.0
+    score += W.get('high_low', 0.125) * scipy.stats.norm.pdf(
+        grid_high_low_ratio,
+        loc=criteria['high_low_ratio'].mean(),
+        scale=criteria['high_low_ratio'].std() + 1e-10
+    )
+    
+    # 4. Ratio de nombres premiers
+    primes = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47}
+    prime_count = sum(1 for n in grid if n in primes)
+    grid_prime_ratio = prime_count / 5.0
+    score += W.get('prime_ratio', 0.125) * scipy.stats.norm.pdf(
+        grid_prime_ratio,
+        loc=criteria['prime_ratio'].mean(),
+        scale=criteria['prime_ratio'].std() + 1e-10
+    )
+    
+    # 5. Variance des positions
+    grid_positions = [(n-1)/48.0 for n in grid]
+    grid_position_variance = np.var(grid_positions)
+    score += W.get('position_variance', 0.125) * scipy.stats.norm.pdf(
+        grid_position_variance,
+        loc=criteria['position_variance'].mean(),
+        scale=criteria['position_variance'].std() + 1e-10
+    )
+
+    # Critères traditionnels avec poids réduits
     score += W_DECADES * (len(set((n - 1) // 10 for n in grid)) / 5.0)
 
     grid_pairs = set(combinations(sorted(grid), 2))
@@ -362,41 +998,70 @@ def score_grid(grid: np.ndarray, criteria: dict) -> float:
     if hot_count > 3:
         score -= PENALTY_TOO_MANY_HOT * (hot_count - 3)
 
+    # Ajout d'un facteur de diversité pour éviter la convergence vers des grilles identiques
+    if diversity_factor > 0:
+        # Ajouter une petite perturbation aléatoire basée sur le hash de la grille
+        grid_hash = hash(tuple(sorted(grid))) 
+        np.random.seed(grid_hash % 2**31)  # Seed basé sur le hash pour reproductibilité
+        diversity_bonus = np.random.normal(0, diversity_factor)
+        score += diversity_bonus
+
     return max(0, score)
 
-def generate_grid_vectorized(criteria: dict, models: list, X_last: np.ndarray) -> list:
+def generate_grid_vectorized(criteria: dict, models: dict, X_last: np.ndarray) -> list:
+    """Génération de grille avec modèles multi-label (1 pour boules + 1 pour chance)"""
     N_CANDIDATES, EXPLORATION_RATE, TOP_PERCENT_SELECTION = 500, 0.2, 0.05
-    use_models = all(m is not None for m in models)
+    
+    # Vérifier si les modèles multi-label sont disponibles
+    has_ball_model = models and 'balls_multilabel' in models and models['balls_multilabel'] is not None
+    has_chance_model = models and 'chance_multilabel' in models and models['chance_multilabel'] is not None
+    use_models = has_ball_model
+    
     freq_weights = criteria['freq'].reindex(BALLS, fill_value=0).values / criteria['freq'].sum()
 
+    # Obtenir les poids adaptatifs
+    ml_weight, freq_weight = adaptive_strategy.get_adaptive_weights()
+
     # Ajout des features cycliques pour la grille à prédire
+    # Créer un DataFrame avec une date fictive pour générer toutes les features
     df_last = pd.DataFrame([X_last[0]], columns=[f'boule_{i}' for i in range(1, 6)])
+    df_last['date_de_tirage'] = pd.Timestamp.now()  # Date fictive pour générer les features cycliques
     df_last_features = add_cyclic_features(df_last)
     feature_cols = [f'boule_{i}' for i in range(1, 6)] + [col for col in df_last_features.columns if col.startswith('sin_') or col.startswith('cos_')]
     X_last_features = df_last_features[feature_cols].values
 
     if use_models:
         try:
-            model_predictions = []
-            for m in models:
-                if hasattr(m, 'predict_proba'):
-                    probs = m.predict_proba(X_last_features)[0]
-                elif hasattr(m, 'predict'):
-                    predictions = m.predict(X_last_features)
-                    probs = np.exp(predictions) / np.sum(np.exp(predictions))
+            # Prédictions multi-label pour toutes les boules (1-49) avec un seul modèle
+            ball_model = models['balls_multilabel']
+            if ball_model is not None:
+                # Prédiction multi-label: retourne les probabilités pour les 49 boules
+                if hasattr(ball_model, 'predict_proba'):
+                    # MultiOutputClassifier retourne une liste de 49 arrays (un par boule)
+                    ball_probas_list = ball_model.predict_proba(X_last_features)
+                    # Extraire la probabilité de la classe 1 pour chaque boule
+                    ball_predictions = np.array([probas[0][1] if len(probas[0]) > 1 else probas[0][0] for probas in ball_probas_list])
+                elif hasattr(ball_model, 'predict'):
+                    # Si pas de predict_proba, utiliser predict directement
+                    ball_predictions = ball_model.predict(X_last_features)[0]
                 else:
-                    probs = freq_weights
-                if len(probs) != len(BALLS):
-                    probs = freq_weights
-                model_predictions.append(probs)
-            if model_predictions:
-                probs_model = np.mean(model_predictions, axis=0)
-                exploitation_weights = (0.6 * probs_model + 0.4 * freq_weights)
+                    ball_predictions = freq_weights  # Fallback
+                
+                # Normaliser les probabilités
+                ball_predictions = np.clip(ball_predictions, 0.001, 0.999)  # Éviter les valeurs extrêmes
+                ball_predictions = ball_predictions / ball_predictions.sum()
+                
+                # Combiner avec les fréquences historiques selon les poids adaptatifs
+                exploitation_weights = (ml_weight * ball_predictions + freq_weight * freq_weights)
                 exploitation_weights /= exploitation_weights.sum()
+                
+                # Affichage des poids adaptatifs si en mode debug
+                if not ARGS.silent:
+                    print(f"   🎯 Poids adaptatifs: ML={ml_weight:.2f}, Freq={freq_weight:.2f} (modèle multi-label)")
             else:
                 exploitation_weights = freq_weights
         except Exception as e:
-            print(f"⚠️ Erreur avec les modèles ML: {e}. Utilisation des fréquences historiques.")
+            print(f"⚠️ Erreur avec le modèle ML multi-label: {e}. Utilisation des fréquences historiques.")
             exploitation_weights = freq_weights
     else:
         exploitation_weights = freq_weights
@@ -411,16 +1076,26 @@ def generate_grid_vectorized(criteria: dict, models: list, X_last: np.ndarray) -
         print(f"⚠️ ATTENTION: Seulement {len(available_numbers)} numéros disponibles, génération impossible!")
         return []
 
+    # Créer des poids de probabilité seulement pour les numéros disponibles
+    if use_models:
+        available_exploitation_weights = np.array([exploitation_weights[n-1] for n in available_numbers])
+        available_exploitation_weights = available_exploitation_weights / available_exploitation_weights.sum()
+    
+    available_freq_weights = np.array([freq_weights[n-1] for n in available_numbers])
+    available_freq_weights = available_freq_weights / available_freq_weights.sum()
+
     candidates = []
     max_attempts = N_CANDIDATES * 10
     attempts = 0
 
     while len(candidates) < N_CANDIDATES and attempts < max_attempts:
         attempts += 1
-        p = freq_weights if random.random() < EXPLORATION_RATE else exploitation_weights
-        candidate = np.random.choice(BALLS, size=5, replace=False, p=p)
-        if not any(num in excluded_numbers for num in candidate):
-            candidates.append(candidate)
+        if use_models:
+            p = available_freq_weights if random.random() < EXPLORATION_RATE else available_exploitation_weights
+        else:
+            p = available_freq_weights
+        candidate = np.random.choice(available_numbers, size=5, replace=False, p=p)
+        candidates.append(candidate)
 
     print(f"DEBUG: Candidats générés: {len(candidates)}/{N_CANDIDATES} en {attempts} tentatives")
 
@@ -430,15 +1105,50 @@ def generate_grid_vectorized(criteria: dict, models: list, X_last: np.ndarray) -
 
     candidates_matrix = np.array(candidates)
     scores = np.zeros(len(candidates))
+    
+    # Ajouter un facteur de diversité (5% de perturbation) pour éviter la convergence
+    diversity_factor = 0.05
     for i, grid in enumerate(candidates_matrix):
-        scores[i] = score_grid(grid, criteria)
+        scores[i] = score_grid(grid, criteria, diversity_factor)
 
     top_n = max(1, int(len(candidates) * TOP_PERCENT_SELECTION))
     best_indices = np.argpartition(scores, -top_n)[-top_n:]
     chosen_index = np.random.choice(best_indices)
 
     best_grid_list = [int(b) for b in candidates_matrix[chosen_index]]
-    chance_ball = int(np.random.choice(CHANCE_BALLS))
+    
+    # Génération du numéro chance avec modèle multi-label si disponible
+    if has_chance_model:
+        try:
+            chance_model = models['chance_multilabel']
+            if chance_model is not None:
+                # Prédiction multi-label: retourne les probabilités pour les 10 numéros chance
+                if hasattr(chance_model, 'predict_proba'):
+                    # MultiOutputClassifier retourne une liste de 10 arrays (un par numéro chance)
+                    chance_probas_list = chance_model.predict_proba(X_last_features)
+                    # Extraire la probabilité de la classe 1 pour chaque numéro chance
+                    chance_predictions = np.array([probas[0][1] if len(probas[0]) > 1 else probas[0][0] for probas in chance_probas_list])
+                elif hasattr(chance_model, 'predict'):
+                    # Si pas de predict_proba, utiliser predict directement
+                    chance_predictions = chance_model.predict(X_last_features)[0]
+                else:
+                    chance_predictions = np.ones(10) / 10  # Probabilité uniforme
+                
+                # Normaliser les probabilités
+                chance_predictions = np.clip(chance_predictions, 0.001, 0.999)
+                chance_predictions = chance_predictions / chance_predictions.sum()
+                
+                chance_ball = int(np.random.choice(CHANCE_BALLS, p=chance_predictions))
+                if not ARGS.silent:
+                    print(f"   🎲 Numéro chance prédit avec modèle multi-label")
+            else:
+                chance_ball = int(np.random.choice(CHANCE_BALLS))
+        except Exception as e:
+            print(f"⚠️ Erreur avec le modèle chance multi-label: {e}")
+            chance_ball = int(np.random.choice(CHANCE_BALLS))
+    else:
+        chance_ball = int(np.random.choice(CHANCE_BALLS))
+    
     return sorted(best_grid_list) + [chance_ball]
 
 # --- Simulation Parallèle ---
@@ -450,11 +1160,12 @@ def simulate_chunk(args_tuple):
     for _ in range(n_sims_chunk):
         grid = generate_grid_vectorized(criteria, models, X_last_shared)
         if grid and len(grid) >= 5:
-            score = score_grid(np.array(grid[:-1]), criteria)
+            # Pas de facteur de diversité dans le scoring final pour garder la précision
+            score = score_grid(np.array(grid[:-1]), criteria, diversity_factor=0.0)
             results.append({'grid': grid, 'score': score})
     return results
 
-def simulate_grids_parallel(n_simulations: int, criteria: dict, X_last: np.ndarray, models: list):
+def simulate_grids_parallel(n_simulations: int, criteria: dict, X_last: np.ndarray, models: dict):
     chunk_size = max(1, n_simulations // (N_CORES * 4))
     chunks_args = []
     sims_left, i = n_simulations, 0
@@ -502,6 +1213,118 @@ def analyze_generated_grids(grids: list, criteria: dict):
     print(evens.value_counts(normalize=True).sort_index().to_string())
 
 # --- Fonctions de Visualisation ---
+def plot_frequencies_with_filter(criteria: dict, output_dir: Path):
+    """Visualisation des fréquences avec mise en évidence des numéros filtrés"""
+    plt.figure(figsize=(16, 10))
+    
+    # Préparer les données
+    freq = criteria['freq']
+    freq_excluded = criteria.get('freq_excluded', set())
+    hot_numbers = set(criteria['hot_numbers'])
+    cold_numbers = set(criteria['cold_numbers'])
+    
+    # Créer les couleurs selon les catégories
+    colors = []
+    labels = []
+    for num in freq.index:
+        if num in freq_excluded:
+            colors.append('red')
+            labels.append('Exclu (fréq < 80 ou > 100)')
+        elif num in hot_numbers:
+            colors.append('orange')
+            labels.append('Numéro chaud')
+        elif num in cold_numbers:
+            colors.append('lightblue')
+            labels.append('Numéro froid')
+        else:
+            colors.append('lightgreen')
+            labels.append('Numéro normal')
+    
+    # Graphique principal
+    plt.subplot(2, 2, 1)
+    bars = plt.bar(freq.index, freq.values, color=colors, alpha=0.8, edgecolor='black', linewidth=0.5)
+    plt.title("Fréquences des numéros avec filtre appliqué", fontsize=14, fontweight='bold')
+    plt.xlabel('Numéro')
+    plt.ylabel('Fréquence')
+    plt.grid(True, alpha=0.3)
+    
+    # Ajouter les lignes de seuil
+    plt.axhline(y=80, color='red', linestyle='--', alpha=0.7, label='Seuil min (80)')
+    plt.axhline(y=100, color='red', linestyle='--', alpha=0.7, label='Seuil max (100)')
+    
+    # Légende personnalisée
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='red', alpha=0.8, label=f'Exclus par fréquence ({len(freq_excluded)})'),
+        Patch(facecolor='orange', alpha=0.8, label=f'Numéros chauds ({len(hot_numbers)})'),
+        Patch(facecolor='lightblue', alpha=0.8, label=f'Numéros froids ({len(cold_numbers)})'),
+        Patch(facecolor='lightgreen', alpha=0.8, label='Numéros normaux')
+    ]
+    plt.legend(handles=legend_elements, loc='upper right', fontsize=10)
+    
+    # Histogramme des fréquences
+    plt.subplot(2, 2, 2)
+    plt.hist(freq.values, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+    plt.axvline(x=80, color='red', linestyle='--', alpha=0.7, label='Seuil min (80)')
+    plt.axvline(x=100, color='red', linestyle='--', alpha=0.7, label='Seuil max (100)')
+    plt.title("Distribution des fréquences", fontsize=14)
+    plt.xlabel('Fréquence')
+    plt.ylabel('Nombre de numéros')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Comparaison avant/après filtre
+    plt.subplot(2, 2, 3)
+    available_nums = [n for n in freq.index if n not in freq_excluded]
+    excluded_nums = list(freq_excluded)
+    
+    data_comparison = [
+        len(available_nums),
+        len(excluded_nums)
+    ]
+    labels_comparison = [f'Disponibles\n({len(available_nums)})', f'Exclus\n({len(excluded_nums)})']
+    colors_comparison = ['lightgreen', 'red']
+    
+    wedges, texts, autotexts = plt.pie(data_comparison, labels=labels_comparison, 
+                                      colors=colors_comparison, autopct='%1.1f%%', 
+                                      startangle=90)
+    plt.title("Répartition après filtre de fréquence", fontsize=14)
+    
+    # Tableau des numéros exclus
+    plt.subplot(2, 2, 4)
+    plt.axis('off')
+    if freq_excluded:
+        excluded_with_freq = [(num, freq[num]) for num in sorted(freq_excluded)]
+        table_data = []
+        for i in range(0, len(excluded_with_freq), 3):  # Grouper par 3
+            row = []
+            for j in range(3):
+                if i + j < len(excluded_with_freq):
+                    num, f = excluded_with_freq[i + j]
+                    row.extend([f"N°{num}", f"{f}"])
+                else:
+                    row.extend(["", ""])
+            table_data.append(row)
+        
+        table = plt.table(cellText=table_data,
+                         colLabels=['Numéro', 'Fréq', 'Numéro', 'Fréq', 'Numéro', 'Fréq'],
+                         cellLoc='center',
+                         loc='center',
+                         colWidths=[0.15, 0.15, 0.15, 0.15, 0.15, 0.15])
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(1, 2)
+        plt.title("Numéros exclus par le filtre de fréquence", fontsize=14, pad=20)
+    else:
+        plt.text(0.5, 0.5, "Aucun numéro exclu\npar le filtre de fréquence", 
+                ha='center', va='center', fontsize=14, 
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.7))
+        plt.title("Numéros exclus par le filtre de fréquence", fontsize=14)
+    
+    plt.tight_layout()
+    plt.savefig(output_dir / 'frequencies_with_filter.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
 def plot_frequency_analysis(criteria: dict, output_dir: Path):
     plt.figure(figsize=(15, 7))
     sns.barplot(x=criteria['freq'].index, y=criteria['freq'].values, palette="viridis")
@@ -555,6 +1378,9 @@ def create_visualizations(criteria: dict, grids_df: pd.DataFrame, output_dir: Pa
     print("\nCréation des visualisations...")
     plt.style.use('seaborn-v0_8-whitegrid')
 
+    # Nouvelle visualisation des fréquences avec filtre
+    plot_frequencies_with_filter(criteria, output_dir)
+    
     plot_frequency_analysis(criteria, output_dir)
     plot_gap_analysis(criteria, output_dir)
     plot_odd_even_analysis(criteria, output_dir)
@@ -570,7 +1396,7 @@ def create_visualizations(criteria: dict, grids_df: pd.DataFrame, output_dir: Pa
     print(f"   ✓ Visualisations sauvegardées dans '{output_dir}'.")
 
 # --- Génération de Rapports ---
-def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time: float):
+def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time: float, adaptive_strategy=None):
     print("Génération du rapport Markdown...")
     
     top_5_grids_str = "\n".join([
@@ -589,6 +1415,35 @@ def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time:
         ])
         
     excluded_numbers_str = ", ".join(map(str, sorted(criteria.get('numbers_to_exclude', []))))    
+
+    # Informations sur la stratégie adaptative
+    adaptive_info = ""
+    if adaptive_strategy:
+        history = adaptive_strategy.performance_history
+        if history and 'ml_scores' in history and len(history['ml_scores']) > 0:
+            recent_count = min(5, len(history['ml_scores']))
+            avg_ml_acc = np.mean(history['ml_scores'][-recent_count:])  # Moyenne sur les dernières évaluations
+            avg_freq_acc = np.mean(history['freq_scores'][-recent_count:])
+            current_ml_weight = adaptive_strategy.ml_weight
+            current_freq_weight = 1.0 - adaptive_strategy.ml_weight
+            last_date = history['dates'][-1] if 'dates' in history and history['dates'] else "N/A"
+            
+            adaptive_info = f"""
+## 🤖 Stratégie Adaptative Machine Learning
+- **Poids ML actuel**: `{current_ml_weight:.3f}` ({current_ml_weight*100:.1f}%)
+- **Poids Fréquence actuel**: `{current_freq_weight:.3f}` ({current_freq_weight*100:.1f}%)
+- **Précision ML récente**: `{avg_ml_acc:.3f}` (moyenne {recent_count} dernières évaluations)
+- **Précision Fréquence récente**: `{avg_freq_acc:.3f}` (moyenne {recent_count} dernières évaluations)
+- **Évaluations effectuées**: `{len(history['ml_scores'])}`
+- **Dernière évaluation**: `{last_date[:19] if last_date != "N/A" else "N/A"}`
+"""
+        else:
+            adaptive_info = f"""
+## 🤖 Stratégie Adaptative Machine Learning
+- **Poids ML initial**: `{adaptive_strategy.ml_weight:.3f}` ({adaptive_strategy.ml_weight*100:.1f}%)
+- **Poids Fréquence initial**: `{1.0 - adaptive_strategy.ml_weight:.3f}` ({(1.0 - adaptive_strategy.ml_weight)*100:.1f}%)
+- **État**: Première utilisation - collecte des données de performance en cours
+"""    
 
     report_content = f"""# Rapport d'Analyse Loto - {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
@@ -615,6 +1470,7 @@ def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time:
 
 ### 🔗 Top 5 Paires Fréquentes
 {top_pairs_str}
+{adaptive_info}
 
 ## 📈 Fichiers Générés
 - **Analyse détaillée**: `numbers_analysis.csv`
@@ -652,6 +1508,15 @@ def main():
         print(f"❌ ERREUR: Fichier Parquet '{parquet_path}' non trouvé.")
         return
 
+    # Gestion du ré-entraînement forcé
+    if hasattr(parse_arguments(), 'retrain') and parse_arguments().retrain:
+        print("🔄 FORCE RE-TRAINING: Suppression des anciens modèles...")
+        import shutil
+        if MODEL_DIR.exists():
+            shutil.rmtree(MODEL_DIR)
+        MODEL_DIR.mkdir(exist_ok=True)
+        print("   ✓ Dossier modèles nettoyé, entraînement forcé.")
+
     criteria = None
     cache_key = f"loto_criteria:{parquet_path.stat().st_mtime}"
     if redis_client:
@@ -669,6 +1534,10 @@ def main():
             print(f"1. Chargement et analyse des données depuis '{parquet_path}'...")
             con.execute(f"CREATE TABLE loto_draws AS SELECT * FROM read_parquet('{str(parquet_path)}')")
             criteria = analyze_criteria_duckdb(con, 'loto_draws')
+            
+            # Mise à jour de la stratégie adaptative avec les données récentes
+            update_adaptive_strategy_with_recent_draws(con, adaptive_strategy)
+            
             if redis_client:
                 print("Sauvegarde des nouveaux critères dans Redis (expiration: 4h)...")
                 ttl_seconds = int(timedelta(hours=4).total_seconds())
@@ -681,15 +1550,53 @@ def main():
     criteria['numbers_analysis'].to_csv(analysis_csv_path, index=False, float_format='%.2f', date_format='%Y-%m-%d')
     print(f"   ✓ Analyse détaillée des numéros exportée vers '{analysis_csv_path}'.")
 
+    # Export des fréquences en CSV
+    frequencies_csv_path = OUTPUT_DIR / 'frequencies_analysis.csv'
+    freq_df = pd.DataFrame({
+        'numero': criteria['freq'].index,
+        'frequence': criteria['freq'].values,
+        'frequence_pourcentage': (criteria['freq'].values / criteria['freq'].sum() * 100),
+        'is_hot': criteria['freq'].index.isin(criteria['hot_numbers']),
+        'is_cold': criteria['freq'].index.isin(criteria['cold_numbers']),
+        'is_excluded_by_frequency': criteria['freq'].index.isin(criteria.get('freq_excluded', set()))
+    })
+    freq_df = freq_df.sort_values('frequence', ascending=False)
+    freq_df.to_csv(frequencies_csv_path, index=False, float_format='%.2f')
+    print(f"   ✓ Analyse des fréquences exportée vers '{frequencies_csv_path}'.")
+
     print("\n2. Gestion des modèles XGBoost...")
-    models = load_saved_models()
-    if not all(m is not None for m in models):
-        print("  Certains modèles sont manquants, ré-entraînement complet...")
+    
+    if ARGS.retrain:
+        print("  ⚠️ FLAG --retrain détecté : Nettoyage et ré-entraînement forcé...")
+        # Nettoyage complet des modèles existants
+        import shutil
+        boost_dir = Path("boost_models")
+        if boost_dir.exists():
+            print("  🗑️ Suppression du répertoire boost_models existant...")
+            shutil.rmtree(boost_dir)
+        # Recréer le répertoire
+        boost_dir.mkdir(exist_ok=True)
         con = duckdb.connect(database=':memory:', read_only=False)
         con.execute(f"CREATE TABLE loto_draws AS SELECT * FROM read_parquet('{str(parquet_path)}')")
         df_full = con.table('loto_draws').fetchdf()
         con.close()
         models = train_xgboost_parallel(df_full)
+    else:
+        models = load_saved_models()
+        # Vérifier si on a suffisamment de modèles fonctionnels (au moins 70% des modèles)
+        ball_models_available = 1 if models.get('balls_multilabel') is not None else 0
+        chance_models_available = 1 if models.get('chance_multilabel') is not None else 0
+        total_available = ball_models_available + chance_models_available
+        
+        if total_available < 2:  # Les 2 modèles multi-label doivent être disponibles
+            print(f"  Modèles multi-label insuffisants ({total_available}/2), ré-entraînement complet...")
+            con = duckdb.connect(database=':memory:', read_only=False)
+            con.execute(f"CREATE TABLE loto_draws AS SELECT * FROM read_parquet('{str(parquet_path)}')")
+            df_full = con.table('loto_draws').fetchdf()
+            con.close()
+            models = train_xgboost_parallel(df_full)
+        else:
+            print(f"  ✓ {total_available}/2 modèles multi-label disponibles")
 
     print("\n3. Simulation intelligente des grilles...")
     X_last = np.array(criteria['last_draw']).reshape(1, -1)
@@ -717,7 +1624,7 @@ def main():
     else:
         print("⚠️ Pas de visualisations créées car aucune grille n'a été générée.")
     execution_time = (datetime.now() - start_time).total_seconds()
-    create_report(criteria, grids, OUTPUT_DIR, execution_time)
+    create_report(criteria, grids, OUTPUT_DIR, execution_time, adaptive_strategy)
 
     print(f"\n✅ Analyse terminée avec succès en {execution_time:.2f} secondes.")
     print(f"📁 Tous les résultats sont disponibles dans : '{OUTPUT_DIR.resolve()}'")
@@ -736,6 +1643,24 @@ def main():
         print(f"   - Score médian : {np.median([g['score'] for g in grids]):.4f}")
         print(f"   - Meilleur score : {grids[0]['score']:.4f}")
         print(f"   - Pire score : {grids[-1]['score']:.4f}")
+        
+        # Affichage des informations de stratégie adaptative
+        if adaptive_strategy:
+            freq_weight = 1.0 - adaptive_strategy.ml_weight
+            print(f"\n🤖 Stratégie Adaptative Machine Learning :")
+            print(f"   - Poids ML actuel : {adaptive_strategy.ml_weight:.3f} ({adaptive_strategy.ml_weight*100:.1f}%)")
+            print(f"   - Poids Fréquence actuel : {freq_weight:.3f} ({freq_weight*100:.1f}%)")
+            
+            history = adaptive_strategy.performance_history
+            if history and 'ml_scores' in history and len(history['ml_scores']) > 0:
+                recent_count = min(5, len(history['ml_scores']))
+                avg_ml_acc = np.mean(history['ml_scores'][-recent_count:])
+                avg_freq_acc = np.mean(history['freq_scores'][-recent_count:])
+                print(f"   - Précision ML récente : {avg_ml_acc:.3f} (moyenne sur {recent_count} évaluations)")
+                print(f"   - Précision Fréquence récente : {avg_freq_acc:.3f}")
+                print(f"   - Total évaluations : {len(history['ml_scores'])}")
+            else:
+                print(f"   - État : Première utilisation - collecte des données en cours")
     else:
         print("\n⚠️ Aucune grille n'a été générée.")
         print("Vérifiez les critères d'exclusion et la configuration.")

@@ -153,7 +153,85 @@ Le **Menu CLI Interactif** offre une interface conviviale avec :
 - Génération de visualisations
 - Export des statistiques détaillées
 
-## 🎲 Guide Loto Complet
+## � API Flask RESTful
+
+### 🚀 Lancement de l'API
+
+L'API Flask expose toutes les fonctionnalités via des endpoints HTTP :
+
+```bash
+# Méthode 1: Script de lancement
+./lancer_api.sh
+
+# Méthode 2: Lancement direct
+python api/app.py
+
+# Méthode 3: Flask CLI
+export FLASK_APP=api/app.py
+flask run --host=0.0.0.0 --port=5000
+```
+
+**🌐 Accès:** `http://localhost:5000`
+
+### 📚 Documentation Interactive
+
+L'API inclut une page de documentation complète accessible à `http://localhost:5000/`
+
+### 🛠️ Endpoints Principaux
+
+#### 🎲 Génération Loto
+```bash
+# Générer 3 grilles avec stratégie équilibrée
+curl -X POST http://localhost:5000/api/loto/generate \
+  -H "Content-Type: application/json" \
+  -d '{"count": 3, "strategy": "equilibre"}'
+```
+
+#### 🎰 Analyse Keno
+```bash
+# Analyse avec 5 stratégies
+curl -X POST http://localhost:5000/api/keno/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"strategies": 5, "deep_analysis": false}'
+```
+
+#### 📊 Gestion des Données
+```bash
+# Statut des données
+curl http://localhost:5000/api/data/status
+
+# Mise à jour des données
+curl -X POST http://localhost:5000/api/data/update \
+  -H "Content-Type: application/json" \
+  -d '{"sources": ["loto", "keno"]}'
+```
+
+#### 🩺 Santé de l'API
+```bash
+# Vérifier l'état de l'API
+curl http://localhost:5000/api/health
+```
+
+### 🧪 Tests API
+
+```bash
+# Tester tous les endpoints
+python test_api.py
+
+# Tester depuis le menu CLI (option 16)
+python cli_menu.py
+```
+
+### 📖 Documentation Complète
+
+Voir le fichier `api/API_DOCUMENTATION.md` pour :
+- **📋 Liste complète des endpoints**
+- **🔧 Paramètres de requête**
+- **📄 Formats de réponse**
+- **❌ Gestion des erreurs**
+- **🚀 Exemples d'utilisation**
+
+## �🎲 Guide Loto Complet
 
 ### 📥 Téléchargement Automatique des Données
 
@@ -1269,7 +1347,91 @@ keno_output/
 └── recommandations_keno.txt  # Recommandations
 ```
 
-## 🧪 Tests et validation
+## � Générateur Keno Avancé avec Machine Learning
+
+### 🎯 Vue d'ensemble
+
+Le générateur Keno avancé utilise **RandomForest** avec approche **multi-label** pour apprendre les corrélations entre numéros et optimiser la génération de grilles.
+
+### 🚀 Profils d'Entraînement
+
+Le système propose 4 profils d'entraînement adaptés à différents besoins :
+
+#### ⚡ Quick (--quick)
+```bash
+python keno/keno_generator_advanced.py --quick
+```
+- **Usage** : Tests rapides et développement
+- **Grilles** : 10 par défaut
+- **Temps** : ~10-15 secondes  
+- **ML** : 50 arbres, profondeur 8
+
+#### ⚖️ Balanced (--balanced) [DÉFAUT]
+```bash
+python keno/keno_generator_advanced.py --balanced
+# ou simplement
+python keno/keno_generator_advanced.py
+```
+- **Usage** : Équilibre optimal performance/temps
+- **Grilles** : 100 par défaut
+- **Temps** : ~1-2 minutes
+- **ML** : 100 arbres, profondeur 12
+
+#### 🎯 Comprehensive (--comprehensive)
+```bash
+python keno/keno_generator_advanced.py --comprehensive
+```
+- **Usage** : Entraînement approfondi
+- **Grilles** : 500 par défaut
+- **Temps** : ~5-10 minutes
+- **ML** : 200 arbres, profondeur 15
+
+#### 🔥 Intensive (--intensive)
+```bash
+python keno/keno_generator_advanced.py --intensive
+```
+- **Usage** : Performance maximale  
+- **Grilles** : 1000 par défaut
+- **Temps** : ~15-30 minutes
+- **ML** : 300 arbres, profondeur 20
+
+### 🔧 Options Avancées
+
+```bash
+# Combinaisons avec profils
+python keno/keno_generator_advanced.py --comprehensive --grids 200
+python keno/keno_generator_advanced.py --quick --silent --output test.csv
+python keno/keno_generator_advanced.py --retrain --intensive
+
+# Aide complète
+python keno/keno_generator_advanced.py --help
+```
+
+### 📊 Caractéristiques Techniques
+
+- **Modèle** : RandomForest MultiOutputClassifier  
+- **Features** : 108 variables (historique + zones géographiques)
+- **Target** : 70 numéros (corrélations apprises)
+- **Données** : 3,520+ tirages historiques
+- **Accuracy** : ~71% (modèle multi-label)
+
+### 🎲 Exemple de Résultats
+
+```
+🏆 Top 5 des grilles recommandées:
+   1. [ 1 -  8 - 11 - 14 - 16 - 27 - 35 - 39 - 62 - 69] | Score: 13.36
+   2. [ 3 -  7 - 13 - 20 - 21 - 49 - 50 - 55 - 59 - 69] | Score: 13.29
+   3. [ 1 -  5 -  8 - 32 - 42 - 44 - 46 - 55 - 61 - 69] | Score: 13.27
+   4. [ 1 -  8 - 13 - 16 - 19 - 20 - 27 - 29 - 60 - 69] | Score: 13.27
+   5. [ 8 - 11 - 13 - 21 - 24 - 34 - 39 - 49 - 62 - 69] | Score: 13.27
+
+📊 Statistiques:
+   - Grilles générées: 500
+   - Score moyen: 12.82
+   - Temps d'exécution: 561.51 secondes
+```
+
+## �🧪 Tests et validation
 
 ### Tests par catégorie
 

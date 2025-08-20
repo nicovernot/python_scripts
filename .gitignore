@@ -1,16 +1,13 @@
 # Ignore virtual environment
 /venv/
 
-# Ignore keno data and generated files
+# Ignore data directories and generated files
 /keno_data/*
 !/keno_data/
-
 /keno_models/*
 !/keno_models/
-
 /keno_results/*
 !/keno_results/
-
 /keno_output/*
 !/keno_output/
 
@@ -20,12 +17,37 @@
 keno/keno_data/
 keno/keno_analyse/
 
+# Ignore all generated stats and analysis files
+frequences_express.csv
+pair_impair_express.csv
+zones_express.csv
+sommes_express.csv
+resume_express.txt
+analyse_rapide.csv
+analyse_rapide.png
+rapport_complet.json
+resume_analyse.txt
+frequences_keno.csv
+pair_impair_keno.csv
+zones_keno.csv
+sommes_keno.csv
+tableau_retards_complet.csv
+heatmap_retards.png
+top_retards.png
+frequences_keno.png
+pair_impair.png
+zones.png
+sommes.png
+*_resume.csv
+
 # Ignore loto data and generated files
 /loto_data/*
 !/loto_data/
-
 /loto_output/*
 !/loto_output/
+loto/data/
+loto/output/
+*.parquet
 
 # Ignore generated loto analysis files
 /loto_analyse_plots/
@@ -37,6 +59,9 @@ loto/loto_analyse/
 grilles.csv
 /output/
 recommandations_*.txt
+
+# Ignore grilles output directory
+/grilles/sorties/
 
 # Ignore cache files
 /cache/
@@ -51,6 +76,20 @@ viz_cache.pkl
 model_*.joblib
 xgb_*.pkl
 
+# Ignore test files and temporary scripts
+test_*.py
+*_test.py
+quick_fix.py
+analyse_keno_unique.py
+demo_*.py
+exemple_*.py
+
+# Ignore documentation reports and temporary markdown files
+RAPPORT_*.md
+RESUME_*.md
+AJOUT_*.md
+SORTIES_*.md
+
 # Ignore Python bytecode files
 *.pyc
 *.pyo
@@ -60,3 +99,9 @@ __pycache__/
 /bin/
 /models
 /lib64/
+
+# Ignore debug and log files
+debug_*.html
+*.log
+debug_fdj_*.html
+keno_extract.log
