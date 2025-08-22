@@ -268,3 +268,24 @@ class DataService:
                 'valid': False,
                 'error': f'Erreur lors de la validation Keno: {str(e)}'
             }
+    
+    def check_data_status(self) -> Dict[str, Any]:
+        """Vérifie le statut global des données pour le dashboard"""
+        status = self.get_status()
+        
+        return {
+            'loto_available': status['loto']['exists'],
+            'keno_available': status['keno']['exists'], 
+            'last_update': datetime.now().isoformat(),
+            'overall_health': status['overall_status'] == 'ok',
+            'details': {
+                'loto': {
+                    'file_size': status['loto'].get('size_human', 'N/A'),
+                    'last_modified': status['loto'].get('last_modified', 'N/A')
+                },
+                'keno': {
+                    'file_size': status['keno'].get('size_human', 'N/A'), 
+                    'last_modified': status['keno'].get('last_modified', 'N/A')
+                }
+            }
+        }

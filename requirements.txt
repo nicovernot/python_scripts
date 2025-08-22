@@ -20,5 +20,7 @@ stumpy
 statsmodels
 flask
 flask-cors
+flask
+flask-cors
 pyarrow
 fastparquet

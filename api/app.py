@@ -49,13 +49,16 @@ except ImportError:
 from api.services.loto_service import LotoService
 from api.services.keno_service import KenoService
 from api.services.data_service import DataService
+from api.services.file_service import FileService
 from api.utils.validators import validate_loto_request, validate_keno_request
 from api.utils.error_handler import APIError, handle_api_error
 
 
 def create_app(config_name='default'):
     """Factory pour créer l'application Flask"""
-    app = Flask(__name__)
+    # Définir le chemin des templates
+    template_dir = Path(__file__).parent / 'templates'
+    app = Flask(__name__, template_folder=str(template_dir))
     
     # Configuration
     app.config.update(
@@ -79,6 +82,7 @@ def create_app(config_name='default'):
     loto_service = LotoService()
     keno_service = KenoService()
     data_service = DataService()
+    file_service = FileService()
     
     # Gestionnaire d'erreurs global
     @app.errorhandler(APIError)
@@ -106,86 +110,116 @@ def create_app(config_name='default'):
         <!DOCTYPE html>
         <html>
         <head>
-            <title>🎲🎰 API Loto/Keno</title>
+            <title>API Loto/Keno - Documentation</title>
             <style>
-                body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-                .container { max-width: 800px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-                h1 { color: #2c3e50; text-align: center; }
-                h2 { color: #34495e; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
-                .endpoint { background: #ecf0f1; padding: 15px; margin: 10px 0; border-radius: 5px; }
-                .method { display: inline-block; padding: 3px 8px; border-radius: 3px; color: white; font-weight: bold; margin-right: 10px; }
-                .get { background: #27ae60; }
-                .post { background: #e74c3c; }
-                .status { text-align: center; margin: 20px 0; }
-                .success { color: #27ae60; }
-                .warning { color: #f39c12; }
-                code { background: #2c3e50; color: #ecf0f1; padding: 2px 5px; border-radius: 3px; }
+                body { font-family: Arial, sans-serif; margin: 40px; }
+                .endpoint { background: #f4f4f4; padding: 10px; margin: 10px 0; border-radius: 5px; }
+                .method { color: #fff; padding: 2px 8px; border-radius: 3px; font-weight: bold; }
+                .get { background: #28a745; }
+                .post { background: #007bff; }
+                .put { background: #ffc107; color: #000; }
+                .delete { background: #dc3545; }
             </style>
         </head>
         <body>
-            <div class="container">
-                <h1>🎲🎰 API Système Loto/Keno</h1>
-                
-                <div class="status">
-                    <h3>📊 Statut de l'API: <span class="success">✅ OPÉRATIONNELLE</span></h3>
-                    <p>Dernière mise à jour: {{ timestamp }}</p>
-                </div>
-                
-                <h2>📚 Documentation des Endpoints</h2>
-                
-                <div class="endpoint">
-                    <span class="method post">POST</span><strong>/api/loto/generate</strong>
-                    <p>Génère des grilles Loto optimisées</p>
-                    <p><strong>Paramètres:</strong> <code>grids</code>, <code>strategy</code>, <code>config</code></p>
-                </div>
-                
-                <div class="endpoint">
-                    <span class="method post">POST</span><strong>/api/keno/analyze</strong>
-                    <p>Effectue une analyse Keno et génère des recommandations</p>
-                    <p><strong>Paramètres:</strong> <code>strategies</code>, <code>deep_analysis</code></p>
-                </div>
-                
-                <div class="endpoint">
-                    <span class="method post">POST</span><strong>/api/data/update</strong>
-                    <p>Met à jour les données Loto et/ou Keno depuis FDJ</p>
-                    <p><strong>Paramètres:</strong> <code>loto</code>, <code>keno</code></p>
-                </div>
-                
-                <div class="endpoint">
-                    <span class="method get">GET</span><strong>/api/data/status</strong>
-                    <p>Retourne le statut des fichiers de données</p>
-                </div>
-                
-                <div class="endpoint">
-                    <span class="method get">GET</span><strong>/api/health</strong>
-                    <p>Vérification de santé de l'API</p>
-                </div>
-                
-                <div class="endpoint">
-                    <span class="method get">GET</span><strong>/api/config</strong>
-                    <p>Retourne la configuration active de l'API</p>
-                </div>
-                
-                <h2>🚀 Exemples d'Utilisation</h2>
-                
-                <h3>Génération Loto</h3>
-                <pre><code>curl -X POST http://localhost:5000/api/loto/generate \\
-     -H "Content-Type: application/json" \\
-     -d '{"grids": 3, "strategy": "equilibre"}'</code></pre>
-                
-                <h3>Analyse Keno</h3>
-                <pre><code>curl -X POST http://localhost:5000/api/keno/analyze \\
-     -H "Content-Type: application/json" \\
-     -d '{"strategies": 7, "deep_analysis": false}'</code></pre>
-                
-                <h3>Statut des Données</h3>
-                <pre><code>curl http://localhost:5000/api/data/status</code></pre>
-                
+            <h1>🎲 API Loto/Keno</h1>
+            <p>API RESTful pour l'analyse et la génération de grilles Loto/Keno</p>
+            
+            <h2>🚀 Accès Rapide</h2>
+            <ul>
+                <li><a href="/dashboard">Dashboard Interface Web</a></li>
+                <li><a href="/api/health">État de l'API</a></li>
+                <li><a href="/api/config">Configuration</a></li>
+            </ul>
+            
+            <h2>📚 Endpoints Disponibles</h2>
+            
+            <h3>🎯 Génération et Analyse</h3>
+            <div class="endpoint">
+                <span class="method post">POST</span> <strong>/api/loto/generate</strong><br>
+                Génère des grilles de Loto avec ML et stratégies
             </div>
+            <div class="endpoint">
+                <span class="method post">POST</span> <strong>/api/keno/analyze</strong><br>
+                Analyse Keno avec stratégies multiples
+            </div>
+            
+            <h3>📁 Gestion des Fichiers</h3>
+            <div class="endpoint">
+                <span class="method get">GET</span> <strong>/api/files/list?type=keno|loto</strong><br>
+                Liste tous les fichiers générés
+            </div>
+            <div class="endpoint">
+                <span class="method get">GET</span> <strong>/api/files/download/&lt;path&gt;</strong><br>
+                Télécharge un fichier spécifique
+            </div>
+            <div class="endpoint">
+                <span class="method get">GET</span> <strong>/api/files/view/&lt;path&gt;</strong><br>
+                Affiche un fichier dans le navigateur
+            </div>
+            
+            <h3>🎯 Analyse des Stratégies</h3>
+            <div class="endpoint">
+                <span class="method get">GET</span> <strong>/api/strategies/analyze/&lt;keno|loto&gt;</strong><br>
+                Analyse les stratégies disponibles
+            </div>
+            <div class="endpoint">
+                <span class="method get">GET</span> <strong>/api/strategies/recommend/&lt;keno|loto&gt;</strong><br>
+                Recommandations de stratégies
+            </div>
+            
+            <h3>📊 Dashboard</h3>
+            <div class="endpoint">
+                <span class="method get">GET</span> <strong>/api/dashboard/&lt;keno|loto&gt;</strong><br>
+                Données complètes pour le dashboard
+            </div>
+            
+            <h3>🔧 Système</h3>
+            <div class="endpoint">
+                <span class="method get">GET</span> <strong>/api/health</strong><br>
+                État de santé de l'API
+            </div>
+            <div class="endpoint">
+                <span class="method get">GET</span> <strong>/api/data/status</strong><br>
+                Statut des données
+            </div>
+            <div class="endpoint">
+                <span class="method post">POST</span> <strong>/api/data/update</strong><br>
+                Mise à jour des données
+            </div>
+            
+            <h2>💡 Exemples d'Utilisation</h2>
+            <pre>
+# Lister les fichiers Keno
+curl "http://localhost:5000/api/files/list?type=keno"
+
+# Analyser les stratégies Loto  
+curl "http://localhost:5000/api/strategies/analyze/loto"
+
+# Dashboard complet Keno
+curl "http://localhost:5000/api/dashboard/keno"
+            </pre>
+            
+            <hr>
+            <p><small>Version 2.0 - API Étendue avec Gestion des Fichiers et Stratégies</small></p>
         </body>
         </html>
         """
-        return render_template_string(html_doc, timestamp=datetime.now().strftime('%d/%m/%Y %H:%M:%S'))
+        return html_doc
+    
+    @app.route('/dashboard')
+    def dashboard():
+        """Interface web du dashboard"""
+        try:
+            from flask import render_template
+            return render_template('dashboard.html')
+        except Exception as e:
+            # Fallback si le template n'est pas trouvé
+            return f"""
+            <h1>Dashboard Loto/Keno</h1>
+            <p>Erreur lors du chargement du dashboard: {str(e)}</p>
+            <p><a href="/">Retour à l'accueil</a></p>
+            """
     
     # ============================================================================
     # ENDPOINTS LOTO
@@ -398,6 +432,148 @@ def create_app(config_name='default'):
         except Exception as e:
             app.logger.error(f"Erreur config: {str(e)}")
             raise APIError(f"Erreur lors de la récupération de la configuration: {str(e)}", 500)
+    
+    # ============================================================================
+    # ROUTES DE GESTION DES FICHIERS
+    # ============================================================================
+    
+    @app.route('/api/files/list', methods=['GET'])
+    def list_files():
+        """Liste tous les fichiers disponibles"""
+        try:
+            game_type = request.args.get('type', None)  # 'keno', 'loto' ou None
+            
+            files = file_service.get_available_files(game_type)
+            
+            return jsonify({
+                'success': True,
+                'data': files,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            raise APIError(f"Erreur lors de la récupération des fichiers: {str(e)}", 500)
+    
+    @app.route('/api/files/download/<path:file_path>')
+    def download_file(file_path):
+        """Télécharge un fichier spécifique"""
+        try:
+            content, mime_type, filename = file_service.get_file_content(file_path)
+            
+            from flask import Response
+            response = Response(
+                content,
+                mimetype=mime_type,
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Content-Length': str(len(content))
+                }
+            )
+            
+            return response
+            
+        except FileNotFoundError:
+            raise APIError(f"Fichier non trouvé: {file_path}", 404)
+        except PermissionError:
+            raise APIError(f"Accès non autorisé au fichier: {file_path}", 403)
+        except Exception as e:
+            raise APIError(f"Erreur lors du téléchargement: {str(e)}", 500)
+    
+    @app.route('/api/files/view/<path:file_path>')
+    def view_file(file_path):
+        """Affiche un fichier dans le navigateur"""
+        try:
+            content, mime_type, filename = file_service.get_file_content(file_path)
+            
+            from flask import Response
+            response = Response(
+                content,
+                mimetype=mime_type,
+                headers={
+                    'Content-Disposition': f'inline; filename="{filename}"'
+                }
+            )
+            
+            return response
+            
+        except FileNotFoundError:
+            raise APIError(f"Fichier non trouvé: {file_path}", 404)
+        except PermissionError:
+            raise APIError(f"Accès non autorisé au fichier: {file_path}", 403)
+        except Exception as e:
+            raise APIError(f"Erreur lors de l'affichage: {str(e)}", 500)
+    
+    # ============================================================================
+    # ROUTES D'ANALYSE DES STRATÉGIES
+    # ============================================================================
+    
+    @app.route('/api/strategies/analyze/<game_type>', methods=['GET'])
+    def analyze_strategies(game_type):
+        """Analyse les stratégies disponibles pour un jeu"""
+        try:
+            if game_type not in ['keno', 'loto']:
+                raise APIError(f"Type de jeu non supporté: {game_type}", 400)
+            
+            analysis = file_service.analyze_strategies(game_type)
+            
+            return jsonify({
+                'success': True,
+                'data': analysis,
+                'game_type': game_type
+            })
+            
+        except Exception as e:
+            raise APIError(f"Erreur lors de l'analyse des stratégies: {str(e)}", 500)
+    
+    @app.route('/api/strategies/recommend/<game_type>', methods=['GET'])
+    def get_strategy_recommendations(game_type):
+        """Récupère les recommandations de stratégies"""
+        try:
+            if game_type not in ['keno', 'loto']:
+                raise APIError(f"Type de jeu non supporté: {game_type}", 400)
+            
+            recommendations = file_service.get_strategy_recommendations(game_type)
+            
+            return jsonify({
+                'success': True,
+                'data': recommendations,
+                'game_type': game_type
+            })
+            
+        except Exception as e:
+            raise APIError(f"Erreur lors de la récupération des recommandations: {str(e)}", 500)
+    
+    @app.route('/api/dashboard/<game_type>', methods=['GET'])
+    def get_dashboard_data(game_type):
+        """Récupère toutes les données pour le dashboard"""
+        try:
+            if game_type not in ['keno', 'loto']:
+                raise APIError(f"Type de jeu non supporté: {game_type}", 400)
+            
+            # Récupérer les fichiers disponibles
+            files = file_service.get_available_files(game_type)
+            
+            # Récupérer les recommandations de stratégies
+            recommendations = file_service.get_strategy_recommendations(game_type)
+            
+            # Statut des données
+            data_status = data_service.check_data_status()
+            
+            dashboard_data = {
+                'files': files,
+                'strategy_recommendations': recommendations,
+                'data_status': data_status,
+                'game_type': game_type,
+                'last_updated': datetime.now().isoformat()
+            }
+            
+            return jsonify({
+                'success': True,
+                'data': dashboard_data
+            })
+            
+        except Exception as e:
+            raise APIError(f"Erreur lors de la récupération du dashboard: {str(e)}", 500)
     
     return app
 
