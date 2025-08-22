@@ -226,11 +226,40 @@ class FileService:
     def _analyze_loto_strategies(self) -> Dict[str, Any]:
         """Analyse les stratégies Loto"""
         # Implementation similaire pour Loto
+        strategies = {}
+        
+        # Analyser les fichiers CSV Loto s'ils existent
+        csv_files = {
+            'frequences': self.output_dirs['loto_csv'] / 'frequences_loto.csv',
+            'retards': self.output_dirs['loto_csv'] / 'retards_loto.csv',
+            'sommes': self.output_dirs['loto_csv'] / 'sommes_loto.csv'
+        }
+        
+        for strategy_name, csv_path in csv_files.items():
+            if csv_path.exists():
+                try:
+                    df = pd.read_csv(csv_path)
+                    strategies[strategy_name] = self._evaluate_strategy_performance(df, strategy_name)
+                except Exception as e:
+                    print(f"Erreur analyse Loto {strategy_name}: {e}")
+        
+        # Déterminer la meilleure stratégie ou utiliser la stratégie par défaut
+        if strategies:
+            best_strategy = self._determine_best_strategy(strategies)
+        else:
+            best_strategy = {
+                'name': 'equilibre',
+                'score': 75.0,
+                'reason': 'Stratégie par défaut - équilibre des numéros',
+                'metrics': {}
+            }
+        
         return {
-            'strategies': {},
-            'best_strategy': 'equilibre',
+            'strategies': strategies,
+            'best_strategy': best_strategy,
             'analysis_date': datetime.now().isoformat(),
-            'note': 'Analyse Loto en cours de développement'
+            'total_strategies': len(strategies),
+            'note': 'Analyse Loto avec stratégies disponibles'
         }
     
     def _evaluate_strategy_performance(self, df: pd.DataFrame, strategy_name: str) -> Dict[str, Any]:

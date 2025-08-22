@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Générateur de Grilles - Loto/Keno</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .hero-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 60px 0;
+        }
+        
+        .game-card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            height: 100%;
+        }
+        
+        .game-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+        
+        .game-icon {
+            font-size: 3rem;
+            margin-bottom: 20px;
+        }
+        
+        .keno-theme {
+            background: linear-gradient(135deg, #ff6b6b, #ffa726);
+            color: white;
+        }
+        
+        .loto-theme {
+            background: linear-gradient(135deg, #4ecdc4, #44a08d);
+            color: white;
+        }
+        
+        .form-section {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 30px;
+            margin: 20px 0;
+        }
+        
+        .number-grid {
+            display: grid;
+            gap: 8px;
+            margin: 20px 0;
+            justify-content: center;
+        }
+        
+        .keno-grid {
+            grid-template-columns: repeat(10, 1fr);
+            max-width: 500px;
+        }
+        
+        .loto-grid {
+            grid-template-columns: repeat(7, 1fr);
+            max-width: 350px;
+        }
+        
+        .number-btn {
+            width: 40px;
+            height: 40px;
+            border: 2px solid #ddd;
+            background: white;
+            border-radius: 50%;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .number-btn:hover {
+            border-color: #007bff;
+            transform: scale(1.1);
+        }
+        
+        .number-btn.selected {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        
+        .generated-grid {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 15px 0;
+            border-left: 4px solid #28a745;
+        }
+        
+        .strategy-badge {
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            margin: 2px;
+            display: inline-block;
+        }
+        
+        .stats-card {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .btn-generate {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            color: white;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-generate:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+            color: white;
+        }
+        
+        .progress-container {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: #667eea;">
+        <div class="container">
+            <a class="navbar-brand" href="/dashboard">
+                <i class="fas fa-dice me-2"></i>Générateur de Grilles
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/dashboard">
+                    <i class="fas fa-tachometer-alt me-1"></i>Dashboard
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="container text-center">
+            <h1 class="display-4 mb-4">
+                <i class="fas fa-magic me-3"></i>Générateur de Grilles Intelligent
+            </h1>
+            <p class="lead">Créez vos grilles Loto et Keno optimisées avec nos algorithmes avancés</p>
+        </div>
+    </section>
+
+    <!-- Game Selection -->
+    <div class="container my-5">
+        <div class="row">
+            <!-- Keno Card -->
+            <div class="col-md-6 mb-4">
+                <div class="card game-card keno-theme" onclick="selectGame('keno')">
+                    <div class="card-body text-center p-5">
+                        <div class="game-icon">
+                            <i class="fas fa-circle"></i>
+                        </div>
+                        <h3 class="card-title">Keno</h3>
+                        <p class="card-text">
+                            Générez vos grilles Keno avec analyse des fréquences, 
+                            retards et zones chaudes
+                        </p>
+                        <div class="mt-3">
+                            <span class="badge bg-light text-dark me-2">20 numéros</span>
+                            <span class="badge bg-light text-dark me-2">70 possibles</span>
+                            <span class="badge bg-light text-dark">Multi-stratégies</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loto Card -->
+            <div class="col-md-6 mb-4">
+                <div class="card game-card loto-theme" onclick="selectGame('loto')">
+                    <div class="card-body text-center p-5">
+                        <div class="game-icon">
+                            <i class="fas fa-star"></i>
+                        </div>
+                        <h3 class="card-title">Loto</h3>
+                        <p class="card-text">
+                            Créez vos grilles Loto optimisées avec analyse 
+                            des tirages et patterns gagnants
+                        </p>
+                        <div class="mt-3">
+                            <span class="badge bg-light text-dark me-2">5 numéros</span>
+                            <span class="badge bg-light text-dark me-2">49 possibles</span>
+                            <span class="badge bg-light text-dark">+ Numéro chance</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Generator Form -->
+        <div id="generatorForm" style="display: none;">
+            <div class="form-section">
+                <div class="row">
+                    <div class="col-md-8">
+                        <h4 id="gameTitle">Configuration de la génération</h4>
+                        
+                        <!-- Stratégies -->
+                        <div class="mb-4">
+                            <label class="form-label">
+                                <i class="fas fa-brain me-2"></i>Stratégie de génération
+                            </label>
+                            <select class="form-select" id="strategy">
+                                <option value="equilibre">Équilibre optimal</option>
+                                <option value="frequences">Numéros fréquents</option>
+                                <option value="retards">Numéros en retard</option>
+                                <option value="zones">Équilibre par zones</option>
+                                <option value="paires">Analyse des paires</option>
+                                <option value="mixte">Stratégie mixte</option>
+                            </select>
+                        </div>
+
+                        <!-- Nombre de grilles -->
+                        <div class="mb-4">
+                            <label class="form-label" for="gridCount">
+                                <i class="fas fa-list-ol me-2"></i>Nombre de grilles
+                            </label>
+                            <input type="range" class="form-range" id="gridCount" min="1" max="10" value="3" 
+                                   oninput="updateGridCountLabel()">
+                            <div class="d-flex justify-content-between">
+                                <small>1 grille</small>
+                                <span id="gridCountLabel" class="badge bg-primary">3 grilles</span>
+                                <small>10 grilles</small>
+                            </div>
+                        </div>
+
+                        <!-- Nombre de numéros pour Keno -->
+                        <div class="mb-4" id="kenoNumberCount" style="display: none;">
+                            <label class="form-label" for="kenoNumbers">
+                                <i class="fas fa-hashtag me-2"></i>Nombre de numéros par grille (Keno)
+                            </label>
+                            <input type="range" class="form-range" id="kenoNumbers" min="4" max="10" value="7" 
+                                   oninput="updateKenoNumbersLabel()">
+                            <div class="d-flex justify-content-between">
+                                <small>4 numéros</small>
+                                <span id="kenoNumbersLabel" class="badge bg-success">7 numéros</span>
+                                <small>10 numéros</small>
+                            </div>
+                            <small class="text-muted">Plus de numéros = plus de chances mais mise plus élevée</small>
+                        </div>
+
+                        <!-- Options avancées -->
+                        <div class="mb-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="useStatistics" checked>
+                                <label class="form-check-label" for="useStatistics">
+                                    Utiliser les statistiques historiques
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="avoidConsecutive">
+                                <label class="form-check-label" for="avoidConsecutive">
+                                    Éviter les numéros consécutifs
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="balanceZones" checked>
+                                <label class="form-check-label" for="balanceZones">
+                                    Équilibrer les zones numériques
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Numéros personnalisés -->
+                        <div class="mb-4">
+                            <label class="form-label">
+                                <i class="fas fa-star me-2"></i>Numéros favoris (optionnel)
+                            </label>
+                            <div id="numberGrid" class="number-grid">
+                                <!-- Généré dynamiquement -->
+                            </div>
+                            <small class="text-muted">Cliquez sur les numéros à inclure obligatoirement</small>
+                        </div>
+
+                        <!-- Bouton de génération -->
+                        <div class="text-center">
+                            <button class="btn btn-generate btn-lg" onclick="generateGrids()">
+                                <i class="fas fa-magic me-2"></i>Générer les grilles
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <!-- Statistiques en temps réel -->
+                        <div class="stats-card mb-4">
+                            <h6><i class="fas fa-chart-line me-2"></i>Statistiques</h6>
+                            <div class="row text-center mt-3">
+                                <div class="col-6">
+                                    <div class="h4" id="totalCombinations">-</div>
+                                    <small>Combinaisons</small>
+                                </div>
+                                <div class="col-6">
+                                    <div class="h4" id="winProbability">-</div>
+                                    <small>Probabilité</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Historique récent -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-history me-2"></i>Derniers tirages
+                                </h6>
+                            </div>
+                            <div class="card-body" id="recentDraws">
+                                <div class="text-center text-muted">
+                                    <i class="fas fa-spinner fa-spin me-2"></i>Chargement...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div class="loading-spinner" id="loadingSpinner">
+                <div class="progress-container">
+                    <h5><i class="fas fa-cog fa-spin me-2"></i>Génération en cours...</h5>
+                    <div class="progress mb-3">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%" id="progressBar">
+                        </div>
+                    </div>
+                    <p class="text-muted" id="progressText">Analyse des données historiques...</p>
+                </div>
+            </div>
+
+            <!-- Résultats -->
+            <div id="results" style="display: none;">
+                <h4 class="text-center mb-4">
+                    <i class="fas fa-trophy me-2 text-warning"></i>Vos grilles générées
+                </h4>
+                <div id="generatedGrids">
+                    <!-- Grilles générées dynamiquement -->
+                </div>
+                
+                <div class="text-center mt-4">
+                    <button class="btn btn-success me-3" onclick="downloadGrids()">
+                        <i class="fas fa-download me-2"></i>Télécharger PDF
+                    </button>
+                    <button class="btn btn-outline-primary" onclick="generateNew()">
+                        <i class="fas fa-redo me-2"></i>Nouvelle génération
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentGame = '';
+        let selectedNumbers = new Set();
+        let apiBaseUrl = 'http://localhost:5000/api';
+
+        function selectGame(gameType) {
+            currentGame = gameType;
+            document.getElementById('generatorForm').style.display = 'block';
+            document.getElementById('gameTitle').textContent = 
+                `Génération de grilles ${gameType.toUpperCase()}`;
+            
+            // Afficher/masquer le contrôle du nombre de numéros pour Keno
+            const kenoNumberCount = document.getElementById('kenoNumberCount');
+            if (gameType === 'keno') {
+                kenoNumberCount.style.display = 'block';
+            } else {
+                kenoNumberCount.style.display = 'none';
+            }
+            
+            // Scroll vers le formulaire
+            document.getElementById('generatorForm').scrollIntoView({
+                behavior: 'smooth'
+            });
+            
+            generateNumberGrid(gameType);
+            updateStats();
+            loadRecentDraws();
+        }
+
+        function generateNumberGrid(gameType) {
+            const grid = document.getElementById('numberGrid');
+            const maxNumber = gameType === 'keno' ? 70 : 49;
+            const gridClass = gameType === 'keno' ? 'keno-grid' : 'loto-grid';
+            
+            grid.className = `number-grid ${gridClass}`;
+            grid.innerHTML = '';
+            
+            for (let i = 1; i <= maxNumber; i++) {
+                const btn = document.createElement('button');
+                btn.className = 'number-btn';
+                btn.textContent = i;
+                btn.type = 'button';
+                btn.onclick = () => toggleNumber(i, btn);
+                grid.appendChild(btn);
+            }
+        }
+
+        function toggleNumber(number, button) {
+            if (selectedNumbers.has(number)) {
+                selectedNumbers.delete(number);
+                button.classList.remove('selected');
+            } else {
+                let maxSelection;
+                if (currentGame === 'keno') {
+                    maxSelection = parseInt(document.getElementById('kenoNumbers').value);
+                } else {
+                    maxSelection = 5;
+                }
+                
+                if (selectedNumbers.size < maxSelection) {
+                    selectedNumbers.add(number);
+                    button.classList.add('selected');
+                } else {
+                    alert(`Maximum ${maxSelection} numéros sélectionnables pour ${currentGame.toUpperCase()}`);
+                }
+            }
+            updateStats();
+        }
+
+        function updateGridCountLabel() {
+            const count = document.getElementById('gridCount').value;
+            document.getElementById('gridCountLabel').textContent = `${count} grille${count > 1 ? 's' : ''}`;
+        }
+
+        function updateKenoNumbersLabel() {
+            const count = document.getElementById('kenoNumbers').value;
+            document.getElementById('kenoNumbersLabel').textContent = count + ' numéros';
+            
+            // Recalculer les statistiques quand on change le nombre de numéros
+            if (currentGame === 'keno') {
+                updateStats();
+                
+                // Ajuster la limite de sélection des numéros favoris
+                const maxSelection = parseInt(count);
+                if (selectedNumbers.size > maxSelection) {
+                    // Garder seulement les premiers numéros sélectionnés
+                    const numbersArray = Array.from(selectedNumbers);
+                    selectedNumbers.clear();
+                    
+                    // Remettre à jour l'affichage
+                    document.querySelectorAll('.number-btn').forEach(btn => {
+                        btn.classList.remove('selected');
+                    });
+                    
+                    // Sélectionner seulement le bon nombre de numéros
+                    for (let i = 0; i < Math.min(maxSelection, numbersArray.length); i++) {
+                        selectedNumbers.add(numbersArray[i]);
+                        document.querySelector(`[onclick*="${numbersArray[i]}"]`).classList.add('selected');
+                    }
+                }
+            }
+        }
+
+        function updateStats() {
+            let combinations, probability;
+            
+            if (currentGame === 'keno') {
+                // Pour Keno: C(70, nb_numeros_choisis) 
+                const kenoNumbers = document.getElementById('kenoNumbers') ? 
+                    parseInt(document.getElementById('kenoNumbers').value) : 7;
+                combinations = calculateCombinations(70, kenoNumbers);
+                probability = (1 / combinations * 100);
+            } else if (currentGame === 'loto') {
+                // Pour Loto: C(49, 5) * 10 (pour le numéro chance)
+                combinations = calculateCombinations(49, 5) * 10;
+                probability = (1 / combinations * 100);
+            } else {
+                combinations = 0;
+                probability = 0;
+            }
+            
+            // Formatage des grands nombres
+            document.getElementById('totalCombinations').textContent = 
+                formatLargeNumber(combinations);
+            document.getElementById('winProbability').textContent = 
+                formatProbability(probability);
+        }
+
+        // Fonction pour calculer les combinaisons C(n, k) = n! / (k! * (n-k)!)
+        function calculateCombinations(n, k) {
+            if (k > n) return 0;
+            if (k === 0 || k === n) return 1;
+            
+            let result = 1;
+            for (let i = 0; i < k; i++) {
+                result = result * (n - i) / (i + 1);
+            }
+            return Math.round(result);
+        }
+
+        // Formatage des grands nombres avec des suffixes
+        function formatLargeNumber(num) {
+            if (num >= 1e12) {
+                return (num / 1e12).toFixed(1) + ' billions';
+            } else if (num >= 1e9) {
+                return (num / 1e9).toFixed(1) + ' milliards';
+            } else if (num >= 1e6) {
+                return (num / 1e6).toFixed(1) + ' millions';
+            } else if (num >= 1e3) {
+                return (num / 1e3).toFixed(1) + ' milliers';
+            } else {
+                return num.toLocaleString();
+            }
+        }
+
+        // Formatage des probabilités très petites
+        function formatProbability(prob) {
+            if (prob >= 1) {
+                return prob.toFixed(2) + '%';
+            } else if (prob >= 0.01) {
+                return prob.toFixed(4) + '%';
+            } else if (prob >= 0.0001) {
+                return prob.toFixed(6) + '%';
+            } else {
+                return '1 sur ' + formatLargeNumber(Math.round(1/prob));
+            }
+        }
+
+        async function loadRecentDraws() {
+            try {
+                const response = await fetch(`${apiBaseUrl}/data/recent-draws/${currentGame}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    displayRecentDraws(data.draws || []);
+                } else {
+                    document.getElementById('recentDraws').innerHTML = 
+                        '<small class="text-muted">Données non disponibles</small>';
+                }
+            } catch (error) {
+                document.getElementById('recentDraws').innerHTML = 
+                    '<small class="text-muted">Données non disponibles</small>';
+            }
+        }
+
+        function displayRecentDraws(draws) {
+            const container = document.getElementById('recentDraws');
+            if (draws.length === 0) {
+                container.innerHTML = '<small class="text-muted">Aucun tirage récent</small>';
+                return;
+            }
+            
+            let html = '';
+            draws.slice(0, 5).forEach(draw => {
+                html += `
+                    <div class="d-flex justify-content-between mb-2">
+                        <small class="text-muted">${draw.date}</small>
+                        <div>
+                            ${draw.numbers.map(n => 
+                                `<span class="badge bg-primary me-1">${n}</span>`
+                            ).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        async function generateGrids() {
+            const strategy = document.getElementById('strategy').value;
+            const gridCount = parseInt(document.getElementById('gridCount').value);
+            const useStatistics = document.getElementById('useStatistics').checked;
+            const avoidConsecutive = document.getElementById('avoidConsecutive').checked;
+            const balanceZones = document.getElementById('balanceZones').checked;
+            
+            // Récupérer le nombre de numéros pour Keno
+            let kenoNumberCount = 7; // valeur par défaut
+            if (currentGame === 'keno') {
+                kenoNumberCount = parseInt(document.getElementById('kenoNumbers').value);
+            }
+            
+            // Afficher le loading
+            document.getElementById('loadingSpinner').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+            
+            // Simulation du progress
+            simulateProgress();
+            
+            try {
+                const requestData = {
+                    game_type: currentGame,
+                    strategy: strategy,
+                    count: gridCount,
+                    grids: gridCount, // Pour compatibilité avec l'API Loto
+                    options: {
+                        use_statistics: useStatistics,
+                        avoid_consecutive: avoidConsecutive,
+                        balance_zones: balanceZones,
+                        favorite_numbers: Array.from(selectedNumbers),
+                        keno_number_count: kenoNumberCount // Nombre de numéros par grille Keno
+                    }
+                };
+                
+                const endpoint = currentGame === 'keno' ? 
+                    `${apiBaseUrl}/keno/generate` : 
+                    `${apiBaseUrl}/loto/generate`;
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    displayResults(data);
+                } else {
+                    throw new Error('Erreur lors de la génération');
+                }
+            } catch (error) {
+                alert('Erreur lors de la génération: ' + error.message);
+            } finally {
+                document.getElementById('loadingSpinner').style.display = 'none';
+            }
+        }
+
+        function simulateProgress() {
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            
+            const steps = [
+                'Analyse des données historiques...',
+                'Application de la stratégie...',
+                'Optimisation des combinaisons...',
+                'Génération des grilles...',
+                'Finalisation...'
+            ];
+            
+            let step = 0;
+            const interval = setInterval(() => {
+                const progress = ((step + 1) / steps.length) * 100;
+                progressBar.style.width = progress + '%';
+                
+                if (step < steps.length) {
+                    progressText.textContent = steps[step];
+                    step++;
+                } else {
+                    clearInterval(interval);
+                }
+            }, 800);
+        }
+
+        function displayResults(data) {
+            const container = document.getElementById('generatedGrids');
+            
+            // Gérer les différents formats de réponse de l'API
+            let grids = [];
+            if (data.grilles) {
+                grids = data.grilles; // Format Keno
+            } else if (data.data && data.data.grilles) {
+                grids = data.data.grilles; // Format Loto
+            } else if (data.data && Array.isArray(data.data)) {
+                grids = data.data; // Format alternatif
+            } else if (Array.isArray(data.results)) {
+                grids = data.results; // Format générique
+            }
+            
+            let html = '';
+            
+            if (grids.length === 0) {
+                html = `
+                    <div class="alert alert-warning">
+                        <h5><i class="fas fa-exclamation-triangle me-2"></i>Aucune grille générée</h5>
+                        <p>Essayez de modifier les paramètres ou la stratégie de génération.</p>
+                        <small class="text-muted">Données reçues: ${JSON.stringify(data, null, 2)}</small>
+                    </div>
+                `;
+            } else {
+                grids.forEach((grid, index) => {
+                    // Extraction flexible des données
+                    let numbers = [];
+                    let strategy = 'standard';
+                    let score = 75;
+                    
+                    if (Array.isArray(grid)) {
+                        numbers = grid;
+                    } else if (grid.numbers) {
+                        numbers = grid.numbers;
+                        strategy = grid.strategy || strategy;
+                        score = grid.score || score;
+                    } else if (grid.numeros) {
+                        numbers = grid.numeros;
+                        strategy = grid.strategie || strategy;
+                        score = grid.score || score;
+                    }
+                    
+                    // Ajouter le numéro chance pour le Loto si applicable
+                    let bonusHtml = '';
+                    if (currentGame === 'loto' && grid.bonus) {
+                        bonusHtml = `
+                            <div class="mt-2">
+                                <span class="badge bg-warning text-dark p-2">
+                                    <i class="fas fa-star me-1"></i>Chance: ${grid.bonus}
+                                </span>
+                            </div>
+                        `;
+                    }
+                    
+                    html += `
+                        <div class="generated-grid">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-clipboard-list me-2"></i>Grille ${index + 1}
+                                </h6>
+                                <div>
+                                    <span class="strategy-badge">${strategy}</span>
+                                    <span class="badge bg-success">Score: ${score.toFixed(1)}</span>
+                                </div>
+                            </div>
+                            <div class="d-flex justify-content-center mb-3">
+                                ${numbers.map(num => 
+                                    `<span class="badge bg-primary me-2 p-2" style="font-size: 1.1em;">${num}</span>`
+                                ).join('')}
+                            </div>
+                            ${bonusHtml}
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Grille optimisée selon la stratégie "${strategy}"
+                            </small>
+                        </div>
+                    `;
+                });
+            }
+            
+            container.innerHTML = html;
+            document.getElementById('results').style.display = 'block';
+            
+            // Scroll vers les résultats
+            document.getElementById('results').scrollIntoView({
+                behavior: 'smooth'
+            });
+        }
+
+        function downloadGrids() {
+            alert('Fonctionnalité de téléchargement en cours de développement');
+        }
+
+        function generateNew() {
+            selectedNumbers.clear();
+            document.querySelectorAll('.number-btn.selected').forEach(btn => {
+                btn.classList.remove('selected');
+            });
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('generatorForm').scrollIntoView({
+                behavior: 'smooth'
+            });
+        }
+
+        // Initialisation
+        document.addEventListener('DOMContentLoaded', function() {
+            updateGridCountLabel();
+        });
+    </script>
+</body>
+</html>
