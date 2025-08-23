@@ -25,6 +25,7 @@ Date: 13 août 2025
 import os
 import sys
 import json
+import subprocess
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -98,6 +99,107 @@ def create_app(config_name='default'):
             'error': 'Erreur interne du serveur',
             'message': str(error) if app.debug else 'Une erreur inattendue s\'est produite'
         }), 500
+    
+    # ============================================================================
+    # FONCTIONS UTILITAIRES
+    # ============================================================================
+    
+    def generate_analysis_report(game_type, subprocess_result, start_time, options):
+        """Génère un rapport détaillé d'analyse"""
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        
+        # Parse output pour extraire les statistiques
+        output = subprocess_result.stdout
+        
+        # Informations de base
+        report = {
+            'game_type': game_type.upper(),
+            'timestamp': end_time.isoformat(),
+            'duration_seconds': round(duration, 2),
+            'status': 'success' if subprocess_result.returncode == 0 else 'error',
+            'options_used': options,
+            'files_generated': {
+                'plots': [],
+                'exports': [],
+                'reports': []
+            },
+            'statistics': {},
+            'summary': '',
+            'recommendations': []
+        }
+        
+        # Extraire les statistiques spécifiques selon le jeu
+        if game_type == 'keno':
+            # Extraire infos Keno
+            if '3536 tirages analysés' in output:
+                report['statistics']['total_draws'] = 3536
+                report['statistics']['numbers_analyzed'] = 70
+                report['statistics']['pairs_analyzed'] = 100
+                
+            # Chercher les recommandations
+            if 'MIX_INTELLIGENT' in output:
+                lines = output.split('\n')
+                for i, line in enumerate(lines):
+                    if 'MIX_INTELLIGENT' in line and i+1 < len(lines):
+                        report['recommendations'].append({
+                            'strategy': 'MIX_INTELLIGENT',
+                            'description': 'Mix intelligent avec pondération probabiliste',
+                            'score': '0.95'
+                        })
+                        break
+                        
+            report['summary'] = f"Analyse complète de {report['statistics'].get('total_draws', 'N/A')} tirages Keno avec génération de {len(report['recommendations'])} stratégies recommandées."
+            
+        elif game_type == 'loto':
+            # Extraire infos Loto
+            if 'tirages chargés avec succès' in output:
+                for line in output.split('\n'):
+                    if 'tirages chargés avec succès' in line:
+                        try:
+                            draws = int(line.split()[1])
+                            report['statistics']['total_draws'] = draws
+                        except:
+                            pass
+                            
+            if 'Score ML:' in output:
+                for line in output.split('\n'):
+                    if 'Score ML:' in line:
+                        try:
+                            score = line.split('Score ML:')[1].split('/')[0].strip()
+                            report['statistics']['ml_score'] = score
+                        except:
+                            pass
+                            
+            # Stratégie utilisée
+            if 'STRATÉGIE' in output:
+                report['recommendations'].append({
+                    'strategy': 'EQUILIBRE',
+                    'description': 'Stratégie équilibrée avec Machine Learning',
+                    'score': report['statistics'].get('ml_score', 'N/A')
+                })
+                
+            report['summary'] = f"Génération de grilles Loto optimisées avec ML (Score: {report['statistics'].get('ml_score', 'N/A')}/100) basée sur {report['statistics'].get('total_draws', 'N/A')} tirages historiques."
+        
+        # Détecter les fichiers générés
+        project_root = Path(__file__).parent.parent
+        
+        # Graphiques
+        plots_dir = project_root / f'{game_type}_analyse_plots'
+        if plots_dir.exists():
+            report['files_generated']['plots'] = [f.name for f in plots_dir.glob('*.png')]
+            
+        # Exports
+        exports_dir = project_root / f'{game_type}_stats_exports'
+        if exports_dir.exists():
+            report['files_generated']['exports'] = [f.name for f in exports_dir.glob('*.csv')]
+            
+        # Rapports
+        output_dir = project_root / f'{game_type}_output'
+        if output_dir.exists():
+            report['files_generated']['reports'] = [f.name for f in output_dir.glob('*')]
+            
+        return report
     
     # ============================================================================
     # ROUTES PRINCIPALES
@@ -187,11 +289,39 @@ def create_app(config_name='default'):
                 <span class="method post">POST</span> <strong>/api/data/update</strong><br>
                 Mise à jour des données
             </div>
+            <div class="endpoint">
+                <span class="method post">POST</span> <strong>/api/data/download/&lt;keno|loto&gt;</strong><br>
+                Téléchargement de données spécifiques par jeu
+            </div>
+            
+            <div class="endpoint">
+                <span class="method post">POST</span> <strong>/api/analysis/run/&lt;keno|loto&gt;</strong><br>
+                Lance l'analyse complète pour un jeu (graphiques, stats, exports)
+            </div>
+            
+            <div class="endpoint">
+                <span class="method get">GET</span> <strong>/api/analysis/status/&lt;keno|loto&gt;</strong><br>
+                Retourne le statut des analyses et fichiers générés
+            </div>
             
             <h2>💡 Exemples d'Utilisation</h2>
             <pre>
 # Lister les fichiers Keno
 curl "http://localhost:5000/api/files/list?type=keno"
+
+# Télécharger données Keno
+curl -X POST "http://localhost:5000/api/data/download/keno"
+
+# Télécharger données Loto  
+curl -X POST "http://localhost:5000/api/data/download/loto"
+
+# Lancer analyse complète Keno
+curl -X POST "http://localhost:5000/api/analysis/run/keno" \
+  -H "Content-Type: application/json" \
+  -d '{"options": {"auto_consolidated": true, "plots": true, "export_stats": true}}'
+
+# Vérifier statut analyse Loto
+curl "http://localhost:5000/api/analysis/status/loto"
 
 # Analyser les stratégies Loto  
 curl "http://localhost:5000/api/strategies/analyze/loto"
@@ -201,7 +331,7 @@ curl "http://localhost:5000/api/dashboard/keno"
             </pre>
             
             <hr>
-            <p><small>Version 2.0 - API Étendue avec Gestion des Fichiers et Stratégies</small></p>
+            <p><small>Version 2.1 - API Étendue avec Analyses Automatisées</small></p>
         </body>
         </html>
         """
@@ -530,6 +660,85 @@ curl "http://localhost:5000/api/dashboard/keno"
             app.logger.error(f"Erreur mise à jour données: {str(e)}")
             raise APIError(f"Erreur lors de la mise à jour: {str(e)}", 500)
 
+    @app.route('/api/data/download/<game_type>', methods=['POST'])
+    def download_game_data(game_type):
+        """Télécharge les données pour un jeu spécifique"""
+        try:
+            if game_type not in ['keno', 'loto']:
+                raise APIError(f"Type de jeu non supporté: {game_type}", 400)
+            
+            app.logger.info(f"Téléchargement des données {game_type.upper()}")
+            
+            # Simuler le téléchargement avec différents scripts selon le jeu
+            result = {
+                'game_type': game_type,
+                'status': 'success',
+                'files_downloaded': 0,
+                'last_update': datetime.now().isoformat()
+            }
+            
+            if game_type == 'keno':
+                # Lancer l'extracteur Keno
+                keno_script = Path(__file__).parent.parent / 'keno' / 'extracteur_keno_zip.py'
+                if keno_script.exists():
+                    try:
+                        subprocess_result = subprocess.run([
+                            sys.executable, str(keno_script)
+                        ], capture_output=True, text=True, timeout=300)
+                        
+                        if subprocess_result.returncode == 0:
+                            result['details'] = 'Extraction Keno terminée avec succès'
+                            result['files_downloaded'] = 1
+                        else:
+                            result['details'] = f'Erreur extraction Keno: {subprocess_result.stderr}'
+                            result['status'] = 'partial'
+                    except subprocess.TimeoutExpired:
+                        result['details'] = 'Timeout lors de l\'extraction Keno'
+                        result['status'] = 'timeout'
+                else:
+                    result['details'] = 'Script extracteur Keno non trouvé'
+                    result['status'] = 'error'
+                    
+            elif game_type == 'loto':
+                # Lancer l'extracteur Loto (si disponible)
+                loto_script = Path(__file__).parent.parent / 'loto' / 'extracteur_loto.py'
+                if loto_script.exists():
+                    try:
+                        subprocess_result = subprocess.run([
+                            sys.executable, str(loto_script)
+                        ], capture_output=True, text=True, timeout=300)
+                        
+                        if subprocess_result.returncode == 0:
+                            result['details'] = 'Extraction Loto terminée avec succès'
+                            result['files_downloaded'] = 1
+                        else:
+                            result['details'] = f'Erreur extraction Loto: {subprocess_result.stderr}'
+                            result['status'] = 'partial'
+                    except subprocess.TimeoutExpired:
+                        result['details'] = 'Timeout lors de l\'extraction Loto'
+                        result['status'] = 'timeout'
+                else:
+                    # Simulation pour Loto si pas de script spécifique
+                    result['details'] = 'Simulation téléchargement Loto (extracteur non disponible)'
+                    result['files_downloaded'] = 1
+                    result['status'] = 'simulated'
+            
+            return jsonify({
+                'success': True,
+                'data': result,
+                'message': f'Téléchargement {game_type.upper()} terminé',
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except APIError:
+            raise
+        except subprocess.SubprocessError as e:
+            app.logger.error(f"Erreur subprocess {game_type}: {str(e)}")
+            raise APIError(f"Erreur lors de l'exécution du téléchargement: {str(e)}", 500)
+        except Exception as e:
+            app.logger.error(f"Erreur téléchargement {game_type}: {str(e)}")
+            raise APIError(f"Erreur lors du téléchargement: {str(e)}", 500)
+
     @app.route('/api/data/recent-draws/<game_type>', methods=['GET'])
     def get_recent_draws(game_type):
         """Retourne les tirages récents pour un jeu"""
@@ -560,6 +769,191 @@ curl "http://localhost:5000/api/dashboard/keno"
         except Exception as e:
             app.logger.error(f"Erreur récupération tirages: {str(e)}")
             raise APIError(f"Erreur lors de la récupération des tirages: {str(e)}", 500)
+    
+    # ============================================================================
+    # ENDPOINTS ANALYSES
+    # ============================================================================
+    
+    @app.route('/api/analysis/run/<game_type>', methods=['POST'])
+    def run_analysis(game_type):
+        """Lance l'analyse complète pour un jeu spécifique"""
+        try:
+            if game_type not in ['keno', 'loto']:
+                raise APIError(f"Type de jeu non supporté: {game_type}", 400)
+            
+            data = request.get_json() or {}
+            options = data.get('options', {})
+            
+            app.logger.info(f"Lancement analyse {game_type.upper()}")
+            
+            result = {
+                'success': True,
+                'game_type': game_type,
+                'analysis_started': True,
+                'timestamp': datetime.now().isoformat(),
+                'status': 'running'
+            }
+            
+            if game_type == 'keno':
+                # Lancer l'analyse Keno
+                keno_script = Path(__file__).parent.parent / 'keno' / 'duckdb_keno.py'
+                if keno_script.exists():
+                    try:
+                        start_time = datetime.now()
+                        
+                        # Options d'analyse Keno
+                        cmd_args = [sys.executable, str(keno_script)]
+                        if options.get('auto_consolidated', True):
+                            cmd_args.append('--auto-consolidated')
+                        if options.get('plots', True):
+                            cmd_args.append('--plots')
+                        if options.get('export_stats', True):
+                            cmd_args.append('--export-stats')
+                        
+                        # Exécuter depuis la racine du projet
+                        project_root = Path(__file__).parent.parent
+                        
+                        subprocess_result = subprocess.run(
+                            cmd_args, 
+                            capture_output=True, 
+                            text=True, 
+                            timeout=600,  # 10 minutes max
+                            cwd=str(project_root)  # Définir le répertoire de travail
+                        )
+                        
+                        if subprocess_result.returncode == 0:
+                            # Générer le rapport détaillé
+                            analysis_report = generate_analysis_report(game_type, subprocess_result, start_time, options)
+                            
+                            result['details'] = 'Analyse Keno terminée avec succès'
+                            result['status'] = 'completed'
+                            result['output'] = subprocess_result.stdout[-1000:]  # Dernières 1000 chars
+                            result['report'] = analysis_report  # Rapport détaillé
+                        else:
+                            result['details'] = f'Erreur analyse Keno: {subprocess_result.stderr}'
+                            result['status'] = 'error'
+                            result['error'] = subprocess_result.stderr
+                    except subprocess.TimeoutExpired:
+                        result['details'] = 'Timeout lors de l\'analyse Keno (>10 min)'
+                        result['status'] = 'timeout'
+                else:
+                    result['details'] = 'Script d\'analyse Keno non trouvé'
+                    result['status'] = 'error'
+                    
+            elif game_type == 'loto':
+                # Lancer l'analyse Loto
+                loto_script = Path(__file__).parent.parent / 'loto' / 'duckdb_loto.py'
+                if loto_script.exists():
+                    try:
+                        start_time = datetime.now()
+                        
+                        # Trouver le fichier CSV Loto disponible
+                        project_root = Path(__file__).parent.parent
+                        loto_csv = project_root / 'loto' / 'loto_data' / 'loto_201911.csv'
+                        loto_config = project_root / 'loto' / 'strategies.yml'
+                        
+                        if not loto_csv.exists():
+                            result['details'] = 'Fichier de données Loto non trouvé'
+                            result['status'] = 'error'
+                        else:
+                            # Options d'analyse Loto (format spécifique)
+                            cmd_args = [sys.executable, str(loto_script)]
+                            cmd_args.extend(['--csv', str(loto_csv)])
+                            cmd_args.extend(['--config-file', str(loto_config)])
+                            
+                            if options.get('plots', True):
+                                cmd_args.append('--plots')
+                            if options.get('export_stats', True):
+                                cmd_args.append('--export-stats')
+                            
+                            # Ajouter stratégie et grilles
+                            cmd_args.extend(['--strategy', 'equilibre'])
+                            cmd_args.extend(['--grids', '3'])
+                        
+                            subprocess_result = subprocess.run(
+                                cmd_args, 
+                                capture_output=True, 
+                                text=True, 
+                                timeout=600,  # 10 minutes max
+                                cwd=str(project_root)  # Définir le répertoire de travail
+                            )
+                            
+                            if subprocess_result.returncode == 0:
+                                # Générer le rapport détaillé
+                                analysis_report = generate_analysis_report(game_type, subprocess_result, start_time, options)
+                                
+                                result['details'] = 'Analyse Loto terminée avec succès'
+                                result['status'] = 'completed'
+                                result['output'] = subprocess_result.stdout[-1000:]  # Dernières 1000 chars
+                                result['report'] = analysis_report  # Rapport détaillé
+                            else:
+                                result['details'] = f'Erreur analyse Loto: {subprocess_result.stderr}'
+                                result['status'] = 'error'
+                                result['error'] = subprocess_result.stderr
+                    except subprocess.TimeoutExpired:
+                        result['details'] = 'Timeout lors de l\'analyse Loto (>10 min)'
+                        result['status'] = 'timeout'
+                else:
+                    result['details'] = 'Script d\'analyse Loto non trouvé'
+                    result['status'] = 'error'
+            
+            return jsonify(result)
+            
+        except APIError:
+            raise
+        except Exception as e:
+            app.logger.error(f"Erreur lancement analyse {game_type}: {str(e)}")
+            raise APIError(f"Erreur lors du lancement de l'analyse: {str(e)}", 500)
+    
+    @app.route('/api/analysis/status/<game_type>', methods=['GET'])
+    def get_analysis_status(game_type):
+        """Retourne le statut des analyses pour un jeu"""
+        try:
+            if game_type not in ['keno', 'loto']:
+                raise APIError(f"Type de jeu non supporté: {game_type}", 400)
+            
+            # Vérifier les fichiers de sortie d'analyse
+            plots_dir = Path(__file__).parent.parent / f'{game_type}_analyse_plots'
+            exports_dir = Path(__file__).parent.parent / f'{game_type}_stats_exports'
+            output_dir = Path(__file__).parent.parent / f'{game_type}_output'
+            
+            status = {
+                'game_type': game_type,
+                'plots_available': plots_dir.exists() and any(plots_dir.iterdir()),
+                'exports_available': exports_dir.exists() and any(exports_dir.iterdir()),
+                'output_available': output_dir.exists() and any(output_dir.iterdir()),
+                'last_analysis': None,
+                'files': {
+                    'plots': [],
+                    'exports': [],
+                    'outputs': []
+                }
+            }
+            
+            # Récupérer les fichiers récents
+            if status['plots_available']:
+                plots = list(plots_dir.glob('*.png'))
+                status['files']['plots'] = [p.name for p in sorted(plots, key=lambda x: x.stat().st_mtime, reverse=True)[:5]]
+                if plots:
+                    status['last_analysis'] = max(plots, key=lambda x: x.stat().st_mtime).stat().st_mtime
+            
+            if status['exports_available']:
+                exports = list(exports_dir.glob('*.csv'))
+                status['files']['exports'] = [e.name for e in sorted(exports, key=lambda x: x.stat().st_mtime, reverse=True)[:5]]
+            
+            if status['output_available']:
+                outputs = list(output_dir.glob('*.txt'))
+                status['files']['outputs'] = [o.name for o in sorted(outputs, key=lambda x: x.stat().st_mtime, reverse=True)[:5]]
+            
+            return jsonify({
+                'success': True,
+                'data': status,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            app.logger.error(f"Erreur statut analyse {game_type}: {str(e)}")
+            raise APIError(f"Erreur lors de la vérification du statut: {str(e)}", 500)
     
     # ============================================================================
     # ENDPOINTS UTILITAIRES

@@ -250,6 +250,58 @@
                                 <i class="fas fa-star me-1"></i>Loto
                             </label>
                         </div>
+                        
+                        <!-- Actions de téléchargement -->
+                        <div class="mt-3">
+                            <h6 class="text-muted mb-2">
+                                <i class="fas fa-download me-1"></i>Téléchargement de données
+                            </h6>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-success btn-sm" onclick="downloadData('keno')" id="downloadKenoBtn">
+                                    <i class="fas fa-download me-1"></i>Télécharger données Keno
+                                </button>
+                                <button class="btn btn-info btn-sm" onclick="downloadData('loto')" id="downloadLotoBtn">
+                                    <i class="fas fa-download me-1"></i>Télécharger données Loto
+                                </button>
+                                <button class="btn btn-warning btn-sm" onclick="updateAllData()" id="updateAllBtn">
+                                    <i class="fas fa-sync-alt me-1"></i>Mettre à jour tout
+                                </button>
+                            </div>
+                            <div class="progress mt-2" style="height: 6px; display: none;" id="downloadProgress">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                            </div>
+                            <small class="text-muted d-block mt-1">Télécharge automatiquement les dernières données depuis FDJ</small>
+                        </div>
+                        
+                        <!-- Actions d'analyse -->
+                        <div class="mt-3 border-top pt-3">
+                            <h6 class="text-muted mb-2">
+                                <i class="fas fa-chart-line me-1"></i>Analyses complètes
+                            </h6>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-primary btn-sm" onclick="runAnalysis('keno')" id="analyzeKenoBtn">
+                                    <i class="fas fa-chart-bar me-1"></i>Analyser Keno
+                                </button>
+                                <button class="btn btn-secondary btn-sm" onclick="runAnalysis('loto')" id="analyzeLotoBtn">
+                                    <i class="fas fa-chart-line me-1"></i>Analyser Loto
+                                </button>
+                                <button class="btn btn-outline-primary btn-sm" onclick="checkAnalysisStatus()" id="statusBtn">
+                                    <i class="fas fa-info-circle me-1"></i>Statut analyses
+                                </button>
+                            </div>
+                            <div class="progress mt-2" style="height: 6px; display: none;" id="analysisProgress">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar" style="width: 0%"></div>
+                            </div>
+                            <div id="analysisStatus" class="mt-2" style="display: none;">
+                                <div class="alert alert-info alert-sm mb-0" role="alert">
+                                    <div id="analysisStatusText">Analyse en cours...</div>
+                                    <div class="mt-1">
+                                        <small class="text-muted" id="analysisDetails">Initialisation...</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <small class="text-muted d-block mt-1">Lance les analyses statistiques complètes avec graphiques et exports</small>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -262,6 +314,79 @@
                     <span class="visually-hidden">Chargement...</span>
                 </div>
                 <p class="mt-2">Chargement des données...</p>
+            </div>
+        </div>
+
+        <!-- Rapport d'analyse -->
+        <div id="analysisReport" style="display: none;" class="mb-4">
+            <div class="card border-success">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-chart-line me-2"></i>Rapport d'Analyse
+                        <button type="button" class="btn btn-sm btn-outline-light float-end" onclick="closeAnalysisReport()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="text-primary">📊 Informations Générales</h6>
+                            <table class="table table-sm">
+                                <tr><td><strong>Type de jeu:</strong></td><td id="reportGameType">-</td></tr>
+                                <tr><td><strong>Durée d'analyse:</strong></td><td id="reportDuration">-</td></tr>
+                                <tr><td><strong>Statut:</strong></td><td id="reportStatus">-</td></tr>
+                                <tr><td><strong>Timestamp:</strong></td><td id="reportTimestamp">-</td></tr>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-primary">📈 Statistiques</h6>
+                            <table class="table table-sm">
+                                <tr><td><strong>Tirages analysés:</strong></td><td id="reportTotalDraws">-</td></tr>
+                                <tr><td><strong>Score ML:</strong></td><td id="reportMLScore">-</td></tr>
+                                <tr><td><strong>Numéros analysés:</strong></td><td id="reportNumbersAnalyzed">-</td></tr>
+                                <tr><td><strong>Paires analysées:</strong></td><td id="reportPairsAnalyzed">-</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <h6 class="text-primary">📋 Résumé</h6>
+                            <p id="reportSummary" class="text-muted">-</p>
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-3">
+                        <div class="col-md-4">
+                            <h6 class="text-success">📊 Graphiques générés</h6>
+                            <ul id="reportPlots" class="list-unstyled text-muted">
+                                <li>Aucun graphique</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-4">
+                            <h6 class="text-info">📄 Exports CSV</h6>
+                            <ul id="reportExports" class="list-unstyled text-muted">
+                                <li>Aucun export</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-4">
+                            <h6 class="text-warning">📝 Rapports</h6>
+                            <ul id="reportReports" class="list-unstyled text-muted">
+                                <li>Aucun rapport</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-3" id="reportRecommendations">
+                        <div class="col-12">
+                            <h6 class="text-primary">🎯 Recommandations</h6>
+                            <div id="reportRecommendationsList" class="text-muted">
+                                Aucune recommandation disponible
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -945,6 +1070,350 @@
 
         function refreshData() {
             loadDashboard();
+        }
+
+        async function downloadData(gameType) {
+            const btn = document.getElementById(`download${gameType.charAt(0).toUpperCase() + gameType.slice(1)}Btn`);
+            const progress = document.getElementById('downloadProgress');
+            const progressBar = progress.querySelector('.progress-bar');
+            
+            try {
+                // Désactiver le bouton et afficher le progress
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i>Téléchargement...`;
+                progress.style.display = 'block';
+                
+                // Simuler le progrès
+                let progressValue = 0;
+                const progressInterval = setInterval(() => {
+                    progressValue += Math.random() * 20;
+                    if (progressValue > 90) progressValue = 90;
+                    progressBar.style.width = progressValue + '%';
+                }, 500);
+                
+                // Appeler l'API de téléchargement
+                const response = await fetch(`${apiBaseUrl}/data/download/${gameType}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                
+                if (result.success) {
+                    showAlert('success', `✅ Données ${gameType.toUpperCase()} téléchargées avec succès!`);
+                    // Actualiser le dashboard après téléchargement
+                    setTimeout(() => {
+                        loadDashboard();
+                    }, 1000);
+                } else {
+                    throw new Error(result.message || 'Erreur lors du téléchargement');
+                }
+                
+            } catch (error) {
+                console.error('Erreur téléchargement:', error);
+                showAlert('error', `❌ Erreur lors du téléchargement ${gameType}: ${error.message}`);
+            } finally {
+                // Réactiver le bouton
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fas fa-download me-1"></i>Télécharger données ${gameType.charAt(0).toUpperCase() + gameType.slice(1)}`;
+                
+                // Masquer le progress après un délai
+                setTimeout(() => {
+                    progress.style.display = 'none';
+                    progressBar.style.width = '0%';
+                }, 2000);
+            }
+        }
+
+        async function updateAllData() {
+            const btn = document.getElementById('updateAllBtn');
+            const progress = document.getElementById('downloadProgress');
+            const progressBar = progress.querySelector('.progress-bar');
+            
+            try {
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i>Mise à jour...`;
+                progress.style.display = 'block';
+                
+                // Télécharger Keno d'abord
+                showAlert('info', '📥 Téléchargement des données Keno...');
+                progressBar.style.width = '25%';
+                await downloadDataInternal('keno');
+                
+                // Puis Loto
+                showAlert('info', '📥 Téléchargement des données Loto...');
+                progressBar.style.width = '75%';
+                await downloadDataInternal('loto');
+                
+                progressBar.style.width = '100%';
+                showAlert('success', '✅ Toutes les données ont été mises à jour avec succès!');
+                
+                // Actualiser le dashboard
+                setTimeout(() => {
+                    loadDashboard();
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Erreur mise à jour complète:', error);
+                showAlert('error', `❌ Erreur lors de la mise à jour: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fas fa-sync-alt me-1"></i>Mettre à jour tout`;
+                
+                setTimeout(() => {
+                    progress.style.display = 'none';
+                    progressBar.style.width = '0%';
+                }, 2000);
+            }
+        }
+
+        async function downloadDataInternal(gameType) {
+            const response = await fetch(`${apiBaseUrl}/data/download/${gameType}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.message || `Erreur téléchargement ${gameType}`);
+            }
+            return result;
+        }
+
+        // ============================================================================
+        // FONCTIONS D'ANALYSE
+        // ============================================================================
+
+        async function runAnalysis(gameType) {
+            const btn = document.getElementById(`analyze${gameType.charAt(0).toUpperCase() + gameType.slice(1)}Btn`);
+            const progress = document.getElementById('analysisProgress');
+            const status = document.getElementById('analysisStatus');
+            const statusText = document.getElementById('analysisStatusText');
+            const statusDetails = document.getElementById('analysisDetails');
+            
+            try {
+                // Désactiver le bouton
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i>Analyse en cours...`;
+                
+                // Afficher la progression
+                progress.style.display = 'block';
+                status.style.display = 'block';
+                statusText.textContent = `Lancement de l'analyse ${gameType.toUpperCase()}...`;
+                statusDetails.textContent = 'Initialisation des scripts d\'analyse...';
+                
+                // Animer la barre de progression
+                let progressValue = 0;
+                const progressBar = progress.querySelector('.progress-bar');
+                
+                const progressInterval = setInterval(() => {
+                    progressValue += Math.random() * 10;
+                    if (progressValue > 90) progressValue = 90;
+                    progressBar.style.width = progressValue + '%';
+                }, 500);
+
+                // Lancer l'analyse via l'API
+                const result = await runAnalysisInternal(gameType);
+                
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                
+                if (result.success && result.status === 'completed') {
+                    statusText.textContent = `✅ Analyse ${gameType.toUpperCase()} terminée avec succès !`;
+                    statusDetails.textContent = result.details || 'Analyse complète avec graphiques et exports';
+                    status.querySelector('.alert').className = 'alert alert-success alert-sm mb-0';
+                    
+                    // Afficher le rapport d'analyse si disponible
+                    if (result.report) {
+                        displayAnalysisReport(result.report);
+                    }
+                    
+                    showAlert('success', `Analyse ${gameType.toUpperCase()} terminée ! Consultez le rapport ci-dessous.`);
+                    
+                    // Actualiser les données après 2 secondes
+                    setTimeout(() => {
+                        loadDashboardData(gameType);
+                    }, 2000);
+                } else {
+                    throw new Error(result.details || result.error || `Erreur lors de l'analyse ${gameType}`);
+                }
+                
+            } catch (error) {
+                console.error('Erreur analyse:', error);
+                statusText.textContent = `❌ Erreur lors de l'analyse ${gameType.toUpperCase()}`;
+                statusDetails.textContent = error.message;
+                status.querySelector('.alert').className = 'alert alert-danger alert-sm mb-0';
+                showAlert('error', `Erreur analyse ${gameType}: ${error.message}`);
+            } finally {
+                // Réactiver le bouton
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = `<i class="fas fa-chart-${gameType === 'keno' ? 'bar' : 'line'} me-1"></i>Analyser ${gameType.charAt(0).toUpperCase() + gameType.slice(1)}`;
+                    progress.style.display = 'none';
+                    
+                    // Masquer le statut après 10 secondes
+                    setTimeout(() => {
+                        status.style.display = 'none';
+                    }, 10000);
+                }, 2000);
+            }
+        }
+
+        async function runAnalysisInternal(gameType) {
+            const response = await fetch(`${apiBaseUrl}/analysis/run/${gameType}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    options: {
+                        auto_consolidated: true,
+                        plots: true,
+                        export_stats: true
+                    }
+                })
+            });
+            
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.message || `Erreur analyse ${gameType}`);
+            }
+            return result;
+        }
+
+        async function checkAnalysisStatus() {
+            const btn = document.getElementById('statusBtn');
+            
+            try {
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i>Vérification...`;
+                
+                // Vérifier les statuts pour les deux jeux
+                const [kenoStatus, lotoStatus] = await Promise.all([
+                    checkAnalysisStatusInternal('keno'),
+                    checkAnalysisStatusInternal('loto')
+                ]);
+                
+                // Afficher les résultats dans une modal ou alert
+                const statusHtml = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>📊 Statut Keno</h6>
+                            <p><strong>Graphiques:</strong> ${kenoStatus.plots_available ? '✅ Disponibles' : '❌ Manquants'}</p>
+                            <p><strong>Exports:</strong> ${kenoStatus.exports_available ? '✅ Disponibles' : '❌ Manquants'}</p>
+                            <p><strong>Outputs:</strong> ${kenoStatus.output_available ? '✅ Disponibles' : '❌ Manquants'}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>🎱 Statut Loto</h6>
+                            <p><strong>Graphiques:</strong> ${lotoStatus.plots_available ? '✅ Disponibles' : '❌ Manquants'}</p>
+                            <p><strong>Exports:</strong> ${lotoStatus.exports_available ? '✅ Disponibles' : '❌ Manquants'}</p>
+                            <p><strong>Outputs:</strong> ${lotoStatus.output_available ? '✅ Disponibles' : '❌ Manquants'}</p>
+                        </div>
+                    </div>
+                `;
+                
+                showAlert('info', statusHtml, 'Statut des analyses');
+                
+            } catch (error) {
+                console.error('Erreur vérification statut:', error);
+                showAlert('error', `Erreur lors de la vérification: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fas fa-info-circle me-1"></i>Statut analyses`;
+            }
+        }
+
+        async function checkAnalysisStatusInternal(gameType) {
+            const response = await fetch(`${apiBaseUrl}/analysis/status/${gameType}`);
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.message || `Erreur statut ${gameType}`);
+            }
+            return result.data;
+        }
+
+        // ============================================================================
+        // FONCTIONS DE RAPPORT D'ANALYSE
+        // ============================================================================
+
+        function displayAnalysisReport(report) {
+            const reportDiv = document.getElementById('analysisReport');
+            
+            // Remplir les informations générales
+            document.getElementById('reportGameType').textContent = report.game_type || '-';
+            document.getElementById('reportDuration').textContent = report.duration_seconds ? `${report.duration_seconds}s` : '-';
+            document.getElementById('reportStatus').innerHTML = report.status === 'success' ? '<span class="badge bg-success">Succès</span>' : '<span class="badge bg-danger">Erreur</span>';
+            document.getElementById('reportTimestamp').textContent = report.timestamp ? new Date(report.timestamp).toLocaleString('fr-FR') : '-';
+            
+            // Remplir les statistiques
+            document.getElementById('reportTotalDraws').textContent = report.statistics?.total_draws || '-';
+            document.getElementById('reportMLScore').textContent = report.statistics?.ml_score ? `${report.statistics.ml_score}/100` : '-';
+            document.getElementById('reportNumbersAnalyzed').textContent = report.statistics?.numbers_analyzed || '-';
+            document.getElementById('reportPairsAnalyzed').textContent = report.statistics?.pairs_analyzed || '-';
+            
+            // Résumé
+            document.getElementById('reportSummary').textContent = report.summary || 'Aucun résumé disponible';
+            
+            // Fichiers générés - Graphiques
+            const plotsList = document.getElementById('reportPlots');
+            if (report.files_generated?.plots && report.files_generated.plots.length > 0) {
+                plotsList.innerHTML = report.files_generated.plots.map(file => 
+                    `<li><i class="fas fa-chart-line text-success me-1"></i>${file}</li>`
+                ).join('');
+            } else {
+                plotsList.innerHTML = '<li class="text-muted">Aucun graphique généré</li>';
+            }
+            
+            // Fichiers générés - Exports
+            const exportsList = document.getElementById('reportExports');
+            if (report.files_generated?.exports && report.files_generated.exports.length > 0) {
+                exportsList.innerHTML = report.files_generated.exports.map(file => 
+                    `<li><i class="fas fa-file-csv text-info me-1"></i>${file}</li>`
+                ).join('');
+            } else {
+                exportsList.innerHTML = '<li class="text-muted">Aucun export généré</li>';
+            }
+            
+            // Fichiers générés - Rapports
+            const reportsList = document.getElementById('reportReports');
+            if (report.files_generated?.reports && report.files_generated.reports.length > 0) {
+                reportsList.innerHTML = report.files_generated.reports.map(file => 
+                    `<li><i class="fas fa-file-alt text-warning me-1"></i>${file}</li>`
+                ).join('');
+            } else {
+                reportsList.innerHTML = '<li class="text-muted">Aucun rapport généré</li>';
+            }
+            
+            // Recommandations
+            const recommendationsList = document.getElementById('reportRecommendationsList');
+            if (report.recommendations && report.recommendations.length > 0) {
+                recommendationsList.innerHTML = report.recommendations.map(rec => 
+                    `<div class="alert alert-light border-start border-4 border-primary mb-2">
+                        <h6 class="mb-1"><i class="fas fa-star text-warning me-1"></i>${rec.strategy}</h6>
+                        <p class="mb-1">${rec.description}</p>
+                        <small class="text-muted">Score: ${rec.score}</small>
+                    </div>`
+                ).join('');
+            } else {
+                recommendationsList.innerHTML = '<div class="text-muted">Aucune recommandation disponible</div>';
+            }
+            
+            // Afficher le rapport
+            reportDiv.style.display = 'block';
+            
+            // Scroller vers le rapport
+            reportDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function closeAnalysisReport() {
+            document.getElementById('analysisReport').style.display = 'none';
         }
 
         function copyToClipboard(text) {
