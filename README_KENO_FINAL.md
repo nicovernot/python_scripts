@@ -100,9 +100,9 @@ date,numero_tirage,b1,b2,b3,...,b20
 python keno/extracteur_keno_zip.py
 ```
 
-### 2. Analyse complète
+### 2. Analyse complète avec DuckDB
 ```bash
-python keno/analyse_keno_complete.py
+python keno/duckdb_keno.py --auto-consolidated --plots --export-stats
 ```
 
 ### 3. Générateur intelligent v2
