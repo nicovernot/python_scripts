@@ -358,22 +358,16 @@
                     </div>
                     
                     <div class="row mt-3">
-                        <div class="col-md-4">
-                            <h6 class="text-success">📊 Graphiques générés</h6>
+                        <div class="col-md-6">
+                            <h6 class="text-success">📊 Graphiques d'Analyse</h6>
                             <ul id="reportPlots" class="list-unstyled text-muted">
                                 <li>Aucun graphique</li>
                             </ul>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <h6 class="text-info">📄 Exports CSV</h6>
                             <ul id="reportExports" class="list-unstyled text-muted">
                                 <li>Aucun export</li>
-                            </ul>
-                        </div>
-                        <div class="col-md-4">
-                            <h6 class="text-warning">📝 Rapports</h6>
-                            <ul id="reportReports" class="list-unstyled text-muted">
-                                <li>Aucun rapport</li>
                             </ul>
                         </div>
                     </div>
@@ -731,12 +725,10 @@
 
         function getCategoryName(category) {
             const names = {
-                'keno_csv': 'Données CSV Keno',
-                'keno_plots': 'Graphiques Keno',
-                'keno_output': 'Rapports Keno',
-                'loto_csv': 'Données CSV Loto',
-                'loto_plots': 'Graphiques Loto',
-                'loto_output': 'Rapports Loto'
+                'keno_csv': 'Exports CSV Keno',
+                'keno_plots': 'Graphiques d\'Analyse Keno',
+                'loto_csv': 'Exports CSV Loto',
+                'loto_plots': 'Graphiques d\'Analyse Loto'
             };
             return names[category] || category;
         }
@@ -1307,14 +1299,12 @@
                         <div class="col-md-6">
                             <h6>📊 Statut Keno</h6>
                             <p><strong>Graphiques:</strong> ${kenoStatus.plots_available ? '✅ Disponibles' : '❌ Manquants'}</p>
-                            <p><strong>Exports:</strong> ${kenoStatus.exports_available ? '✅ Disponibles' : '❌ Manquants'}</p>
-                            <p><strong>Outputs:</strong> ${kenoStatus.output_available ? '✅ Disponibles' : '❌ Manquants'}</p>
+                            <p><strong>Exports CSV:</strong> ${kenoStatus.exports_available ? '✅ Disponibles' : '❌ Manquants'}</p>
                         </div>
                         <div class="col-md-6">
                             <h6>🎱 Statut Loto</h6>
                             <p><strong>Graphiques:</strong> ${lotoStatus.plots_available ? '✅ Disponibles' : '❌ Manquants'}</p>
-                            <p><strong>Exports:</strong> ${lotoStatus.exports_available ? '✅ Disponibles' : '❌ Manquants'}</p>
-                            <p><strong>Outputs:</strong> ${lotoStatus.output_available ? '✅ Disponibles' : '❌ Manquants'}</p>
+                            <p><strong>Exports CSV:</strong> ${lotoStatus.exports_available ? '✅ Disponibles' : '❌ Manquants'}</p>
                         </div>
                     </div>
                 `;
@@ -1379,16 +1369,6 @@
                 ).join('');
             } else {
                 exportsList.innerHTML = '<li class="text-muted">Aucun export généré</li>';
-            }
-            
-            // Fichiers générés - Rapports
-            const reportsList = document.getElementById('reportReports');
-            if (report.files_generated?.reports && report.files_generated.reports.length > 0) {
-                reportsList.innerHTML = report.files_generated.reports.map(file => 
-                    `<li><i class="fas fa-file-alt text-warning me-1"></i>${file}</li>`
-                ).join('');
-            } else {
-                reportsList.innerHTML = '<li class="text-muted">Aucun rapport généré</li>';
             }
             
             // Recommandations

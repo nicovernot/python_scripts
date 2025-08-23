@@ -194,10 +194,8 @@ def create_app(config_name='default'):
         if exports_dir.exists():
             report['files_generated']['exports'] = [f.name for f in exports_dir.glob('*.csv')]
             
-        # Rapports
-        output_dir = project_root / f'{game_type}_output'
-        if output_dir.exists():
-            report['files_generated']['reports'] = [f.name for f in output_dir.glob('*')]
+        # Note: Nous ne listons plus les répertoires output pour simplifier l'interface
+        report['files_generated']['reports'] = []
             
         return report
     
@@ -912,21 +910,18 @@ curl "http://localhost:5000/api/dashboard/keno"
             if game_type not in ['keno', 'loto']:
                 raise APIError(f"Type de jeu non supporté: {game_type}", 400)
             
-            # Vérifier les fichiers de sortie d'analyse
+            # Vérifier les fichiers de sortie d'analyse (méthodes d'analyse uniquement)
             plots_dir = Path(__file__).parent.parent / f'{game_type}_analyse_plots'
             exports_dir = Path(__file__).parent.parent / f'{game_type}_stats_exports'
-            output_dir = Path(__file__).parent.parent / f'{game_type}_output'
             
             status = {
                 'game_type': game_type,
                 'plots_available': plots_dir.exists() and any(plots_dir.iterdir()),
                 'exports_available': exports_dir.exists() and any(exports_dir.iterdir()),
-                'output_available': output_dir.exists() and any(output_dir.iterdir()),
                 'last_analysis': None,
                 'files': {
                     'plots': [],
-                    'exports': [],
-                    'outputs': []
+                    'exports': []
                 }
             }
             
@@ -940,10 +935,6 @@ curl "http://localhost:5000/api/dashboard/keno"
             if status['exports_available']:
                 exports = list(exports_dir.glob('*.csv'))
                 status['files']['exports'] = [e.name for e in sorted(exports, key=lambda x: x.stat().st_mtime, reverse=True)[:5]]
-            
-            if status['output_available']:
-                outputs = list(output_dir.glob('*.txt'))
-                status['files']['outputs'] = [o.name for o in sorted(outputs, key=lambda x: x.stat().st_mtime, reverse=True)[:5]]
             
             return jsonify({
                 'success': True,

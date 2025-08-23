@@ -30,14 +30,12 @@ class FileService:
         """
         self.base_path = Path(base_path) if base_path else Path(__file__).parent.parent.parent
         
-        # Définition des répertoires de sortie
+        # Définition des répertoires de sortie (uniquement les méthodes d'analyse)
         self.output_dirs = {
             'keno_csv': self.base_path / 'keno_stats_exports',
             'keno_plots': self.base_path / 'keno_analyse_plots', 
-            'keno_output': self.base_path / 'keno_output',
             'loto_csv': self.base_path / 'loto_stats_exports',
-            'loto_plots': self.base_path / 'loto_analyse_plots',
-            'loto_output': self.base_path / 'output'
+            'loto_plots': self.base_path / 'loto_analyse_plots'
         }
         
         # Types de fichiers supportés
