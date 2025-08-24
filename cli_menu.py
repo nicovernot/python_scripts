@@ -77,8 +77,13 @@ class LotoKenoMenu:
         if self.clear_screen_enabled:
             os.system('clear' if os.name == 'posix' else 'cls')
     
-    def format_date_range(self, first_date, last_date):
+    def format_date_range(self, date_range):
         """Formate une plage de dates au format MM/YYYY → MM/YYYY"""
+        if date_range is None or len(date_range) != 2:
+            return None
+            
+        first_date, last_date = date_range
+        
         try:
             # Essayer de parser différents formats de date
             from datetime import datetime
@@ -154,10 +159,10 @@ class LotoKenoMenu:
         if self.loto_csv.exists():
             size = self.loto_csv.stat().st_size / (1024*1024)
             mtime = datetime.fromtimestamp(self.loto_csv.stat().st_mtime)
-            first_date, last_date = self.get_csv_date_range(self.loto_csv)
+            date_range_tuple = self.get_csv_date_range(self.loto_csv)
             date_info = ""
-            if first_date and last_date:
-                date_range = self.format_date_range(first_date, last_date)
+            if date_range_tuple and date_range_tuple[0] and date_range_tuple[1]:
+                date_range = self.format_date_range(date_range_tuple)
                 if date_range:
                     date_info = f", {date_range}"
             print(f"  🎲 Loto:  {Colors.OKGREEN}✓ Disponible{Colors.ENDC} ({size:.1f}MB, MAJ: {mtime.strftime('%d/%m/%Y')}{date_info})")
@@ -168,10 +173,10 @@ class LotoKenoMenu:
         if self.keno_csv.exists():
             size = self.keno_csv.stat().st_size / (1024*1024)
             mtime = datetime.fromtimestamp(self.keno_csv.stat().st_mtime)
-            first_date, last_date = self.get_csv_date_range(self.keno_csv)
+            date_range_tuple = self.get_csv_date_range(self.keno_csv)
             date_info = ""
-            if first_date and last_date:
-                date_range = self.format_date_range(first_date, last_date)
+            if date_range_tuple and date_range_tuple[0] and date_range_tuple[1]:
+                date_range = self.format_date_range(date_range_tuple)
                 if date_range:
                     date_info = f", {date_range}"
             print(f"  🎰 Keno:  {Colors.OKGREEN}✓ Disponible{Colors.ENDC} ({size:.1f}MB, MAJ: {mtime.strftime('%d/%m/%Y')}{date_info})")
@@ -197,6 +202,13 @@ class LotoKenoMenu:
         print("  6️⃣  Générer grilles avec visualisations")
         print("  7️⃣  Analyse Loto personnalisée")
         print("  2️⃣2️⃣ Générateur Loto avancé (ML + IA)")
+        print()
+        
+        print(f"{Colors.BOLD}🎯 TOP NUMÉROS ÉQUILIBRÉS{Colors.ENDC}")
+        print("  2️⃣8️⃣ 🏆 TOP 25 Loto équilibrés (stratégie optimisée)")
+        print("  2️⃣9️⃣ 🏆 TOP 30 Keno équilibrés (stratégie optimisée)")
+        print("  3️⃣0️⃣ 📊 Voir TOP 25 Loto (dernière génération)")
+        print("  3️⃣1️⃣ 📊 Voir TOP 30 Keno (dernière génération)")
         print()
         
         print(f"{Colors.OKCYAN}🎰 ANALYSE KENO{Colors.ENDC}")
@@ -955,6 +967,244 @@ class LotoKenoMenu:
             
             command = f"python keno/analyse_keno_rapide.py --csv keno/keno_data/keno_consolidated.csv --top {top_n} {graph_option}".strip()
             self.execute_command(command, f"Analyse Keno Rapide (Top {top_n})")
+            
+        elif choice == "28":
+            print(f"\n{Colors.BOLD}🏆 TOP 25 LOTO ÉQUILIBRÉS{Colors.ENDC}")
+            print("Génération des 25 numéros Loto avec le plus de chances selon la stratégie équilibrée :")
+            print("  • Analyse composite : Fréquence (35%) + Retard (30%) + Paires (20%) + Zones (15%)")
+            print("  • Plage 1-49 numéros avec équilibrage 3 zones")
+            print("  • Export CSV fixe (remplace le fichier précédent)")
+            print("  • Rapport Markdown détaillé avec suggestions")
+            print()
+            
+            # Sélection du fichier de données Loto
+            loto_data_path = Path("loto/loto_data")
+            if loto_data_path.exists():
+                csv_files = list(loto_data_path.glob("*.csv"))
+                if csv_files:
+                    latest_file = max(csv_files, key=lambda f: f.stat().st_mtime)
+                    print(f"📁 Fichier détecté: {latest_file.name}")
+                    date_range = self.format_date_range(self.get_csv_date_range(latest_file))
+                    if date_range:
+                        print(f"📅 Période: {date_range}")
+                    
+                    # Options de stratégie
+                    print(f"\n{Colors.OKBLUE}⚙️ Stratégies disponibles:{Colors.ENDC}")
+                    print("1️⃣  Équilibrée (recommandé)")
+                    print("2️⃣  Focus retard")
+                    print("3️⃣  Focus fréquence")
+                    print("0️⃣  Annuler")
+                    
+                    strategy_choice = input(f"\n{Colors.BOLD}Stratégie (1-3) [1]: {Colors.ENDC}").strip() or "1"
+                    
+                    if strategy_choice == "0":
+                        self.wait_and_continue()
+                        return True
+                    
+                    strategy_map = {
+                        "1": "equilibre",
+                        "2": "focus_retard", 
+                        "3": "focus_frequence"
+                    }
+                    
+                    strategy = strategy_map.get(strategy_choice, "equilibre")
+                    
+                    # Options d'export
+                    print(f"\n{Colors.OKBLUE}📊 Options d'export:{Colors.ENDC}")
+                    export_stats = input("Exporter les statistiques détaillées ? (O/n): ").strip().lower()
+                    plots = input("Générer les visualisations ? (o/N): ").strip().lower()
+                    
+                    # Construction de la commande
+                    command = f"python loto/duckdb_loto.py --csv {latest_file} --config-file loto/strategies.yml"
+                    
+                    if export_stats not in ['n', 'non', 'no']:
+                        command += " --export-stats"
+                    
+                    if plots in ['o', 'oui', 'y', 'yes']:
+                        command += " --plots"
+                    
+                    description = f"TOP 25 Loto Équilibrés (stratégie: {strategy})"
+                    
+                    print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+                    print(f"   Fichier: {latest_file.name}")
+                    print(f"   Stratégie: {strategy}")
+                    print(f"   Export CSV: loto_stats_exports/top_25_numeros_equilibres_loto.csv")
+                    
+                    confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+                    if confirm not in ['n', 'non', 'no']:
+                        self.execute_command(command, description)
+                    else:
+                        print("Opération annulée.")
+                        self.wait_and_continue()
+                else:
+                    print(f"{Colors.FAIL}❌ Aucun fichier CSV Loto trouvé dans {loto_data_path}{Colors.ENDC}")
+                    self.wait_and_continue()
+            else:
+                print(f"{Colors.FAIL}❌ Répertoire loto/loto_data non trouvé{Colors.ENDC}")
+                self.wait_and_continue()
+                
+        elif choice == "29":
+            print(f"\n{Colors.BOLD}🏆 TOP 30 KENO ÉQUILIBRÉS{Colors.ENDC}")
+            print("Génération des 30 numéros Keno avec le plus de chances selon la stratégie équilibrée :")
+            print("  • Analyse composite : Fréquence (30%) + Retard (25%) + Paires (25%) + Zones (20%)")
+            print("  • Plage 1-70 numéros avec équilibrage 5 zones")
+            print("  • Export CSV fixe (remplace le fichier précédent)")
+            print("  • Analyse de 11 stratégies probabilistes")
+            print()
+            
+            # Sélection du fichier de données Keno
+            keno_data_path = Path("keno/keno_data")
+            if keno_data_path.exists():
+                csv_files = list(keno_data_path.glob("*.csv"))
+                if csv_files:
+                    # Proposer le fichier consolidé par défaut, sinon le plus récent
+                    consolidated_file = keno_data_path / "keno_consolidated.csv"
+                    if consolidated_file.exists():
+                        selected_file = consolidated_file
+                        print(f"📁 Fichier recommandé: {selected_file.name} (données consolidées)")
+                    else:
+                        selected_file = max(csv_files, key=lambda f: f.stat().st_mtime)
+                        print(f"📁 Fichier détecté: {selected_file.name}")
+                    
+                    date_range = self.format_date_range(self.get_csv_date_range(selected_file))
+                    if date_range:
+                        print(f"📅 Période: {date_range}")
+                    
+                    # Options d'export
+                    print(f"\n{Colors.OKBLUE}📊 Options d'export:{Colors.ENDC}")
+                    export_stats = input("Exporter les statistiques détaillées ? (O/n): ").strip().lower()
+                    plots = input("Générer les visualisations ? (o/N): ").strip().lower()
+                    
+                    # Construction de la commande
+                    command = f"python keno/duckdb_keno.py --csv {selected_file}"
+                    
+                    if export_stats not in ['n', 'non', 'no']:
+                        command += " --export-stats"
+                    
+                    if plots in ['o', 'oui', 'y', 'yes']:
+                        command += " --plots"
+                    
+                    description = "TOP 30 Keno Équilibrés (stratégie optimisée)"
+                    
+                    print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+                    print(f"   Fichier: {selected_file.name}")
+                    print(f"   Export CSV: keno_stats_exports/top_30_numeros_equilibres_keno.csv")
+                    print(f"   Stratégies: 11 algorithmes probabilistes")
+                    
+                    confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+                    if confirm not in ['n', 'non', 'no']:
+                        self.execute_command(command, description)
+                    else:
+                        print("Opération annulée.")
+                        self.wait_and_continue()
+                else:
+                    print(f"{Colors.FAIL}❌ Aucun fichier CSV Keno trouvé dans {keno_data_path}{Colors.ENDC}")
+                    self.wait_and_continue()
+            else:
+                print(f"{Colors.FAIL}❌ Répertoire keno/keno_data non trouvé{Colors.ENDC}")
+                self.wait_and_continue()
+                
+        elif choice == "30":
+            print(f"\n{Colors.BOLD}📊 AFFICHAGE TOP 25 LOTO{Colors.ENDC}")
+            
+            # Vérifier l'existence du fichier
+            csv_file = Path("loto_stats_exports/top_25_numeros_equilibres_loto.csv")
+            if csv_file.exists():
+                print(f"📁 Fichier: {csv_file}")
+                print(f"📅 Dernière modification: {datetime.fromtimestamp(csv_file.stat().st_mtime).strftime('%d/%m/%Y %H:%M:%S')}")
+                print()
+                
+                try:
+                    df = pd.read_csv(csv_file, sep=';')
+                    
+                    print(f"{Colors.OKGREEN}🏆 TOP 25 NUMÉROS LOTO ÉQUILIBRÉS{Colors.ENDC}")
+                    print("=" * 80)
+                    print(f"{'Rang':<4} {'Numéro':<6} {'Score':<8} {'Zone':<15} {'Retard':<7} {'Fréq':<5}")
+                    print("-" * 80)
+                    
+                    # Afficher les 10 premiers avec couleurs
+                    for i, row in df.head(10).iterrows():
+                        color = Colors.OKGREEN if i < 3 else Colors.OKCYAN if i < 5 else Colors.ENDC
+                        print(f"{color}{row['rang']:<4} {row['numero']:<6} {row['score_composite']:<8.4f} {row['zone']:<15} {row['retard_actuel']:<7} {row['freq_absolue']:<5}{Colors.ENDC}")
+                    
+                    if len(df) > 10:
+                        print(f"\n{Colors.WARNING}... et {len(df) - 10} autres numéros (voir fichier CSV complet){Colors.ENDC}")
+                    
+                    # Statistiques de zone
+                    print(f"\n{Colors.OKBLUE}📍 RÉPARTITION PAR ZONES:{Colors.ENDC}")
+                    zone_counts = df['zone'].value_counts()
+                    for zone, count in zone_counts.items():
+                        percentage = (count / len(df)) * 100
+                        print(f"   {zone}: {count} numéros ({percentage:.1f}%)")
+                    
+                    # Suggestions pratiques
+                    top_5 = df.head(5)['numero'].tolist()
+                    top_7 = df.head(7)['numero'].tolist()
+                    top_10 = df.head(10)['numero'].tolist()
+                    
+                    print(f"\n{Colors.BOLD}💡 SUGGESTIONS PRATIQUES:{Colors.ENDC}")
+                    print(f"   Grille 5 numéros: {top_5}")
+                    print(f"   Système 7 numéros: {top_7}")
+                    print(f"   Système 10 numéros: {top_10}")
+                    
+                except Exception as e:
+                    print(f"{Colors.FAIL}❌ Erreur lors de la lecture du fichier: {e}{Colors.ENDC}")
+            else:
+                print(f"{Colors.FAIL}❌ Fichier TOP 25 Loto non trouvé{Colors.ENDC}")
+                print("💡 Générez d'abord les TOP 25 avec l'option 28")
+            
+            self.wait_and_continue()
+            
+        elif choice == "31":
+            print(f"\n{Colors.BOLD}📊 AFFICHAGE TOP 30 KENO{Colors.ENDC}")
+            
+            # Vérifier l'existence du fichier
+            csv_file = Path("keno_stats_exports/top_30_numeros_equilibres_keno.csv")
+            if csv_file.exists():
+                print(f"📁 Fichier: {csv_file}")
+                print(f"📅 Dernière modification: {datetime.fromtimestamp(csv_file.stat().st_mtime).strftime('%d/%m/%Y %H:%M:%S')}")
+                print()
+                
+                try:
+                    df = pd.read_csv(csv_file, sep=';')
+                    
+                    print(f"{Colors.OKGREEN}🏆 TOP 30 NUMÉROS KENO ÉQUILIBRÉS{Colors.ENDC}")
+                    print("=" * 80)
+                    print(f"{'Rang':<4} {'Numéro':<6} {'Score':<8} {'Zone':<15} {'Retard':<7} {'Fréq':<5}")
+                    print("-" * 80)
+                    
+                    # Afficher les 10 premiers avec couleurs
+                    for i, row in df.head(10).iterrows():
+                        color = Colors.OKGREEN if i < 3 else Colors.OKCYAN if i < 5 else Colors.ENDC
+                        print(f"{color}{row['rang']:<4} {row['numero']:<6} {row['score_composite']:<8.4f} {row['zone']:<15} {row['retard_actuel']:<7} {row['freq_absolue']:<5}{Colors.ENDC}")
+                    
+                    if len(df) > 10:
+                        print(f"\n{Colors.WARNING}... et {len(df) - 10} autres numéros (voir fichier CSV complet){Colors.ENDC}")
+                    
+                    # Statistiques de zone
+                    print(f"\n{Colors.OKBLUE}📍 RÉPARTITION PAR ZONES:{Colors.ENDC}")
+                    zone_counts = df['zone'].value_counts()
+                    for zone, count in zone_counts.items():
+                        percentage = (count / len(df)) * 100
+                        print(f"   {zone}: {count} numéros ({percentage:.1f}%)")
+                    
+                    # Suggestions pratiques
+                    top_10 = df.head(10)['numero'].tolist()
+                    top_15 = df.head(15)['numero'].tolist()
+                    top_20 = df.head(20)['numero'].tolist()
+                    
+                    print(f"\n{Colors.BOLD}💡 SUGGESTIONS PRATIQUES:{Colors.ENDC}")
+                    print(f"   Grille 10 numéros: {top_10}")
+                    print(f"   Système 15 numéros: {top_15}")
+                    print(f"   Système 20 numéros: {top_20}")
+                    
+                except Exception as e:
+                    print(f"{Colors.FAIL}❌ Erreur lors de la lecture du fichier: {e}{Colors.ENDC}")
+            else:
+                print(f"{Colors.FAIL}❌ Fichier TOP 30 Keno non trouvé{Colors.ENDC}")
+                print("💡 Générez d'abord les TOP 30 avec l'option 29")
+            
+            self.wait_and_continue()
                 
         elif choice == "0":
             print(f"\n{Colors.OKGREEN}👋 Au revoir ! Bonne chance pour vos analyses !{Colors.ENDC}")
