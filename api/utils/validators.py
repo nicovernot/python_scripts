@@ -23,7 +23,7 @@ def validate_loto_request(data: Dict[str, Any]) -> List[str]:
     # Validation de la stratégie
     if 'strategy' in data:
         strategy = data['strategy']
-        valid_strategies = ['equilibre', 'agressive', 'conservatrice', 'ml_focus']
+        valid_strategies = ['equilibre', 'frequences', 'retards', 'zones', 'paires', 'mixte']
         if not isinstance(strategy, str):
             errors.append("'strategy' doit être une chaîne de caractères")
         elif strategy not in valid_strategies:
@@ -51,7 +51,9 @@ def validate_keno_request(data: Dict[str, Any]) -> List[str]:
             errors.append("'strategies' doit être entre 1 et 15")
     
     # Validation des options booléennes
-    bool_fields = ['deep_analysis', 'plots', 'export_stats', 'ml_enhanced']
+    bool_fields = ['deep_analysis', 'plots', 'export_stats', 'ml_enhanced', 
+                   'trend_analysis', 'auto_consolidated', 'generate_plots', 
+                   'export_csv', 'generate_markdown']
     for field in bool_fields:
         if field in data and not isinstance(data[field], bool):
             errors.append(f"'{field}' doit être un booléen")

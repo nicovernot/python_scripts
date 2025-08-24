@@ -34,11 +34,13 @@ class KenoService:
         self.output_file = self.output_dir / "recommandations_keno.txt"
         
     def analyze(self, strategies: int = 7, deep_analysis: bool = False,
-                plots: bool = False, export_stats: bool = False) -> Dict[str, Any]:
+                plots: bool = False, export_stats: bool = False, 
+                auto_consolidated: bool = False, ml_enhanced: bool = False,
+                trend_analysis: bool = False) -> Dict[str, Any]:
         """Effectue une analyse Keno et génère des recommandations"""
         
-        # Vérifications préalables
-        if not self.keno_csv.exists():
+        # Vérifications préalables pour le fichier CSV classique
+        if not auto_consolidated and not self.keno_csv.exists():
             raise Exception("Fichier de données Keno manquant. Veuillez d'abord mettre à jour les données.")
         
         if not self.script_path.exists():
@@ -48,8 +50,19 @@ class KenoService:
         command = [
             sys.executable,
             str(self.script_path),
-            '--csv', str(self.keno_csv)
         ]
+        
+        # Choix de la source de données
+        if auto_consolidated:
+            # Essayer d'abord le fichier consolidé
+            consolidated_path = self.base_path / "keno" / "keno_data" / "keno_consolidated.csv"
+            if consolidated_path.exists():
+                command.extend(['--csv', str(consolidated_path)])
+            else:
+                # Fallback vers --auto-consolidated (qui pourrait échouer)
+                command.append('--auto-consolidated')
+        else:
+            command.extend(['--csv', str(self.keno_csv)])
         
         if deep_analysis:
             command.append('--deep-analysis')
