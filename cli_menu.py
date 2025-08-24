@@ -906,7 +906,7 @@ class LotoKenoMenu:
             self.execute_command("./lancer_api.sh", "Lancement de l'API Flask")
             
         elif choice == "16":
-            self.execute_command("python test_api.py", "Test de l'API Flask")
+            self.execute_command("python test/test_api.py", "Test de l'API Flask")
             
         elif choice == "17":
             self.handle_systeme_reduit_simple()
