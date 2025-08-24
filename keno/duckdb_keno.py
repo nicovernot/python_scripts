@@ -436,6 +436,160 @@ class KenoAnalyzer:
         
         return zone_picks[:15]
     
+    def generate_top_30_balanced_numbers(self, frequencies_df: pd.DataFrame, zones_df: pd.DataFrame, 
+                                       delays_df: pd.DataFrame, pairs_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Génère les 30 numéros avec le plus de chances de sortir selon la stratégie équilibrée.
+        Combine fréquences, retards, zones et paires pour un score optimal.
+        """
+        self.logger.info("🎯 Génération des 30 numéros optimaux (stratégie équilibrée)...")
+        
+        # Créer un DataFrame pour tous les numéros (1-70)
+        all_numbers = pd.DataFrame({'numero': range(1, 71)})
+        
+        # === CALCUL DES SCORES INDIVIDUELS ===
+        
+        # 1. Score de fréquence (normalisé 0-1)
+        freq_scores = frequencies_df.set_index('numero')['frequence']
+        max_freq = freq_scores.max()
+        freq_scores_norm = freq_scores / max_freq if max_freq > 0 else freq_scores
+        
+        # 2. Score de retard inversé (plus le retard est important, plus le score est élevé)
+        delay_scores = delays_df.set_index('numero')['retard']
+        max_delay = delay_scores.max()
+        delay_scores_norm = delay_scores / max_delay if max_delay > 0 else delay_scores
+        
+        # 3. Score des paires (moyenne des fréquences des meilleures paires)
+        pair_scores = {}
+        if not pairs_df.empty:
+            # Pour chaque numéro, calculer son score basé sur ses meilleures paires
+            for num in range(1, 71):
+                num_pairs = pairs_df[
+                    (pairs_df['num1'] == num) | (pairs_df['num2'] == num)
+                ].head(10)  # Top 10 paires pour ce numéro
+                if not num_pairs.empty:
+                    pair_scores[num] = num_pairs['frequence'].mean()
+                else:
+                    pair_scores[num] = 0
+            
+            pair_scores_series = pd.Series(pair_scores)
+            max_pair = pair_scores_series.max()
+            pair_scores_norm = pair_scores_series / max_pair if max_pair > 0 else pair_scores_series
+        else:
+            pair_scores_norm = pd.Series(0, index=range(1, 71))
+        
+        # 4. Score d'équilibrage par zones
+        zone_scores = {}
+        if not zones_df.empty:
+            zone1_avg = zones_df['zone1_count'].mean()  # 1-23
+            zone2_avg = zones_df['zone2_count'].mean()  # 24-46  
+            zone3_avg = zones_df['zone3_count'].mean()  # 47-70
+            
+            total_avg = zone1_avg + zone2_avg + zone3_avg
+            if total_avg > 0:
+                # Bonus pour les zones sous-représentées
+                zone1_weight = 1.0 - (zone1_avg / total_avg)
+                zone2_weight = 1.0 - (zone2_avg / total_avg)
+                zone3_weight = 1.0 - (zone3_avg / total_avg)
+            else:
+                zone1_weight = zone2_weight = zone3_weight = 1.0
+            
+            for num in range(1, 71):
+                if 1 <= num <= 23:
+                    zone_scores[num] = zone1_weight
+                elif 24 <= num <= 46:
+                    zone_scores[num] = zone2_weight
+                else:  # 47-70
+                    zone_scores[num] = zone3_weight
+            
+            zone_scores_series = pd.Series(zone_scores)
+        else:
+            zone_scores_series = pd.Series(1.0, index=range(1, 71))
+        
+        # === CALCUL DU SCORE COMPOSITE ===
+        
+        # Pondération équilibrée des différents facteurs
+        weights = {
+            'frequency': 0.30,    # Fréquence historique
+            'delay': 0.25,        # Retard (probabilité de sortie)
+            'pairs': 0.25,        # Performance en paires
+            'zones': 0.20         # Équilibrage des zones
+        }
+        
+        # Calculer le score final pour chaque numéro
+        final_scores = {}
+        for num in range(1, 71):
+            freq_score = freq_scores_norm.get(num, 0)
+            delay_score = delay_scores_norm.get(num, 0)
+            pair_score = pair_scores_norm.get(num, 0)
+            zone_score = zone_scores_series.get(num, 1.0)
+            
+            final_score = (
+                freq_score * weights['frequency'] +
+                delay_score * weights['delay'] +
+                pair_score * weights['pairs'] +
+                zone_score * weights['zones']
+            )
+            
+            final_scores[num] = final_score
+        
+        # Créer le DataFrame final avec tous les détails
+        results_df = pd.DataFrame({
+            'numero': range(1, 71),
+            'score_composite': [final_scores[num] for num in range(1, 71)],
+            'frequence': [freq_scores_norm.get(num, 0) for num in range(1, 71)],
+            'score_retard': [delay_scores_norm.get(num, 0) for num in range(1, 71)],
+            'score_paires': [pair_scores_norm.get(num, 0) for num in range(1, 71)],
+            'score_zones': [zone_scores_series.get(num, 1.0) for num in range(1, 71)],
+            'retard_actuel': [delays_df.set_index('numero')['retard'].get(num, 0) for num in range(1, 71)],
+            'freq_absolue': [frequencies_df.set_index('numero')['frequence'].get(num, 0) for num in range(1, 71)]
+        })
+        
+        # Trier par score composite décroissant
+        results_df = results_df.sort_values('score_composite', ascending=False).reset_index(drop=True)
+        
+        # Ajouter le classement
+        results_df['rang'] = range(1, len(results_df) + 1)
+        
+        # Ajouter des informations sur les zones
+        results_df['zone'] = results_df['numero'].apply(
+            lambda x: 'Zone 1 (1-23)' if 1 <= x <= 23 
+                     else 'Zone 2 (24-46)' if 24 <= x <= 46 
+                     else 'Zone 3 (47-70)'
+        )
+        
+        self.logger.info("✅ Top 30 numéros équilibrés générés avec succès")
+        return results_df.head(30)
+    
+    def export_top_30_to_csv(self, top_30_df: pd.DataFrame) -> str:
+        """Exporte les 30 meilleurs numéros vers un fichier CSV avec horodatage."""
+        
+        # Créer le nom de fichier avec horodatage
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{self.STATS_DIR}/top_30_numeros_equilibres_{timestamp}.csv"
+        
+        # Préparer les données pour l'export
+        export_df = top_30_df.copy()
+        
+        # Arrondir les scores pour la lisibilité
+        numeric_cols = ['score_composite', 'frequence', 'score_retard', 'score_paires', 'score_zones']
+        for col in numeric_cols:
+            export_df[col] = export_df[col].round(4)
+        
+        # Réorganiser les colonnes pour un meilleur affichage
+        column_order = [
+            'rang', 'numero', 'score_composite', 'zone',
+            'frequence', 'score_retard', 'score_paires', 'score_zones',
+            'retard_actuel', 'freq_absolue'
+        ]
+        export_df = export_df[column_order]
+        
+        # Exporter vers CSV
+        export_df.to_csv(filename, index=False, encoding='utf-8', sep=';')
+        
+        self.logger.info(f"📊 Top 30 numéros exportés vers: {filename}")
+        return filename
+    
     def analyze_pairs(self, db_con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         """Analyse la fréquence des paires de numéros."""
         self.logger.info("🔗 Analyse des paires de numéros...")
@@ -1366,7 +1520,7 @@ class KenoAnalyzer:
                          pairs_df: pd.DataFrame, zones_df: pd.DataFrame, 
                          sums_stats: pd.DataFrame, sectors_df: pd.DataFrame,
                          numbers_stats_df: pd.DataFrame, individual_numbers_df: pd.DataFrame,
-                         recommendations: Dict, total_draws: int = 0):
+                         recommendations: Dict, total_draws: int = 0, top_30_df: pd.DataFrame = None):
         """Exporte toutes les statistiques en CSV."""
         self.logger.info("💾 Export des statistiques...")
         
@@ -1412,6 +1566,50 @@ class KenoAnalyzer:
             f.write(f"**Généré le :** {datetime.now().strftime('%d/%m/%Y à %H:%M:%S')}  \n")
             f.write(f"**Analyse basée sur :** Données historiques complètes  \n")
             f.write(f"**Nombre de grilles traitées :** {total_draws:,} tirages  \n\n")
+            
+            # Section TOP 30 NUMÉROS ÉQUILIBRÉS
+            if top_30_df is not None and not top_30_df.empty:
+                f.write("## 🎯 TOP 30 NUMÉROS OPTIMAUX - STRATÉGIE ÉQUILIBRÉE\n\n")
+                f.write("**Méthodologie :** Analyse composite basée sur les fréquences, retards, paires et équilibrage des zones  \n")
+                f.write("**Pondération :** Fréquence (30%) + Retard (25%) + Paires (25%) + Zones (20%)  \n\n")
+                
+                f.write("### 📊 TOP 10 NUMÉROS RECOMMANDÉS\n\n")
+                f.write("| Rang | Numéro | Score Composite | Zone | Fréquence | Score Retard | Score Paires |\n")
+                f.write("|------|--------|-----------------|------|-----------|--------------|-------------|\n")
+                
+                for idx, row in top_30_df.head(10).iterrows():
+                    f.write(f"| {row['rang']:2d} | **{row['numero']:2d}** | {row['score_composite']:.4f} | {row['zone']} | {row['frequence']:.3f} | {row['score_retard']:.3f} | {row['score_paires']:.3f} |\n")
+                
+                f.write(f"\n### 📋 LISTE COMPLÈTE DES 30 NUMÉROS\n\n")
+                f.write("**Numéros classés par score composite :**  \n")
+                top_30_numbers = [str(row['numero']) for _, row in top_30_df.iterrows()]
+                f.write(f"`{' - '.join(top_30_numbers)}`\n\n")
+                
+                # Analyse des zones pour les 30 numéros
+                zone_counts = {'Zone 1 (1-23)': 0, 'Zone 2 (24-46)': 0, 'Zone 3 (47-70)': 0}
+                for _, row in top_30_df.iterrows():
+                    zone_counts[row['zone']] += 1
+                
+                f.write("### 📍 RÉPARTITION PAR ZONES (TOP 30)\n\n")
+                f.write(f"- **Zone 1 (1-23) :** {zone_counts['Zone 1 (1-23)']} numéros  \n")
+                f.write(f"- **Zone 2 (24-46) :** {zone_counts['Zone 2 (24-46)']} numéros  \n")
+                f.write(f"- **Zone 3 (47-70) :** {zone_counts['Zone 3 (47-70)']} numéros  \n\n")
+                
+                # Suggestions d'utilisation
+                f.write("### 💡 SUGGESTIONS D'UTILISATION\n\n")
+                f.write("**Pour grilles de 10 numéros :**  \n")
+                f.write("- Sélectionnez les 10 premiers numéros du classement  \n")
+                f.write("- Ou composez avec 3-4 numéros du TOP 5 + 6-7 numéros du TOP 11-20  \n\n")
+                
+                f.write("**Pour grilles de 15 numéros :**  \n")
+                f.write("- Utilisez les 15 premiers numéros du classement  \n")
+                f.write("- Garantit une répartition équilibrée entre toutes les stratégies  \n\n")
+                
+                f.write("**Pour grilles de 20 numéros :**  \n")
+                f.write("- Prenez les 20 premiers numéros pour une couverture optimale  \n")
+                f.write("- Idéal pour maximiser les chances avec un investissement mesuré  \n\n")
+                
+                f.write("---\n\n")
             
             # Trier par score de probabilité
             sorted_strategies = sorted(recommendations.items(), 
@@ -1544,16 +1742,22 @@ class KenoAnalyzer:
             # 3. Générer les recommandations
             recommendations = self.generate_recommendations(frequencies_df, delays_df, pairs_df, zones_df, db_con)
             
-            # 4. Créer les visualisations
+            # 4. Générer les 30 numéros optimaux avec la stratégie équilibrée
+            top_30_df = self.generate_top_30_balanced_numbers(frequencies_df, zones_df, delays_df, pairs_df)
+            
+            # 5. Exporter les 30 numéros vers CSV
+            csv_file = self.export_top_30_to_csv(top_30_df)
+            
+            # 6. Créer les visualisations
             if create_plots:
                 self.create_visualizations(frequencies_df, delays_df, pairs_df, zones_df, 
                                          sums_stats, sectors_df, numbers_stats_df, individual_numbers_df)
             
-            # 5. Exporter les statistiques
+            # 7. Exporter les statistiques
             if export_stats:
                 self.export_statistics(frequencies_df, delays_df, pairs_df, 
                                      zones_df, sums_stats, sectors_df, numbers_stats_df,
-                                     individual_numbers_df, recommendations, len(df_pandas))
+                                     individual_numbers_df, recommendations, len(df_pandas), top_30_df)
             
             # Résumé final
             self.logger.info("✅ Analyse complète terminée avec succès!")
@@ -1562,6 +1766,17 @@ class KenoAnalyzer:
             self.logger.info(f"🔗 {len(pairs_df)} paires analysées")
             self.logger.info(f"🔢 {len(sums_stats)} sommes analysées")
             self.logger.info(f"🗺️ {len(sectors_df)} secteurs analysés")
+            self.logger.info(f"🎯 Top 30 numéros équilibrés exportés vers CSV")
+            
+            print("\n🎯 TOP 30 NUMÉROS ÉQUILIBRÉS - STRATÉGIE OPTIMALE")
+            print("=" * 60)
+            print(f"📄 Fichier CSV généré: {csv_file}")
+            print("\n🏆 TOP 10 NUMÉROS RECOMMANDÉS:")
+            for idx, row in top_30_df.head(10).iterrows():
+                print(f"   {row['rang']:2d}. Numéro {row['numero']:2d} - Score: {row['score_composite']:.4f} ({row['zone']})")
+            
+            print(f"\n📋 Les 30 numéros complets sont disponibles dans le fichier CSV")
+            print(f"   Localisation: {csv_file}")
             
             print("\n🎯 RECOMMANDATIONS KENO STRATÉGIQUES")
             print("=" * 50)
