@@ -407,7 +407,22 @@ curl "http://localhost:5000/api/dashboard/keno"
                     zone2 = random.sample(range(17, 33), 2)  # Zone moyenne  
                     zone3 = random.sample(range(33, 50), 1)  # Zone haute
                     numbers = zone1 + zone2 + zone3
+                elif strategy == 'paires':
+                    # Stratégie basée sur l'analyse des paires
+                    good_pairs = [(7, 14), (23, 31), (18, 25), (12, 19), (26, 33), (3, 10), (17, 24), (40, 47)]
+                    selected_pair = random.choice(good_pairs)
+                    numbers = list(selected_pair)
+                    # Ajouter 3 autres numéros complémentaires
+                    remaining = [n for n in range(1, 50) if n not in numbers]
+                    numbers.extend(random.sample(remaining, 3))
+                elif strategy == 'mixte':
+                    # Mélange de toutes les stratégies
+                    frequent = [7, 14, 23, 31, 42]
+                    delayed = [49, 1, 8, 15, 22]
+                    all_mixed = frequent + delayed
+                    numbers = random.sample(all_mixed, 5)
                 else:  # equilibre ou autres
+                    # Stratégie équilibrée par défaut
                     numbers = random.sample(range(1, 50), 5)
                 
                 # Inclure les numéros favoris si spécifiés
