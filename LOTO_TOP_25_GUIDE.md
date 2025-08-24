@@ -42,7 +42,7 @@ python loto/duckdb_loto.py --csv loto/loto_data/fichier.csv --strategy focus_ret
 
 ### Fichiers Générés
 
-1. **CSV détaillé :** `loto_stats_exports/top_25_numeros_equilibres_loto_YYYYMMDD_HHMMSS.csv`
+1. **CSV détaillé :** `loto_stats_exports/top_25_numeros_equilibres_loto.csv` (fichier fixe, remplacé à chaque génération)
 2. **Rapport Markdown :** `loto/output/rapport_analyse.md`
 3. **Grilles générées :** `loto_stats_exports/grilles.csv`
 

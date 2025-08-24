@@ -695,11 +695,10 @@ class LotoStrategist:
         return results_df.head(25)
     
     def export_top_25_to_csv(self, top_25_df: pd.DataFrame) -> str:
-        """Exporte les 25 meilleurs numéros vers un fichier CSV avec horodatage."""
+        """Exporte les 25 meilleurs numéros vers un fichier CSV (remplace le fichier existant)."""
         
-        # Créer le nom de fichier avec horodatage
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{self.STATS_DIR}/top_25_numeros_equilibres_loto_{timestamp}.csv"
+        # Créer le nom de fichier fixe (sera remplacé à chaque génération)
+        filename = f"{self.STATS_DIR}/top_25_numeros_equilibres_loto.csv"
         
         # Préparer les données pour l'export
         export_df = top_25_df.copy()

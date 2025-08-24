@@ -137,11 +137,11 @@ python loto/duckdb_loto.py --csv loto/loto_data/fichier.csv --grids 3 --export-s
 ### Exemples de Fichiers Générés
 
 #### KENO
-- `keno_stats_exports/top_30_numeros_equilibres_keno_20250824_HHMMSS.csv`
+- `keno_stats_exports/top_30_numeros_equilibres_keno.csv` (fichier fixe, remplacé à chaque génération)
 - Rapport : `keno/output/rapport_analyse.md`
 
 #### LOTO
-- `loto_stats_exports/top_25_numeros_equilibres_loto_20250824_HHMMSS.csv`
+- `loto_stats_exports/top_25_numeros_equilibres_loto.csv` (fichier fixe, remplacé à chaque génération)
 - Rapport : `loto/output/rapport_analyse.md`
 
 ---
