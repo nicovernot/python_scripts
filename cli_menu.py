@@ -1169,7 +1169,7 @@ class LotoKenoMenu:
             
             confirm = input(f"{Colors.OKGREEN}Lancer l'analyse complète ? (O/n): {Colors.ENDC}").strip().lower()
             if confirm in ['', 'o', 'oui', 'y', 'yes']:
-                self.execute_command("python keno/analyse_stats_keno_complet.py", "Statistiques Keno Complètes")
+                self.execute_command("python keno/duckdb_keno.py --auto-consolidated --plots --export-stats", "Statistiques Keno Complètes")
             else:
                 print("Opération annulée.")
                 self.wait_and_continue()
