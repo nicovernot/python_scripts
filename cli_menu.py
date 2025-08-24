@@ -211,6 +211,13 @@ class LotoKenoMenu:
         print("  3️⃣1️⃣ 📊 Voir TOP 30 Keno (dernière génération)")
         print()
         
+        print(f"{Colors.BOLD}🎲 GÉNÉRATION GRILLES TOP CSV{Colors.ENDC}")
+        print("  3️⃣2️⃣ 🎯 Grilles Loto TOP 25 → CSV optimisé")
+        print("  3️⃣3️⃣ 🎯 Grilles Keno TOP 30 → CSV optimisé")
+        print("  3️⃣4️⃣ 📝 Grilles Loto TOP 25 → Markdown détaillé")
+        print("  3️⃣5️⃣ 📝 Grilles Keno TOP 30 → Markdown détaillé")
+        print()
+        
         print(f"{Colors.OKCYAN}🎰 ANALYSE KENO{Colors.ENDC}")
         print("  8️⃣  Analyse Keno complète (nouveaux algorithmes)")
         print("  9️⃣  Pipeline Keno complet avec visualisations + nettoyage auto")
@@ -279,6 +286,236 @@ class LotoKenoMenu:
             
         print("\n" + "═" * 50)
         input(f"\n{Colors.BOLD}Appuyez sur Entrée pour continuer...{Colors.ENDC}")
+
+    def handle_grilles_loto_top_csv(self):
+        """Génération grilles Loto TOP 25 → CSV optimisé"""
+        print(f"\n{Colors.BOLD}🎯 GÉNÉRATION GRILLES LOTO TOP 25 → CSV{Colors.ENDC}")
+        print("Génération de grilles optimisées basées sur les 25 meilleurs numéros Loto")
+        print("  • Utilise le fichier TOP 25 le plus récent")
+        print("  • Optimisation PuLP ou algorithme glouton")
+        print("  • Export CSV structuré avec analyses détaillées")
+        print()
+        
+        # Configuration de la génération
+        try:
+            nb_grilles = int(input("Nombre de grilles (5-50) [10]: ").strip() or "10")
+            if nb_grilles < 5 or nb_grilles > 50:
+                raise ValueError("Nombre invalide")
+        except:
+            nb_grilles = 10
+        
+        try:
+            top_nombres = int(input("Nombre de numéros TOP à utiliser (10-25) [20]: ").strip() or "20")
+            if top_nombres < 10 or top_nombres > 25:
+                raise ValueError("Nombre invalide")
+        except:
+            top_nombres = 20
+        
+        try:
+            taille_grille = int(input("Numéros par grille (5-10) [5]: ").strip() or "5")
+            if taille_grille < 5 or taille_grille > 10:
+                raise ValueError("Taille invalide")
+        except:
+            taille_grille = 5
+        
+        # Choix de l'optimisation
+        print(f"\n{Colors.OKBLUE}⚙️ Type d'optimisation:{Colors.ENDC}")
+        print("1️⃣  PuLP (optimisation linéaire, recommandé)")
+        print("2️⃣  Glouton (algorithme rapide)")
+        
+        optim_choice = input("Optimisation (1-2) [1]: ").strip() or "1"
+        optimisation = "pulp" if optim_choice == "1" else "glouton"
+        
+        # Construction et exécution de la commande
+        command = f"python grilles/generateur_grilles.py --top-csv --jeu loto --top-nombres {top_nombres} --optimisation {optimisation} --taille-grille-loto {taille_grille} --grilles {nb_grilles} --export --format csv --verbose"
+        
+        print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+        print(f"   Jeu: Loto")
+        print(f"   Grilles: {nb_grilles}")
+        print(f"   TOP numéros: {top_nombres}")
+        print(f"   Taille grilles: {taille_grille}")
+        print(f"   Optimisation: {optimisation}")
+        print(f"   Format: CSV")
+        
+        confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm not in ['n', 'non', 'no']:
+            self.execute_command(command, "Génération Grilles Loto TOP 25 → CSV")
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+
+    def handle_grilles_keno_top_csv(self):
+        """Génération grilles Keno TOP 30 → CSV optimisé"""
+        print(f"\n{Colors.BOLD}🎯 GÉNÉRATION GRILLES KENO TOP 30 → CSV{Colors.ENDC}")
+        print("Génération de grilles optimisées basées sur les 30 meilleurs numéros Keno")
+        print("  • Utilise le fichier TOP 30 le plus récent")
+        print("  • Optimisation PuLP ou algorithme glouton")
+        print("  • Export CSV structuré avec analyses détaillées")
+        print()
+        
+        # Configuration de la génération
+        try:
+            nb_grilles = int(input("Nombre de grilles (5-50) [12]: ").strip() or "12")
+            if nb_grilles < 5 or nb_grilles > 50:
+                raise ValueError("Nombre invalide")
+        except:
+            nb_grilles = 12
+        
+        try:
+            top_nombres = int(input("Nombre de numéros TOP à utiliser (15-30) [25]: ").strip() or "25")
+            if top_nombres < 15 or top_nombres > 30:
+                raise ValueError("Nombre invalide")
+        except:
+            top_nombres = 25
+        
+        try:
+            taille_grille = int(input("Numéros par grille (6-10) [8]: ").strip() or "8")
+            if taille_grille < 6 or taille_grille > 10:
+                raise ValueError("Taille invalide")
+        except:
+            taille_grille = 8
+        
+        # Choix de l'optimisation
+        print(f"\n{Colors.OKBLUE}⚙️ Type d'optimisation:{Colors.ENDC}")
+        print("1️⃣  PuLP (optimisation linéaire, recommandé)")
+        print("2️⃣  Glouton (algorithme rapide)")
+        
+        optim_choice = input("Optimisation (1-2) [1]: ").strip() or "1"
+        optimisation = "pulp" if optim_choice == "1" else "glouton"
+        
+        # Construction et exécution de la commande
+        command = f"python grilles/generateur_grilles.py --top-csv --jeu keno --top-nombres {top_nombres} --optimisation {optimisation} --taille-grille-keno {taille_grille} --grilles {nb_grilles} --export --format csv --verbose"
+        
+        print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+        print(f"   Jeu: Keno")
+        print(f"   Grilles: {nb_grilles}")
+        print(f"   TOP numéros: {top_nombres}")
+        print(f"   Taille grilles: {taille_grille}")
+        print(f"   Optimisation: {optimisation}")
+        print(f"   Format: CSV")
+        
+        confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm not in ['n', 'non', 'no']:
+            self.execute_command(command, "Génération Grilles Keno TOP 30 → CSV")
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+
+    def handle_grilles_loto_top_markdown(self):
+        """Génération grilles Loto TOP 25 → Markdown détaillé"""
+        print(f"\n{Colors.BOLD}📝 GÉNÉRATION GRILLES LOTO TOP 25 → MARKDOWN{Colors.ENDC}")
+        print("Génération de grilles optimisées avec rapport Markdown détaillé")
+        print("  • Utilise le fichier TOP 25 le plus récent")
+        print("  • Optimisation PuLP ou algorithme glouton")
+        print("  • Rapport Markdown avec tableaux et analyses")
+        print("  • Conseils et recommandations d'utilisation")
+        print()
+        
+        # Configuration de la génération
+        try:
+            nb_grilles = int(input("Nombre de grilles (5-30) [8]: ").strip() or "8")
+            if nb_grilles < 5 or nb_grilles > 30:
+                raise ValueError("Nombre invalide")
+        except:
+            nb_grilles = 8
+        
+        try:
+            top_nombres = int(input("Nombre de numéros TOP à utiliser (10-25) [18]: ").strip() or "18")
+            if top_nombres < 10 or top_nombres > 25:
+                raise ValueError("Nombre invalide")
+        except:
+            top_nombres = 18
+        
+        try:
+            taille_grille = int(input("Numéros par grille (5-8) [5]: ").strip() or "5")
+            if taille_grille < 5 or taille_grille > 8:
+                raise ValueError("Taille invalide")
+        except:
+            taille_grille = 5
+        
+        # Choix de l'optimisation
+        print(f"\n{Colors.OKBLUE}⚙️ Type d'optimisation:{Colors.ENDC}")
+        print("1️⃣  PuLP (optimisation linéaire, recommandé)")
+        print("2️⃣  Glouton (algorithme rapide)")
+        
+        optim_choice = input("Optimisation (1-2) [1]: ").strip() or "1"
+        optimisation = "pulp" if optim_choice == "1" else "glouton"
+        
+        # Construction et exécution de la commande
+        command = f"python grilles/generateur_grilles.py --top-csv --jeu loto --top-nombres {top_nombres} --optimisation {optimisation} --taille-grille-loto {taille_grille} --grilles {nb_grilles} --export --format markdown --verbose"
+        
+        print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+        print(f"   Jeu: Loto")
+        print(f"   Grilles: {nb_grilles}")
+        print(f"   TOP numéros: {top_nombres}")
+        print(f"   Taille grilles: {taille_grille}")
+        print(f"   Optimisation: {optimisation}")
+        print(f"   Format: Markdown")
+        
+        confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm not in ['n', 'non', 'no']:
+            self.execute_command(command, "Génération Grilles Loto TOP 25 → Markdown")
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+
+    def handle_grilles_keno_top_markdown(self):
+        """Génération grilles Keno TOP 30 → Markdown détaillé"""
+        print(f"\n{Colors.BOLD}📝 GÉNÉRATION GRILLES KENO TOP 30 → MARKDOWN{Colors.ENDC}")
+        print("Génération de grilles optimisées avec rapport Markdown détaillé")
+        print("  • Utilise le fichier TOP 30 le plus récent")
+        print("  • Optimisation PuLP ou algorithme glouton")
+        print("  • Rapport Markdown avec tableaux et analyses")
+        print("  • Conseils et recommandations d'utilisation")
+        print()
+        
+        # Configuration de la génération
+        try:
+            nb_grilles = int(input("Nombre de grilles (5-30) [10]: ").strip() or "10")
+            if nb_grilles < 5 or nb_grilles > 30:
+                raise ValueError("Nombre invalide")
+        except:
+            nb_grilles = 10
+        
+        try:
+            top_nombres = int(input("Nombre de numéros TOP à utiliser (15-30) [22]: ").strip() or "22")
+            if top_nombres < 15 or top_nombres > 30:
+                raise ValueError("Nombre invalide")
+        except:
+            top_nombres = 22
+        
+        try:
+            taille_grille = int(input("Numéros par grille (6-10) [9]: ").strip() or "9")
+            if taille_grille < 6 or taille_grille > 10:
+                raise ValueError("Taille invalide")
+        except:
+            taille_grille = 9
+        
+        # Choix de l'optimisation
+        print(f"\n{Colors.OKBLUE}⚙️ Type d'optimisation:{Colors.ENDC}")
+        print("1️⃣  PuLP (optimisation linéaire, recommandé)")
+        print("2️⃣  Glouton (algorithme rapide)")
+        
+        optim_choice = input("Optimisation (1-2) [1]: ").strip() or "1"
+        optimisation = "pulp" if optim_choice == "1" else "glouton"
+        
+        # Construction et exécution de la commande
+        command = f"python grilles/generateur_grilles.py --top-csv --jeu keno --top-nombres {top_nombres} --optimisation {optimisation} --taille-grille-keno {taille_grille} --grilles {nb_grilles} --export --format markdown --verbose"
+        
+        print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+        print(f"   Jeu: Keno")
+        print(f"   Grilles: {nb_grilles}")
+        print(f"   TOP numéros: {top_nombres}")
+        print(f"   Taille grilles: {taille_grille}")
+        print(f"   Optimisation: {optimisation}")
+        print(f"   Format: Markdown")
+        
+        confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm not in ['n', 'non', 'no']:
+            self.execute_command(command, "Génération Grilles Keno TOP 30 → Markdown")
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
         
     def wait_and_continue(self, message="Appuyez sur Entrée pour continuer..."):
         """Pause avec message"""
@@ -1205,6 +1442,18 @@ class LotoKenoMenu:
                 print("💡 Générez d'abord les TOP 30 avec l'option 29")
             
             self.wait_and_continue()
+                
+        elif choice == "32":
+            self.handle_grilles_loto_top_csv()
+            
+        elif choice == "33":
+            self.handle_grilles_keno_top_csv()
+            
+        elif choice == "34":
+            self.handle_grilles_loto_top_markdown()
+            
+        elif choice == "35":
+            self.handle_grilles_keno_top_markdown()
                 
         elif choice == "0":
             print(f"\n{Colors.OKGREEN}👋 Au revoir ! Bonne chance pour vos analyses !{Colors.ENDC}")
