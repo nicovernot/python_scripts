@@ -39,6 +39,14 @@ from dataclasses import dataclass
 from tqdm import tqdm
 import logging
 
+# DuckDB pour optimiser les requêtes
+try:
+    import duckdb
+    HAS_DUCKDB = True
+except ImportError:
+    HAS_DUCKDB = False
+    print("⚠️  DuckDB non disponible. Utilisation de Pandas uniquement.")
+
 # ML et analyse
 try:
     import xgboost as xgb
@@ -157,12 +165,33 @@ def get_training_params(profile: str) -> dict:
 
 @dataclass
 class KenoStats:
-    """Structure pour stocker les statistiques Keno"""
-    frequences: Dict[int, int]
-    retards: Dict[int, int]
-    paires_freq: Dict[Tuple[int, int], int]
-    zones_freq: Dict[str, int]
-    derniers_tirages: List[List[int]]
+    """Structure pour stocker les statistiques Keno complètes"""
+    # 1. Fréquences d'apparition des numéros
+    frequences: Dict[int, int]                           # Fréquence globale
+    frequences_recentes: Dict[int, int]                  # Fréquence sur 100 derniers tirages
+    frequences_50: Dict[int, int]                        # Fréquence sur 50 derniers tirages
+    frequences_20: Dict[int, int]                        # Fréquence sur 20 derniers tirages
+    
+    # 2. Numéros en retard (overdue numbers)
+    retards: Dict[int, int]                              # Retard actuel de chaque numéro
+    retards_historiques: Dict[int, List[int]]            # Historique des retards
+    
+    # 3. Combinaisons et patterns récurrents
+    paires_freq: Dict[Tuple[int, int], int]              # Paires fréquentes
+    trios_freq: Dict[Tuple[int, int, int], int]          # Trios fréquents
+    patterns_parité: Dict[str, int]                      # Distribution pair/impair
+    patterns_sommes: Dict[int, int]                      # Distribution des sommes
+    patterns_zones: Dict[str, int]                       # Répartition par zones/dizaines
+    
+    # 4. Analyse par période
+    tendances_10: Dict[int, float]                       # Tendances sur 10 tirages
+    tendances_50: Dict[int, float]                       # Tendances sur 50 tirages  
+    tendances_100: Dict[int, float]                      # Tendances sur 100 tirages
+    
+    # Données brutes pour analyses avancées
+    zones_freq: Dict[str, int]                           # Ancien format maintenu pour compatibilité
+    derniers_tirages: List[List[int]]                    # Derniers tirages
+    tous_tirages: List[List[int]]                        # Tous les tirages pour DuckDB
 
 # ==============================================================================
 # 🎯 CLASSE PRINCIPALE GENERATEUR KENO
@@ -210,8 +239,7 @@ class KenoGeneratorAdvanced:
     def _log(self, message: str, level: str = "INFO"):
         """Système de logging configuré"""
         if not self.silent or level == "ERROR":
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            print(f"[{timestamp}] {message}")
+            print(f"{message}")
     
     def load_data(self) -> bool:
         """
@@ -250,38 +278,249 @@ class KenoGeneratorAdvanced:
     
     def analyze_patterns(self) -> KenoStats:
         """
-        Analyse les patterns et statistiques des tirages Keno
+        Analyse complète des patterns et statistiques Keno avec DuckDB
         
         Returns:
-            KenoStats: Statistiques calculées
+            KenoStats: Statistiques complètes calculées
         """
-        self._log("🔍 Analyse des patterns Keno...")
+        self._log("🔍 Analyse complète des patterns Keno avec DuckDB...")
         
-        # Initialisation des statistiques
+        # Extraction des numéros de tous les tirages
+        all_draws = []
+        for _, row in self.data.iterrows():
+            # Support des différents formats de colonnes
+            if 'b1' in self.data.columns:
+                draw = [int(row[f'b{i}']) for i in range(1, 21)]
+            else:
+                draw = [int(row[f'boule{i}']) for i in range(1, 21)]
+            all_draws.append(sorted(draw))
+        
+        self._log(f"📊 Analyse de {len(all_draws)} tirages")
+        
+        if HAS_DUCKDB:
+            return self._analyze_with_duckdb(all_draws)
+        else:
+            return self._analyze_with_pandas(all_draws)
+    
+    def _analyze_with_duckdb(self, all_draws: List[List[int]]) -> KenoStats:
+        """Analyse optimisée avec DuckDB"""
+        self._log("🚀 Utilisation de DuckDB pour l'analyse optimisée")
+        
+        # Créer une connexion DuckDB
+        conn = duckdb.connect(':memory:')
+        
+        # Préparer les données pour DuckDB
+        draws_data = []
+        for i, draw in enumerate(all_draws):
+            for num in draw:
+                draws_data.append({'tirage_id': i, 'numero': num, 'position': draw.index(num)})
+        
+        draws_df = pd.DataFrame(draws_data)
+        
+        # Créer la table dans DuckDB
+        conn.register('tirages', draws_df)
+        
+        # 1. FRÉQUENCES D'APPARITION
+        self._log("📊 Calcul des fréquences d'apparition...")
+        
+        # Fréquence globale
+        freq_global = conn.execute("""
+            SELECT numero, COUNT(*) as freq 
+            FROM tirages 
+            GROUP BY numero 
+            ORDER BY numero
+        """).fetchdf()
+        frequences = dict(zip(freq_global['numero'], freq_global['freq']))
+        
+        # Fréquences récentes (100, 50, 20 derniers tirages)
+        max_tirage = len(all_draws) - 1
+        
+        freq_100 = conn.execute(f"""
+            SELECT numero, COUNT(*) as freq 
+            FROM tirages 
+            WHERE tirage_id >= {max(0, max_tirage - 99)}
+            GROUP BY numero
+        """).fetchdf()
+        frequences_100 = dict(zip(freq_100['numero'], freq_100['freq']))
+        
+        freq_50 = conn.execute(f"""
+            SELECT numero, COUNT(*) as freq 
+            FROM tirages 
+            WHERE tirage_id >= {max(0, max_tirage - 49)}
+            GROUP BY numero
+        """).fetchdf()
+        frequences_50 = dict(zip(freq_50['numero'], freq_50['freq']))
+        
+        freq_20 = conn.execute(f"""
+            SELECT numero, COUNT(*) as freq 
+            FROM tirages 
+            WHERE tirage_id >= {max(0, max_tirage - 19)}
+            GROUP BY numero
+        """).fetchdf()
+        frequences_20 = dict(zip(freq_20['numero'], freq_20['freq']))
+        
+        # 2. CALCUL DES RETARDS
+        self._log("⏰ Calcul des retards des numéros...")
+        retards = {}
+        retards_historiques = {}
+        
+        for num in range(1, KENO_PARAMS['total_numbers'] + 1):
+            # Retard actuel
+            retard = 0
+            for draw in reversed(all_draws):
+                if num in draw:
+                    break
+                retard += 1
+            retards[num] = retard
+            
+            # Historique des retards
+            historique = []
+            dernier_tirage = -1
+            for i, draw in enumerate(all_draws):
+                if num in draw:
+                    if dernier_tirage >= 0:
+                        historique.append(i - dernier_tirage - 1)
+                    dernier_tirage = i
+            retards_historiques[num] = historique
+        
+        # 3. PATTERNS ET COMBINAISONS
+        self._log("🔗 Analyse des patterns et combinaisons...")
+        
+        # Paires fréquentes
+        paires_freq = {}
+        for draw in all_draws:
+            for i in range(len(draw)):
+                for j in range(i + 1, len(draw)):
+                    pair = tuple(sorted([draw[i], draw[j]]))
+                    paires_freq[pair] = paires_freq.get(pair, 0) + 1
+        
+        # Trios fréquents (limité aux plus fréquents pour performance)
+        trios_freq = {}
+        for draw in all_draws[-1000:]:  # Seulement les 1000 derniers pour performance
+            for i in range(len(draw)):
+                for j in range(i + 1, len(draw)):
+                    for k in range(j + 1, len(draw)):
+                        trio = tuple(sorted([draw[i], draw[j], draw[k]]))
+                        trios_freq[trio] = trios_freq.get(trio, 0) + 1
+        
+        # Patterns de parité
+        patterns_parité = {"tout_pair": 0, "tout_impair": 0, "mixte": 0}
+        for draw in all_draws:
+            pairs = sum(1 for num in draw if num % 2 == 0)
+            if pairs == len(draw):
+                patterns_parité["tout_pair"] += 1
+            elif pairs == 0:
+                patterns_parité["tout_impair"] += 1
+            else:
+                patterns_parité["mixte"] += 1
+        
+        # Patterns de sommes
+        patterns_sommes = {}
+        for draw in all_draws:
+            somme = sum(draw)
+            patterns_sommes[somme] = patterns_sommes.get(somme, 0) + 1
+        
+        # Patterns de zones/dizaines
+        patterns_zones = {
+            "zone_1_17": 0, "zone_18_35": 0, "zone_36_52": 0, "zone_53_70": 0,
+            "dizaine_1_10": 0, "dizaine_11_20": 0, "dizaine_21_30": 0, 
+            "dizaine_31_40": 0, "dizaine_41_50": 0, "dizaine_51_60": 0, "dizaine_61_70": 0
+        }
+        
+        for draw in all_draws:
+            # Comptage par zones
+            for num in draw:
+                if 1 <= num <= 17:
+                    patterns_zones["zone_1_17"] += 1
+                elif 18 <= num <= 35:
+                    patterns_zones["zone_18_35"] += 1
+                elif 36 <= num <= 52:
+                    patterns_zones["zone_36_52"] += 1
+                else:  # 53-70
+                    patterns_zones["zone_53_70"] += 1
+                
+                # Comptage par dizaines
+                dizaine = (num - 1) // 10 + 1
+                if dizaine <= 7:
+                    patterns_zones[f"dizaine_{(dizaine-1)*10+1}_{dizaine*10}"] += 1
+        
+        # 4. ANALYSE PAR PÉRIODE ET TENDANCES
+        self._log("📈 Calcul des tendances par période...")
+        
+        tendances_10 = self._calculer_tendances(all_draws, 10)
+        tendances_50 = self._calculer_tendances(all_draws, 50)
+        tendances_100 = self._calculer_tendances(all_draws, 100)
+        
+        # Zones compatibilité (ancien format)
+        zones_freq = {
+            "zone1_17": patterns_zones["zone_1_17"],
+            "zone18_35": patterns_zones["zone_18_35"], 
+            "zone36_52": patterns_zones["zone_36_52"],
+            "zone53_70": patterns_zones["zone_53_70"]
+        }
+        
+        # Garder les derniers tirages
+        derniers_tirages = all_draws[-50:] if len(all_draws) >= 50 else all_draws
+        
+        conn.close()
+        
+        # Initialiser avec des valeurs par défaut pour les champs manquants
+        for num in range(1, KENO_PARAMS['total_numbers'] + 1):
+            if num not in frequences:
+                frequences[num] = 0
+            if num not in frequences_100:
+                frequences_100[num] = 0
+            if num not in frequences_50:
+                frequences_50[num] = 0
+            if num not in frequences_20:
+                frequences_20[num] = 0
+        
+        self.stats = KenoStats(
+            frequences=frequences,
+            frequences_recentes=frequences_100,
+            frequences_50=frequences_50,
+            frequences_20=frequences_20,
+            retards=retards,
+            retards_historiques=retards_historiques,
+            paires_freq=paires_freq,
+            trios_freq=trios_freq,
+            patterns_parité=patterns_parité,
+            patterns_sommes=patterns_sommes,
+            patterns_zones=patterns_zones,
+            tendances_10=tendances_10,
+            tendances_50=tendances_50,
+            tendances_100=tendances_100,
+            zones_freq=zones_freq,
+            derniers_tirages=derniers_tirages,
+            tous_tirages=all_draws
+        )
+        
+        self._log(f"✅ Analyse DuckDB terminée - {len(all_draws)} tirages analysés")
+        return self.stats
+    
+    def _analyze_with_pandas(self, all_draws: List[List[int]]) -> KenoStats:
+        """Analyse de fallback avec Pandas seulement"""
+        self._log("⚠️  Analyse de fallback avec Pandas (DuckDB non disponible)")
+        
+        # Implémentation simplifiée pour compatibilité
         frequences = {i: 0 for i in range(1, KENO_PARAMS['total_numbers'] + 1)}
         retards = {i: 0 for i in range(1, KENO_PARAMS['total_numbers'] + 1)}
         paires_freq = {}
         zones_freq = {"zone1_17": 0, "zone18_35": 0, "zone36_52": 0, "zone53_70": 0}
         
-        # Extraction des numéros de tous les tirages
-        all_draws = []
-        for _, row in self.data.iterrows():
-            draw = [int(row[f'boule{i}']) for i in range(1, 21)]
-            all_draws.append(sorted(draw))
-            
-            # Comptage des fréquences
+        # Comptage basique des fréquences
+        for draw in all_draws:
             for num in draw:
                 frequences[num] += 1
-            
-            # Analyse par zones
-            for num in draw:
+                
+                # Zones
                 if 1 <= num <= 17:
                     zones_freq["zone1_17"] += 1
                 elif 18 <= num <= 35:
                     zones_freq["zone18_35"] += 1
                 elif 36 <= num <= 52:
                     zones_freq["zone36_52"] += 1
-                else:  # 53-70
+                else:
                     zones_freq["zone53_70"] += 1
         
         # Calcul des retards
@@ -293,26 +532,65 @@ class KenoGeneratorAdvanced:
                 retard += 1
             retards[num] = retard
         
-        # Analyse des paires fréquentes  
+        # Paires basiques
         for draw in all_draws:
             for i in range(len(draw)):
                 for j in range(i + 1, len(draw)):
                     pair = tuple(sorted([draw[i], draw[j]]))
                     paires_freq[pair] = paires_freq.get(pair, 0) + 1
         
-        # Garder les derniers tirages pour l'analyse
         derniers_tirages = all_draws[-50:] if len(all_draws) >= 50 else all_draws
         
+        # Initialiser avec des valeurs par défaut
         self.stats = KenoStats(
             frequences=frequences,
-            retards=retards, 
+            frequences_recentes=frequences.copy(),
+            frequences_50=frequences.copy(),
+            frequences_20=frequences.copy(),
+            retards=retards,
+            retards_historiques={i: [] for i in range(1, 71)},
             paires_freq=paires_freq,
+            trios_freq={},
+            patterns_parité={"tout_pair": 0, "tout_impair": 0, "mixte": len(all_draws)},
+            patterns_sommes={},
+            patterns_zones={},
+            tendances_10={i: 0.0 for i in range(1, 71)},
+            tendances_50={i: 0.0 for i in range(1, 71)},
+            tendances_100={i: 0.0 for i in range(1, 71)},
             zones_freq=zones_freq,
-            derniers_tirages=derniers_tirages
+            derniers_tirages=derniers_tirages,
+            tous_tirages=all_draws
         )
         
-        self._log(f"✅ Analyse terminée - {len(all_draws)} tirages analysés")
+        self._log(f"✅ Analyse Pandas terminée - {len(all_draws)} tirages analysés")
         return self.stats
+    
+    def _calculer_tendances(self, all_draws: List[List[int]], periode: int) -> Dict[int, float]:
+        """Calcule les tendances d'apparition sur une période donnée"""
+        if len(all_draws) < periode:
+            return {i: 0.0 for i in range(1, KENO_PARAMS['total_numbers'] + 1)}
+        
+        tendances = {}
+        for num in range(1, KENO_PARAMS['total_numbers'] + 1):
+            # Fréquence récente vs fréquence historique
+            recent_draws = all_draws[-periode:]
+            freq_recent = sum(1 for draw in recent_draws if num in draw)
+            freq_moyenne = freq_recent / periode
+            
+            # Fréquence historique
+            freq_historique = sum(1 for draw in all_draws[:-periode] if num in draw)
+            if len(all_draws) > periode:
+                freq_historique_moyenne = freq_historique / (len(all_draws) - periode)
+            else:
+                freq_historique_moyenne = freq_moyenne
+            
+            # Tendance = ratio récent/historique
+            if freq_historique_moyenne > 0:
+                tendances[num] = freq_moyenne / freq_historique_moyenne
+            else:
+                tendances[num] = freq_moyenne * 2  # Bonus si nouveau numéro
+        
+        return tendances
     
     def add_cyclic_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -711,56 +989,232 @@ class KenoGeneratorAdvanced:
     
     def generate_frequency_based_grids(self, num_grids: int = 10) -> List[List[int]]:
         """
-        Génère des grilles basées sur l'analyse de fréquence
+        Génère des grilles basées sur l'analyse complète des patterns
         
         Args:
             num_grids: Nombre de grilles à générer
             
         Returns:
-            List[List[int]]: Liste des grilles générées
+            List[List[int]]: Liste des grilles générées optimisées
         """
         if not self.stats:
             self._log("❌ Statistiques non disponibles", "ERROR")
             return []
         
+        self._log(f"🎯 Génération de {num_grids} grilles avec analyse complète des patterns")
         grids = []
         
-        # Préparation des listes de numéros par critères
-        freq_sorted = sorted(self.stats.frequences.items(), key=lambda x: x[1], reverse=True)
+        # 1. ANALYSE DES FRÉQUENCES SUR DIFFÉRENTES PÉRIODES
+        freq_global = sorted(self.stats.frequences.items(), key=lambda x: x[1], reverse=True)
+        freq_recente = sorted(self.stats.frequences_recentes.items(), key=lambda x: x[1], reverse=True)
+        freq_50 = sorted(self.stats.frequences_50.items(), key=lambda x: x[1], reverse=True)
+        freq_20 = sorted(self.stats.frequences_20.items(), key=lambda x: x[1], reverse=True)
+        
+        # 2. ANALYSE DES RETARDS (OVERDUE NUMBERS)
         retard_sorted = sorted(self.stats.retards.items(), key=lambda x: x[1], reverse=True)
         
-        hot_numbers = [num for num, _ in freq_sorted[:35]]  # Top 35 numéros fréquents
-        cold_numbers = [num for num, _ in retard_sorted[:35]]  # Top 35 numéros en retard
+        # 3. NUMÉROS CHAUDS ET FROIDS SELON DIFFÉRENTES PÉRIODES
+        hot_global = [num for num, _ in freq_global[:25]]           # Top 25 historique
+        hot_recent = [num for num, _ in freq_recente[:20]]          # Top 20 récent (100 tirages)
+        hot_tendance = [num for num, _ in freq_20[:15]]             # Top 15 tendance (20 tirages)
+        cold_retard = [num for num, _ in retard_sorted[:30]]        # Top 30 en retard
         
-        for _ in range(num_grids):
+        # 4. ANALYSE DES TENDANCES
+        tendances_positives = []
+        for num, tendance in self.stats.tendances_50.items():
+            if tendance > 1.2:  # Numéros en forte hausse
+                tendances_positives.append((num, tendance))
+        tendances_positives.sort(key=lambda x: x[1], reverse=True)
+        hot_tendances = [num for num, _ in tendances_positives[:15]]
+        
+        # 5. PAIRES ET TRIOS FRÉQUENTS
+        top_pairs = sorted(self.stats.paires_freq.items(), key=lambda x: x[1], reverse=True)[:100]
+        if self.stats.trios_freq:
+            top_trios = sorted(self.stats.trios_freq.items(), key=lambda x: x[1], reverse=True)[:50]
+        else:
+            top_trios = []
+        
+        # 6. GÉNÉRATION DE GRILLES DIVERSIFIÉES
+        strategies = [
+            ("hot_global", "Numéros chauds historiques"),
+            ("hot_recent", "Numéros chauds récents"),
+            ("cold_retard", "Numéros en retard"),
+            ("hot_tendances", "Tendances positives"),
+            ("mixed_smart", "Mix intelligent"),
+            ("pairs_based", "Basé sur les paires"),
+            ("balanced_zones", "Équilibrage par zones"),
+            ("pattern_parité", "Pattern parité optimisé")
+        ]
+        
+        for i in range(num_grids):
+            strategy_name, strategy_desc = strategies[i % len(strategies)]
             grid = []
             
-            # Stratégie mixte: hot + cold + aléatoire
-            # 5 numéros chauds
-            hot_selection = random.sample(hot_numbers, min(5, len(hot_numbers)))
-            grid.extend(hot_selection)
+            if strategy_name == "hot_global":
+                # Grille basée sur les numéros historiquement fréquents
+                grid = self._generate_hot_global_grid(hot_global)
+                
+            elif strategy_name == "hot_recent":
+                # Grille basée sur les tendances récentes
+                grid = self._generate_hot_recent_grid(hot_recent, hot_tendance)
+                
+            elif strategy_name == "cold_retard":
+                # Grille basée sur les numéros en retard
+                grid = self._generate_cold_retard_grid(cold_retard)
+                
+            elif strategy_name == "hot_tendances":
+                # Grille basée sur les tendances positives
+                grid = self._generate_tendance_grid(hot_tendances, hot_recent)
+                
+            elif strategy_name == "mixed_smart":
+                # Mix intelligent de tous les critères
+                grid = self._generate_mixed_smart_grid(hot_global, hot_recent, cold_retard, hot_tendances)
+                
+            elif strategy_name == "pairs_based":
+                # Grille basée sur les paires fréquentes
+                grid = self._generate_pairs_based_grid(top_pairs)
+                
+            elif strategy_name == "balanced_zones":
+                # Grille équilibrée par zones
+                grid = self._generate_balanced_zones_grid()
+                
+            elif strategy_name == "pattern_parité":
+                # Grille optimisée pour la parité
+                grid = self._generate_parite_optimized_grid(hot_global, hot_recent)
             
-            # 3 numéros froids  
-            available_cold = [n for n in cold_numbers if n not in grid]
-            cold_selection = random.sample(available_cold, min(3, len(available_cold)))
-            grid.extend(cold_selection)
+            # Validation et ajustement de la grille
+            if len(grid) < 10:
+                # Compléter avec des numéros manquants
+                available = [n for n in range(1, 71) if n not in grid]
+                weights = [self.stats.frequences.get(n, 1) for n in available]
+                while len(grid) < 10 and available:
+                    selected = random.choices(available, weights=weights, k=1)[0]
+                    grid.append(selected)
+                    idx = available.index(selected)
+                    available.pop(idx)
+                    weights.pop(idx)
             
-            # 2 numéros aléatoires
-            available_random = [n for n in range(1, KENO_PARAMS['total_numbers'] + 1) if n not in grid]
-            random_selection = random.sample(available_random, min(2, len(available_random)))
-            grid.extend(random_selection)
-            
-            # Assurer qu'on a exactement 10 numéros
-            while len(grid) < 10:
-                available = [n for n in range(1, KENO_PARAMS['total_numbers'] + 1) if n not in grid]
-                if available:
-                    grid.append(random.choice(available))
-                else:
-                    break
-            
-            grids.append(sorted(grid[:10]))
+            grid = sorted(grid[:10])
+            grids.append(grid)
+            self._log(f"   ✅ Grille {i+1}: {strategy_desc}")
         
         return grids
+    
+    def _generate_hot_global_grid(self, hot_global: List[int]) -> List[int]:
+        """Génère une grille basée sur les numéros historiquement fréquents"""
+        return random.sample(hot_global, min(10, len(hot_global)))
+    
+    def _generate_hot_recent_grid(self, hot_recent: List[int], hot_tendance: List[int]) -> List[int]:
+        """Génère une grille basée sur les tendances récentes"""
+        grid = []
+        # 6 numéros récents + 4 tendances
+        grid.extend(random.sample(hot_recent, min(6, len(hot_recent))))
+        available_tendance = [n for n in hot_tendance if n not in grid]
+        grid.extend(random.sample(available_tendance, min(4, len(available_tendance))))
+        return grid
+    
+    def _generate_cold_retard_grid(self, cold_retard: List[int]) -> List[int]:
+        """Génère une grille basée sur les numéros en retard"""
+        # Stratégie: les numéros en retard ont plus de chances de sortir
+        return random.sample(cold_retard, min(10, len(cold_retard)))
+    
+    def _generate_tendance_grid(self, hot_tendances: List[int], hot_recent: List[int]) -> List[int]:
+        """Génère une grille basée sur les tendances positives"""
+        grid = []
+        # 7 tendances + 3 récents
+        grid.extend(random.sample(hot_tendances, min(7, len(hot_tendances))))
+        available_recent = [n for n in hot_recent if n not in grid]
+        grid.extend(random.sample(available_recent, min(3, len(available_recent))))
+        return grid
+    
+    def _generate_mixed_smart_grid(self, hot_global: List[int], hot_recent: List[int], 
+                                  cold_retard: List[int], hot_tendances: List[int]) -> List[int]:
+        """Génère un mix intelligent de tous les critères"""
+        grid = []
+        
+        # 3 numéros historiquement chauds
+        grid.extend(random.sample(hot_global, min(3, len(hot_global))))
+        
+        # 3 numéros récemment chauds (non déjà sélectionnés)
+        available_recent = [n for n in hot_recent if n not in grid]
+        grid.extend(random.sample(available_recent, min(3, len(available_recent))))
+        
+        # 2 numéros en retard
+        available_cold = [n for n in cold_retard if n not in grid]
+        grid.extend(random.sample(available_cold, min(2, len(available_cold))))
+        
+        # 2 numéros en tendance positive
+        available_tendance = [n for n in hot_tendances if n not in grid]
+        grid.extend(random.sample(available_tendance, min(2, len(available_tendance))))
+        
+        return grid
+    
+    def _generate_pairs_based_grid(self, top_pairs: List[Tuple[Tuple[int, int], int]]) -> List[int]:
+        """Génère une grille basée sur les paires fréquentes"""
+        grid = []
+        used_numbers = set()
+        
+        # Sélectionner des paires fréquentes
+        for (num1, num2), freq in top_pairs[:20]:  # Top 20 paires
+            if len(grid) >= 8:  # Laisser de la place pour 2 autres numéros
+                break
+            if num1 not in used_numbers and num2 not in used_numbers:
+                grid.extend([num1, num2])
+                used_numbers.update([num1, num2])
+        
+        # Compléter si nécessaire
+        while len(grid) < 10:
+            candidates = [n for n in range(1, 71) if n not in used_numbers]
+            if candidates:
+                selected = random.choice(candidates)
+                grid.append(selected)
+                used_numbers.add(selected)
+            else:
+                break
+        
+        return grid
+    
+    def _generate_balanced_zones_grid(self) -> List[int]:
+        """Génère une grille équilibrée par zones"""
+        zones = {
+            "zone1": list(range(1, 18)),      # 1-17
+            "zone2": list(range(18, 36)),     # 18-35
+            "zone3": list(range(36, 53)),     # 36-52
+            "zone4": list(range(53, 71))      # 53-70
+        }
+        
+        # Répartition équilibrée: 2-3 numéros par zone
+        grid = []
+        grid.extend(random.sample(zones["zone1"], 2))
+        grid.extend(random.sample(zones["zone2"], 3))
+        grid.extend(random.sample(zones["zone3"], 3))
+        grid.extend(random.sample(zones["zone4"], 2))
+        
+        return grid
+    
+    def _generate_parite_optimized_grid(self, hot_global: List[int], hot_recent: List[int]) -> List[int]:
+        """Génère une grille optimisée pour la parité (éviter tout pair/tout impair)"""
+        # Statistiques montrent que <1% des grilles sont tout pair ou tout impair
+        grid = []
+        
+        # Pool de numéros chauds
+        hot_pool = list(set(hot_global + hot_recent))
+        
+        # Sélectionner 5-6 pairs et 4-5 impairs
+        pairs = [n for n in hot_pool if n % 2 == 0]
+        impairs = [n for n in hot_pool if n % 2 == 1]
+        
+        # Si pas assez dans le pool chaud, compléter
+        if len(pairs) < 6:
+            pairs.extend([n for n in range(2, 71, 2) if n not in pairs])
+        if len(impairs) < 5:
+            impairs.extend([n for n in range(1, 71, 2) if n not in impairs])
+        
+        # Sélection équilibrée
+        grid.extend(random.sample(pairs, min(5, len(pairs))))
+        grid.extend(random.sample(impairs, min(5, len(impairs))))
+        
+        return grid
     
     def calculate_grid_score(self, grid: List[int]) -> float:
         """
@@ -1049,6 +1503,95 @@ class KenoGeneratorAdvanced:
         except Exception as e:
             self._log(f"❌ Erreur lors de l'exécution: {e}", "ERROR")
             return False
+    
+    def calculate_and_export_top30(self, export_path: Optional[str] = None) -> List[int]:
+        """
+        Calcule le TOP 30 des numéros Keno avec scoring intelligent et l'exporte en CSV
+        
+        Args:
+            export_path: Chemin d'export personnalisé (optionnel)
+            
+        Returns:
+            List[int]: Liste des 30 meilleurs numéros
+        """
+        self._log("🧠 Calcul du TOP 30 Keno avec profil intelligent...")
+        
+        if not hasattr(self, 'stats') or self.stats is None:
+            self._log("⚠️ Statistiques non disponibles, analyse en cours...")
+            self.analyze_patterns()
+        
+        # Calcul du scoring intelligent multi-critères
+        scores = {}
+        max_freq = max(self.stats.frequences.values()) if self.stats.frequences else 1
+        max_retard = max(self.stats.retards.values()) if self.stats.retards else 1
+        
+        for numero in range(1, 71):
+            # Score fréquence (35%)
+            freq_score = (self.stats.frequences.get(numero, 0) / max_freq) * 35
+            
+            # Score retard inversé (25%) - moins de retard = meilleur score
+            retard_score = (1 - (self.stats.retards.get(numero, max_retard) / max_retard)) * 25
+            
+            # Score tendance (20%)
+            trend_score = 0
+            if hasattr(self.stats, 'tendances_100') and numero in self.stats.tendances_100:
+                if self.stats.tendances_100[numero] > 0:
+                    trend_score = 20
+                elif self.stats.tendances_100[numero] < -5:
+                    trend_score = 5
+                else:
+                    trend_score = 10
+            else:
+                trend_score = 10
+            
+            # Score pairs (15%)
+            pair_score = 0
+            if hasattr(self.stats, 'paires_freq'):
+                for (n1, n2), freq in self.stats.paires_freq.items():
+                    if n1 == numero or n2 == numero:
+                        pair_score += freq
+                pair_score = min(pair_score / 100, 1) * 15
+            
+            # Score zones (5%)
+            zone_score = 5  # Score de base pour toutes les zones
+            
+            # Score total
+            total_score = freq_score + retard_score + trend_score + pair_score + zone_score
+            scores[numero] = total_score
+        
+        # Tri et sélection du TOP 30
+        sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        top30_numbers = [num for num, score in sorted_numbers[:30]]
+        top30_data = []
+        
+        for num, score in sorted_numbers[:30]:
+            top30_data.append({
+                'Numero': num,
+                'Score': round(score, 2),
+                'Frequence': self.stats.frequences.get(num, 0),
+                'Retard': self.stats.retards.get(num, 0),
+                'Tendance_100': self.stats.tendances_100.get(num, 0) if hasattr(self.stats, 'tendances_100') else 0,
+                'Frequence_Recente': self.stats.frequences_recentes.get(num, 0) if hasattr(self.stats, 'frequences_recentes') else 0
+            })
+        
+        # Export en CSV
+        if export_path is None:
+            export_path = self.output_dir / f"keno_top30.csv"
+        else:
+            export_path = Path(export_path)
+            
+        # Créer le dossier parent si nécessaire
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Sauvegarde du TOP 30
+        top30_df = pd.DataFrame(top30_data)
+        top30_df.to_csv(export_path, index=False)
+        
+        self._log(f"✅ TOP 30 calculé et exporté:")
+        self._log(f"   📁 Fichier: {export_path}")
+        self._log(f"   🎯 Top 10: {', '.join(map(str, top30_numbers[:10]))}")
+        
+        return top30_numbers
 
 # ==============================================================================
 # 🚀 POINT D'ENTRÉE PRINCIPAL

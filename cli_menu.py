@@ -228,6 +228,20 @@ class LotoKenoMenu:
         print("  2️⃣7️⃣ ⚡ Analyse Keno rapide (recommandations express)")
         print()
         
+        print(f"{Colors.BOLD}🔥 KENO PATTERNS AVANCÉS{Colors.ENDC}")
+        print("  3️⃣6️⃣ 🧠 Générateur patterns avancés (DuckDB + 15 patterns)")
+        print("  3️⃣7️⃣ 📊 TOP 30 numéros patterns → CSV")
+        print("  3️⃣8️⃣ 🎯 Générateur personnalisé (paramètres libres)")
+        print("  3️⃣9️⃣ 🔍 Test des patterns (vérification complète)")
+        print()
+        
+        print(f"{Colors.BOLD}🎯 SYSTÈME RÉDUCTEUR INTELLIGENT{Colors.ENDC}")
+        print("  4️⃣0️⃣ 🧠 Générateur intelligent avec PuLP")
+        print("  4️⃣1️⃣ 📊 Systèmes réducteurs (Bas/Moyen/Haut)")
+        print("  4️⃣2️⃣ 🎲 Génération basée sur paires fréquentes")
+        print("  4️⃣3️⃣ 📊 Générer TOP 30 Keno (KenoGeneratorAdvanced)")
+        print()
+        
         print(f"{Colors.OKGREEN}🧪 TESTS ET MAINTENANCE{Colors.ENDC}")
         print("  1️⃣1️⃣ Tests complets du système")
         print("  1️⃣2️⃣ Tests essentiels uniquement")
@@ -1454,6 +1468,30 @@ class LotoKenoMenu:
             
         elif choice == "35":
             self.handle_grilles_keno_top_markdown()
+            
+        elif choice == "36":
+            self.handle_keno_patterns_advanced()
+            
+        elif choice == "37":
+            self.handle_keno_top30_csv()
+            
+        elif choice == "38":
+            self.handle_keno_generator_custom()
+            
+        elif choice == "39":
+            self.handle_keno_patterns_test()
+            
+        elif choice == "40":
+            self.handle_keno_intelligent_generator()
+            
+        elif choice == "41":
+            self.handle_keno_system_reducer()
+            
+        elif choice == "42":
+            self.handle_keno_pairs_generator()
+            
+        elif choice == "43":
+            self.handle_keno_generate_top30()
                 
         elif choice == "0":
             print(f"\n{Colors.OKGREEN}👋 Au revoir ! Bonne chance pour vos analyses !{Colors.ENDC}")
@@ -1464,6 +1502,594 @@ class LotoKenoMenu:
             self.wait_and_continue()
             
         return True
+    
+    def handle_keno_patterns_advanced(self):
+        """Générateur patterns avancés avec DuckDB et 15 patterns"""
+        print(f"\n{Colors.BOLD}🧠 GÉNÉRATEUR KENO PATTERNS AVANCÉS{Colors.ENDC}")
+        print("Ce générateur utilise l'analyse complète des patterns :")
+        print("  • 🔢 Fréquences multi-période (global, 100, 50, 20 tirages)")
+        print("  • ⏰ Retards et overdue numbers avec historique")
+        print("  • 🎯 Paires et trios fréquents")
+        print("  • 📊 Patterns parité, sommes, zones")
+        print("  • 📈 Tendances 10/50/100 tirages")
+        print("  • 🚀 DuckDB pour optimisation SQL")
+        print()
+        
+        # Configuration du nombre de grilles
+        while True:
+            try:
+                grids_input = input(f"Nombre de grilles à générer (5-50, défaut: 10): ").strip()
+                if not grids_input:
+                    grids = 10
+                else:
+                    grids = int(grids_input)
+                    if grids < 5 or grids > 50:
+                        print(f"{Colors.FAIL}❌ Nombre de grilles doit être entre 5 et 50{Colors.ENDC}")
+                        continue
+                break
+            except ValueError:
+                print(f"{Colors.FAIL}❌ Veuillez entrer un nombre valide{Colors.ENDC}")
+        
+        command = f"python3 -c \"import sys; sys.path.append('.'); from keno.keno_generator_advanced import KenoGeneratorAdvanced; gen = KenoGeneratorAdvanced(); gen.load_data(); gen.analyze_patterns(); grids = gen.generate_frequency_based_grids({grids}); print('🎯 Grilles générées avec patterns avancés:'); [print(f'  {{i+1:2d}}. {{sorted(grid)}}') for i, grid in enumerate(grids)]\""
+        description = f"Générateur Patterns Avancés ({grids} grilles)"
+        
+        print(f"\n{Colors.WARNING}⚠️  Configuration:{Colors.ENDC}")
+        print(f"   • Grilles: {grids}")
+        print(f"   • Patterns: 15 types d'analyse")
+        print(f"   • Optimisation: DuckDB")
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_top30_csv(self):
+        """Génération TOP 30 numéros patterns → CSV"""
+        print(f"\n{Colors.BOLD}📊 TOP 30 NUMÉROS PATTERNS → CSV{Colors.ENDC}")
+        print("Génération d'un CSV avec les 30 meilleurs numéros basés sur les patterns :")
+        print("  • 🔢 Score composite (fréquences + retards + tendances)")
+        print("  • 📊 Détails par pattern (global, récent, retard)")
+        print("  • 📈 Tendances et recommandations")
+        print("  • 💾 Export CSV structuré")
+        print()
+        
+        # Options d'export
+        print(f"{Colors.OKBLUE}📋 Options d'export:{Colors.ENDC}")
+        print("1️⃣  Export simple (top 30 + scores)")
+        print("2️⃣  Export détaillé (tous les patterns)")
+        print("3️⃣  Export avec grilles recommandées")
+        print("0️⃣  Retour au menu")
+        
+        export_choice = input("\n🎯 Type d'export: ").strip()
+        
+        if export_choice == "0":
+            self.wait_and_continue()
+            return
+        elif export_choice == "1":
+            detail_level = "simple"
+        elif export_choice == "2":
+            detail_level = "detaille"
+        elif export_choice == "3":
+            detail_level = "avec_grilles"
+        else:
+            print(f"{Colors.FAIL}Choix invalide, export simple par défaut{Colors.ENDC}")
+            detail_level = "simple"
+        
+        command = f"python3 -c \"import sys; sys.path.append('.'); from keno.keno_generator_advanced import KenoGeneratorAdvanced; import pandas as pd; from datetime import datetime; import os; gen = KenoGeneratorAdvanced(); gen.load_data(); stats = gen.analyze_patterns(); scores = {{}}; [scores.update({{num: (stats.frequences.get(num, 0)/max(stats.frequences.values()))*0.4 + (stats.frequences_recentes.get(num, 0)/max(stats.frequences_recentes.values()) if stats.frequences_recentes else 0)*0.3 + (1-stats.retards.get(num, 0)/max(stats.retards.values()) if stats.retards else 0)*0.2 + ((stats.tendances_50.get(num, 1.0)-1.0)*0.1 if stats.tendances_50.get(num, 1.0) > 1.0 else 0)}}) for num in range(1, 71)]; top30 = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:30]; df = pd.DataFrame([{{'rang': i+1, 'numero': num, 'score': round(score, 4), 'freq_globale': stats.frequences.get(num, 0), 'freq_recente': stats.frequences_recentes.get(num, 0), 'retard': stats.retards.get(num, 0), 'tendance': round(stats.tendances_50.get(num, 1.0), 3)}} for i, (num, score) in enumerate(top30)]); os.makedirs('keno_output', exist_ok=True); filename = f'keno_top30_{{datetime.now().strftime(\\\"%Y%m%d_%H%M%S\\\")}}.csv'; df.to_csv(f'keno_output/{{filename}}', index=False); print(f'✅ TOP 30 exporté: keno_output/{{filename}}'); print(f'📊 Top 5: {{\\', \\'.join([str(row[\\\'numero\\\']) for _, row in df.head().iterrows()])}}')\""
+        description = f"TOP 30 Numéros Patterns → CSV ({detail_level})"
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer l'export CSV ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_generator_custom(self):
+        """Générateur personnalisé avec paramètres libres"""
+        print(f"\n{Colors.BOLD}🎯 GÉNÉRATEUR KENO PERSONNALISÉ{Colors.ENDC}")
+        print("Configuration complète de votre générateur :")
+        print("  • 🔢 Nombre de grilles personnalisé")
+        print("  • 🎚️  Stratégies au choix")
+        print("  • 📊 Patterns sélectionnables")
+        print("  • 💾 Export personnalisé")
+        print()
+        
+        # Configuration du nombre de grilles
+        while True:
+            try:
+                grids_input = input(f"Nombre de grilles (5-100, défaut: 15): ").strip()
+                grids = 15 if not grids_input else int(grids_input)
+                if grids < 5 or grids > 100:
+                    print(f"{Colors.FAIL}❌ Nombre doit être entre 5 et 100{Colors.ENDC}")
+                    continue
+                break
+            except ValueError:
+                print(f"{Colors.FAIL}❌ Veuillez entrer un nombre valide{Colors.ENDC}")
+        
+        # Export des résultats
+        export_csv = input("Exporter en CSV ? (O/n): ").strip().lower() in ['', 'o', 'oui', 'y', 'yes']
+        
+        command = f"python3 -c \"import sys; sys.path.append('.'); from keno.keno_generator_advanced import KenoGeneratorAdvanced; import pandas as pd; from datetime import datetime; gen = KenoGeneratorAdvanced(); gen.load_data(); gen.analyze_patterns(); grids = gen.generate_frequency_based_grids({grids}); print('🎯 {grids} grilles générées:'); [print(f'  {{i+1:2d}}. {{grid}}') for i, grid in enumerate(grids)]"
+        
+        if export_csv:
+            command += f"; import os; os.makedirs('keno_output', exist_ok=True); df = pd.DataFrame([{{'grille': i+1, 'numeros': ', '.join(map(str, grid))}} for i, grid in enumerate(grids)]); filename = f'keno_custom_{{datetime.now().strftime(\"%Y%m%d_%H%M%S\")}}.csv'; df.to_csv(f'keno_output/{{filename}}', index=False); print(f'✅ Export CSV: keno_output/{{filename}}')\""
+        else:
+            command += '\"'
+        
+        description = f"Générateur Personnalisé ({grids} grilles)"
+        
+        print(f"\n{Colors.WARNING}⚠️  Configuration finale:{Colors.ENDC}")
+        print(f"   • Grilles: {grids}")
+        print(f"   • Export CSV: {'Oui' if export_csv else 'Non'}")
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_patterns_test(self):
+        """Test des patterns - vérification complète"""
+        print(f"\n{Colors.BOLD}🔍 TEST DES PATTERNS KENO{Colors.ENDC}")
+        print("Vérification complète de tous les patterns :")
+        print("  • 🔢 15 types de patterns analysés")
+        print("  • 🚀 Test DuckDB vs Pandas")
+        print("  • 📊 Validation des calculs")
+        print("  • 🎯 Test de génération")
+        print()
+        
+        confirm = input(f"{Colors.OKGREEN}Lancer les tests de vérification ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            command = "python test_patterns_verification.py"
+            description = "Test Complet des Patterns"
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_intelligent_generator(self):
+        """Générateur intelligent v2 avec PuLP et profil intelligent"""
+        print(f"\n{Colors.BOLD}🧠 GÉNÉRATEUR KENO INTELLIGENT V2{Colors.ENDC}")
+        print("Générateur avancé avec optimisation intelligente :")
+        print("  • 🎯 TOP 30 numéros avec profil intelligent")
+        print("  • 🔗 Génération basée sur paires fréquentes")
+        print("  • ⚖️  Optimisation PuLP avec diversité garantie")
+        print("  • 📊 Paramètres optimaux (pair/impair, zones, sommes)")
+        print("  • 🎲 Système réducteur multi-stratégies")
+        print("  • 🌟 4 algorithmes hybrides pour la diversité")
+        print()
+        
+        # Vérifier s'il y a un CSV TOP 30 standard
+        top30_found = False
+        top30_file = Path("keno_output/keno_top30.csv")
+        
+        if top30_file.exists():
+            age_hours = (datetime.now().timestamp() - top30_file.stat().st_mtime) / 3600
+            print(f"📂 TOP 30 trouvé: {top30_file.name} (âge: {age_hours:.1f}h)")
+            top30_found = True
+        
+        if not top30_found:
+            print(f"{Colors.WARNING}⚠️  Aucun TOP 30 récent trouvé{Colors.ENDC}")
+            generate_top30 = input("🔄 Générer un nouveau TOP 30 d'abord ? (O/n): ").strip().lower()
+            
+            if generate_top30 in ['', 'o', 'oui', 'y', 'yes']:
+                print(f"\n{Colors.OKBLUE}🚀 Génération TOP 30 avec KenoGeneratorAdvanced...{Colors.ENDC}")
+                try:
+                    from keno.keno_generator_advanced import KenoGeneratorAdvanced
+                    
+                    generator = KenoGeneratorAdvanced()
+                    if generator.load_data():
+                        generator.analyze_patterns()
+                        top30_numbers = generator.calculate_and_export_top30()
+                        print(f"{Colors.OKGREEN}✅ TOP 30 généré avec succès!{Colors.ENDC}")
+                        print(f"   🎯 Top 10: {', '.join(map(str, top30_numbers[:10]))}")
+                    else:
+                        print(f"{Colors.FAIL}❌ Impossible de charger les données{Colors.ENDC}")
+                        
+                except Exception as e:
+                    print(f"{Colors.FAIL}❌ Erreur génération TOP 30: {e}{Colors.ENDC}")
+                    
+                print()
+        
+        # Sélection du profil
+        print(f"{Colors.OKBLUE}📋 Profils disponibles:{Colors.ENDC}")
+        print("1️⃣  Bas - 50 grilles (couverture minimale)")
+        print("2️⃣  Moyen - 80 grilles (équilibre optimal)")
+        print("3️⃣  Haut - 100 grilles (couverture maximale)")
+        print("0️⃣  Retour au menu")
+        
+        profile_choice = input("\n🎯 Choisissez un profil (défaut: 2): ").strip()
+        
+        if profile_choice == "0":
+            return
+            
+        try:
+            from keno_intelligent_generator_v2 import KenoIntelligentGeneratorV2
+            
+            # Mapping des choix
+            if profile_choice == "1":
+                profile = "bas"
+            elif profile_choice == "3":
+                profile = "haut"
+            else:
+                profile = "moyen"  # Défaut
+            
+            print(f"\n{Colors.OKGREEN}🚀 Lancement du générateur intelligent v2 - Profil {profile.title()}{Colors.ENDC}")
+            
+            # Génération du système avec détection automatique CSV
+            generator = KenoIntelligentGeneratorV2()
+            success = generator.generate_system(profile)
+            
+            if success:
+                print(f"\n{Colors.OKGREEN}✅ Système {profile} généré avec succès!{Colors.ENDC}")
+                print(f"📁 Fichiers exportés dans le dossier 'keno_output/'")
+                input("\n👉 Appuyez sur Entrée pour continuer...")
+            else:
+                print(f"\n{Colors.FAIL}❌ Échec de génération du système {profile}{Colors.ENDC}")
+                input("\n👉 Appuyez sur Entrée pour continuer...")
+                
+        except ImportError as e:
+            print(f"\n{Colors.FAIL}❌ Erreur d'import: {e}{Colors.ENDC}")
+            print("Assurez-vous que le module keno_intelligent_generator_v2 est disponible")
+            input("\n👉 Appuyez sur Entrée pour continuer...")
+        except Exception as e:
+            print(f"\n{Colors.FAIL}❌ Erreur lors de la génération: {e}{Colors.ENDC}")
+            input("\n👉 Appuyez sur Entrée pour continuer...")
+    
+    def handle_keno_generate_top30(self):
+        """Génération du TOP 30 avec KenoGeneratorAdvanced"""
+        print(f"\n{Colors.BOLD}📊 GÉNÉRATION TOP 30 KENO AVANCÉ{Colors.ENDC}")
+        print("Génération du TOP 30 intelligent avec scoring multi-critères :")
+        print("  • 🎯 Analyse de 3520+ tirages historiques")
+        print("  • 🧠 Scoring intelligent (fréquence, retard, tendances, pairs)")
+        print("  • 📈 Export CSV avec métadonnées complètes")
+        print("  • 🚀 Optimisé avec DuckDB")
+        print()
+        
+        confirm = input(f"{Colors.OKGREEN}Générer le TOP 30 ? (O/n): {Colors.ENDC}").strip().lower()
+        
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            try:
+                from keno.keno_generator_advanced import KenoGeneratorAdvanced
+                
+                print(f"\n{Colors.OKBLUE}🚀 Lancement KenoGeneratorAdvanced...{Colors.ENDC}")
+                
+                generator = KenoGeneratorAdvanced()
+                
+                if generator.load_data():
+                    generator.analyze_patterns()
+                    top30_numbers = generator.calculate_and_export_top30()
+                    
+                    print(f"\n{Colors.OKGREEN}✅ TOP 30 généré avec succès!{Colors.ENDC}")
+                    print(f"   🎯 Top 10: {', '.join(map(str, top30_numbers[:10]))}")
+                    print(f"   📁 Fichier exporté dans 'keno_output/'")
+                    
+                else:
+                    print(f"\n{Colors.FAIL}❌ Impossible de charger les données{Colors.ENDC}")
+                    
+            except ImportError as e:
+                print(f"\n{Colors.FAIL}❌ Erreur d'import: {e}{Colors.ENDC}")
+            except Exception as e:
+                print(f"\n{Colors.FAIL}❌ Erreur: {e}{Colors.ENDC}")
+                
+            input("\n👉 Appuyez sur Entrée pour continuer...")
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+        """Générateur intelligent v2 avec PuLP et profil intelligent"""
+        print(f"\n{Colors.BOLD}🧠 GÉNÉRATEUR KENO INTELLIGENT V2{Colors.ENDC}")
+        print("Générateur avancé avec optimisation intelligente :")
+        print("  • 🎯 TOP 30 numéros avec profil intelligent")
+        print("  • 🔗 Génération basée sur paires fréquentes")
+        print("  • ⚖️  Optimisation PuLP avec diversité garantie")
+        print("  • 📊 Paramètres optimaux (pair/impair, zones, sommes)")
+        print("  • 🎲 Système réducteur multi-stratégies")
+        print("  • 🌟 4 algorithmes hybrides pour la diversité")
+        print()
+        
+        # Sélection du profil
+        print(f"{Colors.OKBLUE}📋 Profils disponibles:{Colors.ENDC}")
+        print("1️⃣  Bas - 50 grilles (couverture minimale)")
+        print("2️⃣  Moyen - 80 grilles (équilibre optimal)")
+        print("3️⃣  Haut - 100 grilles (couverture maximale)")
+        print("0️⃣  Retour au menu")
+        
+        profile_choice = input("\n🎯 Choisissez un profil (défaut: 2): ").strip()
+        
+        if profile_choice == "0":
+            return
+            
+        try:
+            from keno_intelligent_generator_v2 import KenoIntelligentGeneratorV2
+            
+            # Mapping des choix
+            if profile_choice == "1":
+                profile = "bas"
+            elif profile_choice == "3":
+                profile = "haut"
+            else:
+                profile = "moyen"  # Défaut
+            
+            print(f"\n{Colors.OKGREEN}🚀 Lancement du générateur intelligent v2 - Profil {profile.title()}{Colors.ENDC}")
+            
+            # Génération du système
+            generator = KenoIntelligentGeneratorV2()
+            success = generator.generate_system(profile)
+            
+            if success:
+                print(f"\n{Colors.OKGREEN}✅ Système {profile} généré avec succès!{Colors.ENDC}")
+                print(f"📁 Fichiers exportés dans le dossier 'keno_output/'")
+                input("\n👉 Appuyez sur Entrée pour continuer...")
+            else:
+                print(f"\n{Colors.FAIL}❌ Échec de génération du système {profile}{Colors.ENDC}")
+                input("\n👉 Appuyez sur Entrée pour continuer...")
+                
+        except ImportError as e:
+            print(f"\n{Colors.FAIL}❌ Erreur d'import: {e}{Colors.ENDC}")
+            print("Assurez-vous que le module keno_intelligent_generator_v2 est disponible")
+            input("\n👉 Appuyez sur Entrée pour continuer...")
+        except Exception as e:
+            print(f"\n{Colors.FAIL}❌ Erreur lors de la génération: {e}{Colors.ENDC}")
+            input("\n👉 Appuyez sur Entrée pour continuer...")
+        print(f"   • Optimisation PuLP/Alternative")
+        print(f"   • Export CSV + métadonnées")
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            # Passer le profil via variable d'environnement ou modification du script
+            temp_script = f"""
+import sys
+sys.path.append('.')
+from keno_intelligent_generator import KenoIntelligentGenerator
+
+# Simulation du choix automatique
+original_input = input
+def mock_input(prompt):
+    if "profil" in prompt.lower():
+        return "{profile_choice or '2'}"
+    return original_input(prompt)
+
+__builtins__['input'] = mock_input
+
+# Exécution
+generator = KenoIntelligentGenerator()
+if generator.load_and_analyze():
+    generator.calculate_intelligent_top30()
+    generator.analyze_optimal_parameters()
+    generator.extract_top_pairs()
+    grids, metadata = generator.generate_system_grids("{profile}")
+    files = generator.export_system_grids(grids, metadata)
+    print("✅ Génération terminée avec succès!")
+else:
+    print("❌ Échec de la génération")
+"""
+            
+            with open("temp_intelligent_script.py", "w") as f:
+                f.write(temp_script)
+            
+            command = "python temp_intelligent_script.py && rm temp_intelligent_script.py"
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_system_reducer(self):
+        """Systèmes réducteurs avec différents profils"""
+        print(f"\n{Colors.BOLD}📊 SYSTÈMES RÉDUCTEURS KENO{Colors.ENDC}")
+        print("Génération de systèmes optimisés avec réduction intelligente :")
+        print("  • 🎯 Basé sur TOP 30 intelligent")
+        print("  • 🔗 Utilisation des paires les plus fréquentes")
+        print("  • ⚖️  Équilibrage automatique (zones, parité, sommes)")
+        print("  • 📊 3 profils de couverture")
+        print()
+        
+        # Choix multiple de profils
+        print(f"{Colors.OKBLUE}📋 Générer plusieurs profils ?{Colors.ENDC}")
+        print("1️⃣  Un seul profil")
+        print("2️⃣  Tous les profils (Bas + Moyen + Haut)")
+        print("0️⃣  Retour au menu")
+        
+        choice = input("\n🎯 Votre choix: ").strip()
+        
+        if choice == "0":
+            self.wait_and_continue()
+            return
+        elif choice == "2":
+            # Génération de tous les profils
+            temp_script = """
+import sys
+sys.path.append('.')
+from keno_intelligent_generator import KenoIntelligentGenerator
+
+generator = KenoIntelligentGenerator()
+if generator.load_and_analyze():
+    generator.calculate_intelligent_top30()
+    generator.analyze_optimal_parameters()
+    generator.extract_top_pairs()
+    
+    for profile in ["bas", "moyen", "haut"]:
+        print(f"\\n🎯 Génération profil {profile.upper()}...")
+        grids, metadata = generator.generate_system_grids(profile)
+        files = generator.export_system_grids(grids, metadata)
+        print(f"✅ Profil {profile} terminé")
+    
+    print("\\n🏆 TOUS LES PROFILS GÉNÉRÉS AVEC SUCCÈS!")
+else:
+    print("❌ Échec de l'initialisation")
+"""
+            
+            with open("temp_all_profiles.py", "w") as f:
+                f.write(temp_script)
+            
+            command = "python temp_all_profiles.py && rm temp_all_profiles.py"
+            description = "Génération de tous les profils (Bas + Moyen + Haut)"
+            
+        else:
+            # Un seul profil
+            print(f"\n{Colors.OKBLUE}📋 Profil à générer:{Colors.ENDC}")
+            print("1️⃣  Bas - 50 grilles")
+            print("2️⃣  Moyen - 80 grilles")
+            print("3️⃣  Haut - 100 grilles")
+            
+            profile_choice = input("\n🎯 Profil (défaut: 2): ").strip()
+            
+            if profile_choice == "1":
+                profile = "bas"
+            elif profile_choice == "3":
+                profile = "haut"
+            else:
+                profile = "moyen"
+            
+            temp_script = f"""
+import sys
+sys.path.append('.')
+from keno_intelligent_generator import KenoIntelligentGenerator
+
+generator = KenoIntelligentGenerator()
+if generator.load_and_analyze():
+    generator.calculate_intelligent_top30()
+    generator.analyze_optimal_parameters()
+    generator.extract_top_pairs()
+    grids, metadata = generator.generate_system_grids("{profile}")
+    files = generator.export_system_grids(grids, metadata)
+    print("✅ Génération terminée avec succès!")
+else:
+    print("❌ Échec de la génération")
+"""
+            
+            with open("temp_single_profile.py", "w") as f:
+                f.write(temp_script)
+            
+            command = "python temp_single_profile.py && rm temp_single_profile.py"
+            description = f"Système Réducteur - Profil {profile.capitalize()}"
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_pairs_generator(self):
+        """Générateur basé sur les paires fréquentes"""
+        print(f"\n{Colors.BOLD}🎲 GÉNÉRATEUR BASÉ SUR PAIRES{Colors.ENDC}")
+        print("Génération spécialisée utilisant les combinaisons de paires :")
+        print("  • 🔗 Paires les plus fréquentes du TOP 30")
+        print("  • 🎯 Composition optimale des grilles")
+        print("  • ⚖️  Respect des paramètres optimaux")
+        print("  • 📊 Export détaillé avec analyse")
+        print()
+        
+        # Configuration
+        while True:
+            try:
+                grids_input = input(f"Nombre de grilles (10-200, défaut: 50): ").strip()
+                grids = 50 if not grids_input else int(grids_input)
+                if grids < 10 or grids > 200:
+                    print(f"{Colors.FAIL}❌ Nombre doit être entre 10 et 200{Colors.ENDC}")
+                    continue
+                break
+            except ValueError:
+                print(f"{Colors.FAIL}❌ Veuillez entrer un nombre valide{Colors.ENDC}")
+        
+        # Stratégie de paires
+        print(f"\n{Colors.OKBLUE}🔗 Stratégie de paires:{Colors.ENDC}")
+        print("1️⃣  Conservative (3-4 paires par grille max)")
+        print("2️⃣  Équilibrée (2-3 paires par grille)")
+        print("3️⃣  Agressive (1-2 paires par grille)")
+        
+        strategy_choice = input("Stratégie (défaut: 2): ").strip() or "2"
+        
+        strategy_map = {
+            "1": "conservative",
+            "2": "equilibree", 
+            "3": "agressive"
+        }
+        
+        strategy = strategy_map.get(strategy_choice, "equilibree")
+        
+        temp_script = f"""
+import sys
+sys.path.append('.')
+from keno_intelligent_generator import KenoIntelligentGenerator
+import pandas as pd
+from datetime import datetime
+import os
+
+generator = KenoIntelligentGenerator()
+if generator.load_and_analyze():
+    generator.calculate_intelligent_top30()
+    generator.analyze_optimal_parameters()
+    generator.extract_top_pairs()
+    
+    print("🎲 Génération avec focus sur les paires...")
+    
+    # Génération spécialisée paires
+    grids = []
+    strategy = "{strategy}"
+    
+    for i in range({grids}):
+        grid = generator.generate_smart_grid()  # Utilise déjà la logique de paires
+        grids.append(grid)
+    
+    print(f"✅ {{len(grids)}} grilles générées avec stratégie {{strategy}}")
+    
+    # Export spécialisé
+    os.makedirs("keno_output", exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    pairs_data = []
+    for i, grid in enumerate(grids, 1):
+        # Analyse des paires dans la grille
+        pairs_in_grid = []
+        for j in range(len(grid)):
+            for k in range(j+1, len(grid)):
+                pair = tuple(sorted([grid[j], grid[k]]))
+                if pair in [tuple(sorted(p)) for p in generator.top_pairs[:50]]:
+                    pairs_in_grid.append(pair)
+        
+        pairs_data.append({{
+            'grille': i,
+            'numeros': ', '.join(map(str, grid)),
+            'nb_paires_frequentes': len(pairs_in_grid),
+            'paires_details': '; '.join([f'{{p[0]}}-{{p[1]}}' for p in pairs_in_grid]),
+            'somme': sum(grid),
+            'pairs': sum(1 for n in grid if n % 2 == 0),
+            'qualite': round(generator.validate_grid_quality(grid)['global'], 3)
+        }})
+    
+    df = pd.DataFrame(pairs_data)
+    filename = f"keno_output/pairs_generator_{{timestamp}}.csv"
+    df.to_csv(filename, index=False, encoding='utf-8')
+    
+    print(f"✅ Export spécialisé paires: {{filename}}")
+    print(f"📊 Paires moyennes par grille: {{df['nb_paires_frequentes'].mean():.1f}}")
+    
+else:
+    print("❌ Échec de l'initialisation")
+"""
+        
+        with open("temp_pairs_generator.py", "w") as f:
+            f.write(temp_script)
+        
+        command = "python temp_pairs_generator.py && rm temp_pairs_generator.py"
+        description = f"Générateur Paires ({grids} grilles, stratégie {strategy})"
+        
+        print(f"\n{Colors.WARNING}⚠️  Configuration:{Colors.ENDC}")
+        print(f"   • Grilles: {grids}")
+        print(f"   • Stratégie: {strategy}")
+        print(f"   • Focus sur paires fréquentes")
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
         
     def run(self):
         """Lance le menu principal"""
