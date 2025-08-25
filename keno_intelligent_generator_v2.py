@@ -474,15 +474,26 @@ class KenoIntelligentGeneratorV2:
             reverse=True
         )
         
+        if not freq_sorted:
+            return None
+        
         # Sélection avec biais vers les plus fréquents mais avec randomisation
         grid = []
         for i in range(10):
             # Plus on avance, plus on peut prendre des numéros moins fréquents
             max_idx = min(15 + i + attempt, len(freq_sorted))
+            max_idx = max(1, max_idx)  # S'assurer qu'on a au moins 1 élément
             selected_idx = random.randint(0, max_idx - 1)
             
-            if freq_sorted[selected_idx] not in grid:
-                grid.append(freq_sorted[selected_idx])
+            candidate = freq_sorted[selected_idx]
+            if candidate not in grid:
+                grid.append(candidate)
+            else:
+                # Si déjà sélectionné, prendre le suivant disponible
+                for num in freq_sorted:
+                    if num not in grid:
+                        grid.append(num)
+                        break
         
         if len(grid) == 10:
             return sorted(grid)
