@@ -1506,14 +1506,15 @@ class KenoGeneratorAdvanced:
     
     def calculate_and_export_top30(self, export_path: Optional[str] = None) -> List[int]:
         """
-        Calcule le TOP 30 des numéros Keno avec scoring intelligent optimal et l'exporte en CSV
+        Calcule le TOP 30 des numéros Keno avec scoring intelligent optimal + ML et l'exporte en CSV
         
         Utilise un scoring multi-critères avancé basé sur :
-        - Fréquences multi-périodes (30%) : Global + Récent + Moyen terme
-        - Retard intelligent (25%) : Retard optimal avec bonus zones de retard
-        - Tendances dynamiques (20%) : Analyse sur 10, 50 et 100 tirages
-        - Popularité paires (15%) : Bonus pour numéros dans paires fréquentes
-        - Équilibrage zones (10%) : Répartition géographique optimale
+        - **NOUVEAU** Prédictions ML (20%) : Probabilités des modèles entraînés XGBoost
+        - Fréquences multi-périodes (25%) : Global + Récent + Moyen terme  
+        - Retard intelligent (20%) : Retard optimal avec bonus zones de retard
+        - Tendances dynamiques (15%) : Analyse sur 10, 50 et 100 tirages
+        - Popularité paires (12%) : Bonus pour numéros dans paires fréquentes
+        - Équilibrage zones (8%) : Répartition géographique optimale
         
         Args:
             export_path: Chemin d'export personnalisé (optionnel)
@@ -1521,7 +1522,7 @@ class KenoGeneratorAdvanced:
         Returns:
             List[int]: Liste des 30 meilleurs numéros
         """
-        self._log("🧠 Calcul du TOP 30 Keno avec profil intelligent optimal...")
+        self._log("🧠🤖 Calcul du TOP 30 Keno avec ML + profil intelligent optimal...")
         
         if not hasattr(self, 'stats') or self.stats is None:
             self._log("⚠️ Statistiques non disponibles, analyse en cours...")
@@ -1534,13 +1535,106 @@ class KenoGeneratorAdvanced:
         max_freq_20 = max(self.stats.frequences_20.values()) if self.stats.frequences_20 else 1
         max_retard = max(self.stats.retards.values()) if self.stats.retards else 1
         
-        # Calcul du scoring intelligent optimal multi-critères
+        # === NOUVEAU: PRÉDICTIONS ML (20%) ===
+        ml_predictions = {}
+        ml_score_available = False
+        
+        try:
+            self._log("🧠 Calcul des prédictions ML pour le TOP 30...")
+            if 'multilabel' in self.ml_models:
+                # Utiliser la logique de predict_numbers_ml pour obtenir les probabilités individuelles
+                current_date = pd.Timestamp.now()
+                df_predict = pd.DataFrame({
+                    'date_de_tirage': [current_date],
+                    **{f'boule{i}': [0] for i in range(1, 21)}
+                })
+                
+                # Ajout des features temporelles
+                df_features = self.add_cyclic_features(df_predict)
+                
+                # Features d'historique
+                lag_features = {}
+                if self.stats and self.stats.derniers_tirages:
+                    for lag in range(1, 6):
+                        for ball_num in range(1, 21):
+                            col_name = f'lag{lag}_boule{ball_num}'
+                            if lag <= len(self.stats.derniers_tirages):
+                                last_draw = self.stats.derniers_tirages[-(lag)]
+                                if ball_num <= len(last_draw):
+                                    lag_features[col_name] = last_draw[ball_num - 1] if ball_num <= len(last_draw) else 0
+                                else:
+                                    lag_features[col_name] = 0
+                            else:
+                                lag_features[col_name] = 0
+                else:
+                    for lag in range(1, 6):
+                        for ball_num in range(1, 21):
+                            lag_features[f'lag{lag}_boule{ball_num}'] = 0
+                
+                lag_df = pd.DataFrame(lag_features, index=df_features.index)
+                
+                # Features de zones
+                zone_features = {}
+                if self.stats:
+                    total_draws = len(self.stats.derniers_tirages) if self.stats.derniers_tirages else 1
+                    zone_features['zone1_count'] = self.stats.zones_freq.get("zone1_17", 0) / total_draws
+                    zone_features['zone2_count'] = self.stats.zones_freq.get("zone18_35", 0) / total_draws 
+                    zone_features['zone3_count'] = self.stats.zones_freq.get("zone36_52", 0) / total_draws
+                    zone_features['zone4_count'] = self.stats.zones_freq.get("zone53_70", 0) / total_draws
+                else:
+                    zone_features = {'zone1_count': 5, 'zone2_count': 5, 'zone3_count': 5, 'zone4_count': 5}
+                
+                zone_df = pd.DataFrame([zone_features], index=df_features.index)
+                df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
+                
+                feature_cols = ['day_sin', 'day_cos', 'month_sin', 'month_cos']
+                feature_cols.extend(lag_features.keys())
+                feature_cols.extend(['zone1_count', 'zone2_count', 'zone3_count', 'zone4_count'])
+                
+                X_pred = df_features[feature_cols].fillna(0)
+                
+                # Prédiction des probabilités
+                model = self.ml_models['multilabel']
+                probabilities = model.predict_proba(X_pred)
+                
+                # Extraction des probabilités pour chaque numéro (classe positive = numéro tiré)
+                for i in range(min(70, len(probabilities))):
+                    num = i + 1
+                    if len(probabilities[i][0]) > 1:
+                        ml_predictions[num] = probabilities[i][0][1]  # Probabilité classe positive
+                    else:
+                        ml_predictions[num] = 0.5  # Fallback
+                
+                # Remplir les numéros manquants avec la moyenne
+                if ml_predictions:
+                    avg_prob = sum(ml_predictions.values()) / len(ml_predictions)
+                    for num in range(1, 71):
+                        if num not in ml_predictions:
+                            ml_predictions[num] = avg_prob
+                    ml_score_available = True
+                    self._log(f"✅ Prédictions ML calculées pour {len(ml_predictions)} numéros")
+                
+        except Exception as e:
+            self._log(f"⚠️ Erreur ML: {e}, utilisation des stats uniquement", "WARNING")
+            ml_score_available = False
+        
+        # Calcul du scoring intelligent optimal multi-critères + ML
         scores = {}
         
         for numero in range(1, 71):
             score_total = 0.0
             
-            # 1. FRÉQUENCES MULTI-PÉRIODES (30%) - Pondération intelligente
+            # 1. **NOUVEAU** PRÉDICTIONS ML (20%) - Le plus important désormais
+            if ml_score_available and numero in ml_predictions:
+                ml_prob = ml_predictions[numero]
+                # Convertir la probabilité [0,1] en score [0,20]
+                ml_score = ml_prob * 20
+                score_total += ml_score
+            else:
+                # Score neutre si ML indisponible
+                score_total += 10  # 50% des 20 points ML
+                
+            # 2. FRÉQUENCES MULTI-PÉRIODES (25%) - Pondération intelligente
             freq_global = self.stats.frequences.get(numero, 0)
             freq_recent = self.stats.frequences_recentes.get(numero, 0)
             freq_50 = self.stats.frequences_50.get(numero, 0)
@@ -1548,14 +1642,14 @@ class KenoGeneratorAdvanced:
             
             # Pondération : récent > moyen terme > global pour détecter les tendances
             freq_score = (
-                (freq_global / max_freq_global) * 0.10 +      # 10% fréquence globale
-                (freq_recent / max_freq_recent) * 0.08 +      # 8% fréquence 100 tirages  
-                (freq_50 / max_freq_50) * 0.08 +              # 8% fréquence 50 tirages
-                (freq_20 / max_freq_20) * 0.04                # 4% fréquence 20 tirages (tendance immédiate)
-            ) * 100  # Normalisation sur 30 points
+                (freq_global / max_freq_global) * 0.08 +      # 8% fréquence globale
+                (freq_recent / max_freq_recent) * 0.07 +      # 7% fréquence 100 tirages  
+                (freq_50 / max_freq_50) * 0.07 +              # 7% fréquence 50 tirages
+                (freq_20 / max_freq_20) * 0.03                # 3% fréquence 20 tirages (tendance immédiate)
+            ) * 100  # Normalisation sur 25 points
             score_total += freq_score
             
-            # 2. RETARD INTELLIGENT (25%) - Zones de retard optimales
+            # 3. RETARD INTELLIGENT (20%) - Zones de retard optimales
             retard = self.stats.retards.get(numero, 0)
             retard_normalized = retard / max_retard if max_retard > 0 else 0
             
@@ -1569,10 +1663,10 @@ class KenoGeneratorAdvanced:
             else:                                       # Peu en retard
                 retard_bonus = 0.9                      # Légère pénalité
                 
-            retard_score = (1 - retard_normalized) * 25 * retard_bonus
+            retard_score = (1 - retard_normalized) * 20 * retard_bonus  # 20 points au lieu de 25
             score_total += retard_score
             
-            # 3. TENDANCES DYNAMIQUES (20%) - Analyse multi-périodes
+            # 4. TENDANCES DYNAMIQUES (15%) - Analyse multi-périodes
             tendance_10 = self.stats.tendances_10.get(numero, 1.0) if hasattr(self.stats, 'tendances_10') else 1.0
             tendance_50 = self.stats.tendances_50.get(numero, 1.0) if hasattr(self.stats, 'tendances_50') else 1.0
             tendance_100 = self.stats.tendances_100.get(numero, 1.0) if hasattr(self.stats, 'tendances_100') else 1.0
@@ -1582,19 +1676,19 @@ class KenoGeneratorAdvanced:
             
             # Score basé sur la force de la tendance positive
             if tendance_moyenne > 1.3:                 # Forte tendance positive
-                tendance_score = 20
+                tendance_score = 15  # 15 points au lieu de 20
             elif tendance_moyenne > 1.1:               # Tendance positive modérée
-                tendance_score = 15
+                tendance_score = 11
             elif tendance_moyenne > 0.9:               # Stable
-                tendance_score = 10
+                tendance_score = 7
             elif tendance_moyenne > 0.7:               # Tendance négative modérée
-                tendance_score = 5
+                tendance_score = 4
             else:                                       # Forte tendance négative
-                tendance_score = 2
+                tendance_score = 1
                 
             score_total += tendance_score
             
-            # 4. POPULARITÉ DANS LES PAIRES (15%) - Bonus pour associations fréquentes
+            # 5. POPULARITÉ DANS LES PAIRES (12%) - Bonus pour associations fréquentes
             pair_score = 0
             if hasattr(self.stats, 'paires_freq'):
                 # Compter les paires fréquentes contenant ce numéro
@@ -1610,13 +1704,13 @@ class KenoGeneratorAdvanced:
                 # Score basé sur nombre et fréquence des paires importantes
                 if paires_importantes > 0:
                     pair_score = min(
-                        (paires_importantes * 3) + (total_freq_paires / 200),
-                        15  # Maximum 15 points
+                        (paires_importantes * 2) + (total_freq_paires / 250),
+                        12  # Maximum 12 points au lieu de 15
                     )
             
             score_total += pair_score
             
-            # 5. ÉQUILIBRAGE ZONES (10%) - Répartition géographique optimale
+            # 6. ÉQUILIBRAGE ZONES (8%) - Répartition géographique optimale
             zone_score = 0
             if hasattr(self.stats, 'patterns_zones'):
                 # Déterminer la zone du numéro
@@ -1634,11 +1728,11 @@ class KenoGeneratorAdvanced:
                 max_zone_freq = max(self.stats.patterns_zones.values()) if self.stats.patterns_zones else 1
                 
                 if max_zone_freq > 0:
-                    zone_score = (zone_freq / max_zone_freq) * 10
+                    zone_score = (zone_freq / max_zone_freq) * 8  # 8 points au lieu de 10
                 else:
-                    zone_score = 5  # Score par défaut
+                    zone_score = 4  # Score par défaut
             else:
-                zone_score = 5  # Score par défaut si pas de données zones
+                zone_score = 4  # Score par défaut si pas de données zones
             
             score_total += zone_score
             
@@ -1648,7 +1742,7 @@ class KenoGeneratorAdvanced:
         sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         top30_numbers = [num for num, score in sorted_numbers[:30]]
         
-        # Préparation des données enrichies pour export
+        # Préparation des données enrichies pour export avec NOUVEAUTÉ ML
         top30_data = []
         for num, score in sorted_numbers[:30]:
             # Calcul des composantes du score pour traçabilité
@@ -1657,6 +1751,9 @@ class KenoGeneratorAdvanced:
             freq_50 = self.stats.frequences_50.get(num, 0)
             freq_20 = self.stats.frequences_20.get(num, 0)
             retard = self.stats.retards.get(num, 0)
+            
+            # **NOUVEAU** Probabilité ML
+            ml_prob = ml_predictions.get(num, 0.5) if ml_score_available else 0.5
             
             # Tendances multi-périodes
             tendance_10 = self.stats.tendances_10.get(num, 1.0) if hasattr(self.stats, 'tendances_10') else 1.0
@@ -1689,6 +1786,10 @@ class KenoGeneratorAdvanced:
                 'Score_Total': round(score, 2),
                 'Rang': len(top30_data) + 1,
                 
+                # **NOUVEAU** Prédiction ML
+                'ML_Probabilite': round(ml_prob, 4),
+                'ML_Disponible': ml_score_available,
+                
                 # Fréquences détaillées
                 'Freq_Globale': freq_global,
                 'Freq_100_Derniers': freq_recent,
@@ -1708,7 +1809,7 @@ class KenoGeneratorAdvanced:
                 'Parite': 'Pair' if num % 2 == 0 else 'Impair'
             })
         
-        # Export enrichi en CSV
+        # Export enrichi en CSV avec NOUVEAU support ML
         if export_path is None:
             export_path = self.output_dir / f"keno_top30.csv"
         else:
@@ -1717,7 +1818,7 @@ class KenoGeneratorAdvanced:
         # Créer le dossier parent si nécessaire
         export_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Sauvegarde du TOP 30 enrichi
+        # Sauvegarde du TOP 30 enrichi avec ML
         top30_df = pd.DataFrame(top30_data)
         top30_df.to_csv(export_path, index=False)
         
@@ -1728,7 +1829,14 @@ class KenoGeneratorAdvanced:
             zone_idx = min((num - 1) // 18, 3)
             repartition_zones[zone_idx] += 1
         
-        self._log(f"✅ TOP 30 optimisé calculé et exporté:")
+        # Statistiques ML pour le reporting
+        ml_status = "✅ ACTIF" if ml_score_available else "⚠️ INDISPONIBLE"
+        avg_ml_prob = sum(ml_predictions.get(num, 0.5) for num in top30_numbers) / 30 if ml_predictions else 0.5
+        
+        self._log(f"✅ TOP 30 optimisé avec ML calculé et exporté:")
+        self._log(f"   🤖 Statut ML: {ml_status}")
+        if ml_score_available:
+            self._log(f"   🧠 Probabilité ML moyenne TOP 30: {avg_ml_prob:.3f}")
         self._log(f"   📁 Fichier: {export_path}")
         self._log(f"   🎯 Top 10: {', '.join(map(str, top30_numbers[:10]))}")
         self._log(f"   📊 Répartition pairs/impairs: {total_pairs}/{30-total_pairs}")
