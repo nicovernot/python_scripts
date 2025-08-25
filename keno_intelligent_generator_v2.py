@@ -129,21 +129,28 @@ class KenoIntelligentGeneratorV2:
             
             top30_df = pd.read_csv(self.top30_csv_path)
             
-            # Vérifier les colonnes requises
-            required_cols = ['Numero', 'Score']
-            if not all(col in top30_df.columns for col in required_cols):
-                print(f"⚠️ Colonnes manquantes dans le CSV. Colonnes requises: {required_cols}")
+            # Vérifier les colonnes requises (support ancien et nouveau format)
+            score_col = None
+            if 'Score_Total' in top30_df.columns:
+                score_col = 'Score_Total'  # Nouveau format optimisé
+            elif 'Score' in top30_df.columns:
+                score_col = 'Score'        # Ancien format
+            
+            if 'Numero' not in top30_df.columns or score_col is None:
+                print(f"⚠️ Colonnes requises manquantes dans le CSV")
                 print(f"   Colonnes trouvées: {list(top30_df.columns)}")
+                print(f"   Colonnes requises: ['Numero', 'Score' ou 'Score_Total']")
                 return self.calculate_intelligent_top30_fallback()
             
             # Trier par score décroissant et prendre les 30 premiers
-            top30_df = top30_df.sort_values('Score', ascending=False).head(30)
+            top30_df = top30_df.sort_values(score_col, ascending=False).head(30)
             
             self.top30_numbers = top30_df['Numero'].tolist()
-            self.top30_scores = dict(zip(top30_df['Numero'], top30_df['Score']))
+            self.top30_scores = dict(zip(top30_df['Numero'], top30_df[score_col]))
             self.external_top30 = True
             
-            print(f"✅ TOP 30 chargé depuis CSV ({len(self.top30_numbers)} numéros)")
+            format_type = "optimisé" if score_col == 'Score_Total' else "standard"
+            print(f"✅ TOP 30 chargé depuis CSV ({len(self.top30_numbers)} numéros, format {format_type})")
             print(f"   Top 10: {', '.join(map(str, self.top30_numbers[:10]))}")
             
             return self.top30_numbers

@@ -1506,7 +1506,14 @@ class KenoGeneratorAdvanced:
     
     def calculate_and_export_top30(self, export_path: Optional[str] = None) -> List[int]:
         """
-        Calcule le TOP 30 des numéros Keno avec scoring intelligent et l'exporte en CSV
+        Calcule le TOP 30 des numéros Keno avec scoring intelligent optimal et l'exporte en CSV
+        
+        Utilise un scoring multi-critères avancé basé sur :
+        - Fréquences multi-périodes (30%) : Global + Récent + Moyen terme
+        - Retard intelligent (25%) : Retard optimal avec bonus zones de retard
+        - Tendances dynamiques (20%) : Analyse sur 10, 50 et 100 tirages
+        - Popularité paires (15%) : Bonus pour numéros dans paires fréquentes
+        - Équilibrage zones (10%) : Répartition géographique optimale
         
         Args:
             export_path: Chemin d'export personnalisé (optionnel)
@@ -1514,67 +1521,194 @@ class KenoGeneratorAdvanced:
         Returns:
             List[int]: Liste des 30 meilleurs numéros
         """
-        self._log("🧠 Calcul du TOP 30 Keno avec profil intelligent...")
+        self._log("🧠 Calcul du TOP 30 Keno avec profil intelligent optimal...")
         
         if not hasattr(self, 'stats') or self.stats is None:
             self._log("⚠️ Statistiques non disponibles, analyse en cours...")
             self.analyze_patterns()
         
-        # Calcul du scoring intelligent multi-critères
-        scores = {}
-        max_freq = max(self.stats.frequences.values()) if self.stats.frequences else 1
+        # Calcul des maximums pour normalisation
+        max_freq_global = max(self.stats.frequences.values()) if self.stats.frequences else 1
+        max_freq_recent = max(self.stats.frequences_recentes.values()) if self.stats.frequences_recentes else 1
+        max_freq_50 = max(self.stats.frequences_50.values()) if self.stats.frequences_50 else 1
+        max_freq_20 = max(self.stats.frequences_20.values()) if self.stats.frequences_20 else 1
         max_retard = max(self.stats.retards.values()) if self.stats.retards else 1
         
+        # Calcul du scoring intelligent optimal multi-critères
+        scores = {}
+        
         for numero in range(1, 71):
-            # Score fréquence (35%)
-            freq_score = (self.stats.frequences.get(numero, 0) / max_freq) * 35
+            score_total = 0.0
             
-            # Score retard inversé (25%) - moins de retard = meilleur score
-            retard_score = (1 - (self.stats.retards.get(numero, max_retard) / max_retard)) * 25
+            # 1. FRÉQUENCES MULTI-PÉRIODES (30%) - Pondération intelligente
+            freq_global = self.stats.frequences.get(numero, 0)
+            freq_recent = self.stats.frequences_recentes.get(numero, 0)
+            freq_50 = self.stats.frequences_50.get(numero, 0)
+            freq_20 = self.stats.frequences_20.get(numero, 0)
             
-            # Score tendance (20%)
-            trend_score = 0
-            if hasattr(self.stats, 'tendances_100') and numero in self.stats.tendances_100:
-                if self.stats.tendances_100[numero] > 0:
-                    trend_score = 20
-                elif self.stats.tendances_100[numero] < -5:
-                    trend_score = 5
-                else:
-                    trend_score = 10
-            else:
-                trend_score = 10
+            # Pondération : récent > moyen terme > global pour détecter les tendances
+            freq_score = (
+                (freq_global / max_freq_global) * 0.10 +      # 10% fréquence globale
+                (freq_recent / max_freq_recent) * 0.08 +      # 8% fréquence 100 tirages  
+                (freq_50 / max_freq_50) * 0.08 +              # 8% fréquence 50 tirages
+                (freq_20 / max_freq_20) * 0.04                # 4% fréquence 20 tirages (tendance immédiate)
+            ) * 100  # Normalisation sur 30 points
+            score_total += freq_score
             
-            # Score pairs (15%)
+            # 2. RETARD INTELLIGENT (25%) - Zones de retard optimales
+            retard = self.stats.retards.get(numero, 0)
+            retard_normalized = retard / max_retard if max_retard > 0 else 0
+            
+            # Bonus pour retards dans la zone optimale (ni trop faible, ni trop élevé)
+            if 0.15 <= retard_normalized <= 0.45:      # Zone optimale (15-45% du retard max)
+                retard_bonus = 1.3                      # Bonus fort pour retards optimaux
+            elif 0.45 < retard_normalized <= 0.70:     # Zone de retard modéré
+                retard_bonus = 1.2                      # Bonus modéré
+            elif retard_normalized > 0.70:             # Très en retard
+                retard_bonus = 1.15                     # Léger bonus pour les grands retards
+            else:                                       # Peu en retard
+                retard_bonus = 0.9                      # Légère pénalité
+                
+            retard_score = (1 - retard_normalized) * 25 * retard_bonus
+            score_total += retard_score
+            
+            # 3. TENDANCES DYNAMIQUES (20%) - Analyse multi-périodes
+            tendance_10 = self.stats.tendances_10.get(numero, 1.0) if hasattr(self.stats, 'tendances_10') else 1.0
+            tendance_50 = self.stats.tendances_50.get(numero, 1.0) if hasattr(self.stats, 'tendances_50') else 1.0
+            tendance_100 = self.stats.tendances_100.get(numero, 1.0) if hasattr(self.stats, 'tendances_100') else 1.0
+            
+            # Moyenne pondérée des tendances (court terme > moyen terme > long terme)
+            tendance_moyenne = (tendance_10 * 0.5 + tendance_50 * 0.3 + tendance_100 * 0.2)
+            
+            # Score basé sur la force de la tendance positive
+            if tendance_moyenne > 1.3:                 # Forte tendance positive
+                tendance_score = 20
+            elif tendance_moyenne > 1.1:               # Tendance positive modérée
+                tendance_score = 15
+            elif tendance_moyenne > 0.9:               # Stable
+                tendance_score = 10
+            elif tendance_moyenne > 0.7:               # Tendance négative modérée
+                tendance_score = 5
+            else:                                       # Forte tendance négative
+                tendance_score = 2
+                
+            score_total += tendance_score
+            
+            # 4. POPULARITÉ DANS LES PAIRES (15%) - Bonus pour associations fréquentes
             pair_score = 0
             if hasattr(self.stats, 'paires_freq'):
+                # Compter les paires fréquentes contenant ce numéro
+                paires_importantes = 0
+                total_freq_paires = 0
+                
                 for (n1, n2), freq in self.stats.paires_freq.items():
                     if n1 == numero or n2 == numero:
-                        pair_score += freq
-                pair_score = min(pair_score / 100, 1) * 15
+                        if freq > 50:  # Seuil pour paires significatives
+                            paires_importantes += 1
+                            total_freq_paires += freq
+                
+                # Score basé sur nombre et fréquence des paires importantes
+                if paires_importantes > 0:
+                    pair_score = min(
+                        (paires_importantes * 3) + (total_freq_paires / 200),
+                        15  # Maximum 15 points
+                    )
             
-            # Score zones (5%)
-            zone_score = 5  # Score de base pour toutes les zones
+            score_total += pair_score
             
-            # Score total
-            total_score = freq_score + retard_score + trend_score + pair_score + zone_score
-            scores[numero] = total_score
+            # 5. ÉQUILIBRAGE ZONES (10%) - Répartition géographique optimale
+            zone_score = 0
+            if hasattr(self.stats, 'patterns_zones'):
+                # Déterminer la zone du numéro
+                if 1 <= numero <= 17:
+                    zone_key = 'zone_1_17'
+                elif 18 <= numero <= 35:
+                    zone_key = 'zone_18_35'
+                elif 36 <= numero <= 52:
+                    zone_key = 'zone_36_52'
+                else:  # 53-70
+                    zone_key = 'zone_53_70'
+                
+                # Score basé sur l'activité de la zone
+                zone_freq = self.stats.patterns_zones.get(zone_key, 0)
+                max_zone_freq = max(self.stats.patterns_zones.values()) if self.stats.patterns_zones else 1
+                
+                if max_zone_freq > 0:
+                    zone_score = (zone_freq / max_zone_freq) * 10
+                else:
+                    zone_score = 5  # Score par défaut
+            else:
+                zone_score = 5  # Score par défaut si pas de données zones
+            
+            score_total += zone_score
+            
+            scores[numero] = round(score_total, 3)
         
-        # Tri et sélection du TOP 30
+        # Tri et sélection du TOP 30 avec scores détaillés
         sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         top30_numbers = [num for num, score in sorted_numbers[:30]]
-        top30_data = []
         
+        # Préparation des données enrichies pour export
+        top30_data = []
         for num, score in sorted_numbers[:30]:
+            # Calcul des composantes du score pour traçabilité
+            freq_global = self.stats.frequences.get(num, 0)
+            freq_recent = self.stats.frequences_recentes.get(num, 0)
+            freq_50 = self.stats.frequences_50.get(num, 0)
+            freq_20 = self.stats.frequences_20.get(num, 0)
+            retard = self.stats.retards.get(num, 0)
+            
+            # Tendances multi-périodes
+            tendance_10 = self.stats.tendances_10.get(num, 1.0) if hasattr(self.stats, 'tendances_10') else 1.0
+            tendance_50 = self.stats.tendances_50.get(num, 1.0) if hasattr(self.stats, 'tendances_50') else 1.0
+            tendance_100 = self.stats.tendances_100.get(num, 1.0) if hasattr(self.stats, 'tendances_100') else 1.0
+            
+            # Nombre de paires fréquentes
+            nb_paires_freq = 0
+            if hasattr(self.stats, 'paires_freq'):
+                for (n1, n2), freq in self.stats.paires_freq.items():
+                    if (n1 == num or n2 == num) and freq > 50:
+                        nb_paires_freq += 1
+            
+            # Zone géographique
+            if 1 <= num <= 17:
+                zone = 1
+                zone_nom = "1-17"
+            elif 18 <= num <= 35:
+                zone = 2
+                zone_nom = "18-35"
+            elif 36 <= num <= 52:
+                zone = 3
+                zone_nom = "36-52"
+            else:
+                zone = 4
+                zone_nom = "53-70"
+            
             top30_data.append({
                 'Numero': num,
-                'Score': round(score, 2),
-                'Frequence': self.stats.frequences.get(num, 0),
-                'Retard': self.stats.retards.get(num, 0),
-                'Tendance_100': self.stats.tendances_100.get(num, 0) if hasattr(self.stats, 'tendances_100') else 0,
-                'Frequence_Recente': self.stats.frequences_recentes.get(num, 0) if hasattr(self.stats, 'frequences_recentes') else 0
+                'Score_Total': round(score, 2),
+                'Rang': len(top30_data) + 1,
+                
+                # Fréquences détaillées
+                'Freq_Globale': freq_global,
+                'Freq_100_Derniers': freq_recent,
+                'Freq_50_Derniers': freq_50,
+                'Freq_20_Derniers': freq_20,
+                
+                # Retard et tendances
+                'Retard_Actuel': retard,
+                'Tendance_10': round(tendance_10, 3),
+                'Tendance_50': round(tendance_50, 3),
+                'Tendance_100': round(tendance_100, 3),
+                
+                # Associations et répartition
+                'Nb_Paires_Frequentes': nb_paires_freq,
+                'Zone': zone,
+                'Zone_Nom': zone_nom,
+                'Parite': 'Pair' if num % 2 == 0 else 'Impair'
             })
         
-        # Export en CSV
+        # Export enrichi en CSV
         if export_path is None:
             export_path = self.output_dir / f"keno_top30.csv"
         else:
@@ -1583,13 +1717,23 @@ class KenoGeneratorAdvanced:
         # Créer le dossier parent si nécessaire
         export_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Sauvegarde du TOP 30
+        # Sauvegarde du TOP 30 enrichi
         top30_df = pd.DataFrame(top30_data)
         top30_df.to_csv(export_path, index=False)
         
-        self._log(f"✅ TOP 30 calculé et exporté:")
+        # Statistiques du TOP 30 pour validation
+        total_pairs = sum(1 for num in top30_numbers if num % 2 == 0)
+        repartition_zones = [0, 0, 0, 0]
+        for num in top30_numbers:
+            zone_idx = min((num - 1) // 18, 3)
+            repartition_zones[zone_idx] += 1
+        
+        self._log(f"✅ TOP 30 optimisé calculé et exporté:")
         self._log(f"   📁 Fichier: {export_path}")
         self._log(f"   🎯 Top 10: {', '.join(map(str, top30_numbers[:10]))}")
+        self._log(f"   📊 Répartition pairs/impairs: {total_pairs}/{30-total_pairs}")
+        self._log(f"   🗺️  Répartition zones: {'-'.join(map(str, repartition_zones))}")
+        self._log(f"   💯 Score moyen: {sum(scores[num] for num in top30_numbers)/30:.1f}")
         
         return top30_numbers
 
