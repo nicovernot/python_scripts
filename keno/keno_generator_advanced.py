@@ -1504,25 +1504,68 @@ class KenoGeneratorAdvanced:
             self._log(f"❌ Erreur lors de l'exécution: {e}", "ERROR")
             return False
     
+    def get_dynamic_weights(self) -> Dict[str, float]:
+        """
+        Adapte dynamiquement les pondérations des critères selon l'accuracy du modèle ML.
+        Si le modèle ML est très performant, on augmente son poids dans le scoring.
+        """
+        # Valeurs par défaut
+        weights = {
+            'ml': 0.20,
+            'freq': 0.25,
+            'retard': 0.20,
+            'tendance': 0.15,
+            'paires': 0.12,
+            'zones': 0.08
+        }
+        # Récupérer l'accuracy du modèle ML si disponible
+        accuracy = None
+        if hasattr(self, 'ml_models') and 'multilabel' in self.ml_models:
+            model = self.ml_models['multilabel']
+            if hasattr(model, 'accuracy_'):
+                accuracy = model.accuracy_
+            elif hasattr(model, 'score_'):
+                accuracy = model.score_
+            elif hasattr(model, 'accuracy'):
+                accuracy = model.accuracy
+        # Adaptation dynamique
+        if accuracy is not None:
+            if accuracy >= 0.80:
+                weights['ml'] = 0.40
+                weights['freq'] = 0.15
+                weights['retard'] = 0.15
+                weights['tendance'] = 0.15
+                weights['paires'] = 0.10
+                weights['zones'] = 0.05
+            elif accuracy >= 0.70:
+                weights['ml'] = 0.30
+                weights['freq'] = 0.20
+                weights['retard'] = 0.18
+                weights['tendance'] = 0.14
+                weights['paires'] = 0.12
+                weights['zones'] = 0.06
+            elif accuracy >= 0.60:
+                weights['ml'] = 0.20
+                weights['freq'] = 0.25
+                weights['retard'] = 0.20
+                weights['tendance'] = 0.15
+                weights['paires'] = 0.12
+                weights['zones'] = 0.08
+            else:
+                weights['ml'] = 0.10
+                weights['freq'] = 0.30
+                weights['retard'] = 0.22
+                weights['tendance'] = 0.16
+                weights['paires'] = 0.14
+                weights['zones'] = 0.08
+        return weights
+
     def calculate_and_export_top30(self, export_path: Optional[str] = None) -> List[int]:
         """
         Calcule le TOP 30 des numéros Keno avec scoring intelligent optimal + ML et l'exporte en CSV
-        
-        Utilise un scoring multi-critères avancé basé sur :
-        - **NOUVEAU** Prédictions ML (20%) : Probabilités des modèles entraînés XGBoost
-        - Fréquences multi-périodes (25%) : Global + Récent + Moyen terme  
-        - Retard intelligent (20%) : Retard optimal avec bonus zones de retard
-        - Tendances dynamiques (15%) : Analyse sur 10, 50 et 100 tirages
-        - Popularité paires (12%) : Bonus pour numéros dans paires fréquentes
-        - Équilibrage zones (8%) : Répartition géographique optimale
-        
-        Args:
-            export_path: Chemin d'export personnalisé (optionnel)
-            
-        Returns:
-            List[int]: Liste des 30 meilleurs numéros
+        S'adapte dynamiquement à la performance du modèle ML.
         """
-        self._log("🧠🤖 Calcul du TOP 30 Keno avec ML + profil intelligent optimal...")
+        self._log("🧠🤖 Calcul du TOP 30 Keno avec ML + profil intelligent optimal (adaptatif)...")
         
         if not hasattr(self, 'stats') or self.stats is None:
             self._log("⚠️ Statistiques non disponibles, analyse en cours...")
@@ -1618,124 +1661,76 @@ class KenoGeneratorAdvanced:
             self._log(f"⚠️ Erreur ML: {e}, utilisation des stats uniquement", "WARNING")
             ml_score_available = False
         
-        # Calcul du scoring intelligent optimal multi-critères + ML
+        # Utilisation des pondérations dynamiques dans le scoring
+        weights = self.get_dynamic_weights()
         scores = {}
         
         for numero in range(1, 71):
             score_total = 0.0
-            
-            # 1. **NOUVEAU** PRÉDICTIONS ML (20%) - Le plus important désormais
+            # 1. PRÉDICTIONS ML
             if ml_score_available and numero in ml_predictions:
                 ml_prob = ml_predictions[numero]
-                # Convertir la probabilité [0,1] en score [0,20]
-                ml_score = ml_prob * 20
-                score_total += ml_score
+                score_total += ml_prob * (weights['ml'] * 100)
             else:
-                # Score neutre si ML indisponible
-                score_total += 10  # 50% des 20 points ML
-                
-            # 2. FRÉQUENCES MULTI-PÉRIODES (25%) - Pondération intelligente
+                score_total += 0.5 * (weights['ml'] * 100)
+            # 2. FRÉQUENCES MULTI-PÉRIODES
             freq_global = self.stats.frequences.get(numero, 0)
             freq_recent = self.stats.frequences_recentes.get(numero, 0)
             freq_50 = self.stats.frequences_50.get(numero, 0)
             freq_20 = self.stats.frequences_20.get(numero, 0)
-            
-            # Pondération : récent > moyen terme > global pour détecter les tendances
             freq_score = (
-                (freq_global / max_freq_global) * 0.08 +      # 8% fréquence globale
-                (freq_recent / max_freq_recent) * 0.07 +      # 7% fréquence 100 tirages  
-                (freq_50 / max_freq_50) * 0.07 +              # 7% fréquence 50 tirages
-                (freq_20 / max_freq_20) * 0.03                # 3% fréquence 20 tirages (tendance immédiate)
-            ) * 100  # Normalisation sur 25 points
+                (freq_global / max_freq_global) * 0.25 +
+                (freq_recent / max_freq_recent) * 0.25 +
+                (freq_50 / max_freq_50) * 0.25 +
+                (freq_20 / max_freq_20) * 0.25
+            ) * (weights['freq'] * 100)
             score_total += freq_score
-            
-            # 3. RETARD INTELLIGENT (20%) - Zones de retard optimales
+            # 3. RETARD INTELLIGENT
             retard = self.stats.retards.get(numero, 0)
             retard_normalized = retard / max_retard if max_retard > 0 else 0
-            
-            # Bonus pour retards dans la zone optimale (ni trop faible, ni trop élevé)
-            if 0.15 <= retard_normalized <= 0.45:      # Zone optimale (15-45% du retard max)
-                retard_bonus = 1.3                      # Bonus fort pour retards optimaux
-            elif 0.45 < retard_normalized <= 0.70:     # Zone de retard modéré
-                retard_bonus = 1.2                      # Bonus modéré
-            elif retard_normalized > 0.70:             # Très en retard
-                retard_bonus = 1.15                     # Léger bonus pour les grands retards
-            else:                                       # Peu en retard
-                retard_bonus = 0.9                      # Légère pénalité
-                
-            retard_score = (1 - retard_normalized) * 20 * retard_bonus  # 20 points au lieu de 25
+            retard_score = (1 - retard_normalized) * (weights['retard'] * 100)
             score_total += retard_score
-            
-            # 4. TENDANCES DYNAMIQUES (15%) - Analyse multi-périodes
+            # 4. TENDANCES DYNAMIQUES
             tendance_10 = self.stats.tendances_10.get(numero, 1.0) if hasattr(self.stats, 'tendances_10') else 1.0
             tendance_50 = self.stats.tendances_50.get(numero, 1.0) if hasattr(self.stats, 'tendances_50') else 1.0
             tendance_100 = self.stats.tendances_100.get(numero, 1.0) if hasattr(self.stats, 'tendances_100') else 1.0
-            
-            # Moyenne pondérée des tendances (court terme > moyen terme > long terme)
             tendance_moyenne = (tendance_10 * 0.5 + tendance_50 * 0.3 + tendance_100 * 0.2)
-            
-            # Score basé sur la force de la tendance positive
-            if tendance_moyenne > 1.3:                 # Forte tendance positive
-                tendance_score = 15  # 15 points au lieu de 20
-            elif tendance_moyenne > 1.1:               # Tendance positive modérée
-                tendance_score = 11
-            elif tendance_moyenne > 0.9:               # Stable
-                tendance_score = 7
-            elif tendance_moyenne > 0.7:               # Tendance négative modérée
-                tendance_score = 4
-            else:                                       # Forte tendance négative
-                tendance_score = 1
-                
+            tendance_score = max(0, min(1, (tendance_moyenne - 0.7) / 0.6)) * (weights['tendance'] * 100)
             score_total += tendance_score
-            
-            # 5. POPULARITÉ DANS LES PAIRES (12%) - Bonus pour associations fréquentes
+            # 5. POPULARITÉ DANS LES PAIRES
             pair_score = 0
             if hasattr(self.stats, 'paires_freq'):
-                # Compter les paires fréquentes contenant ce numéro
                 paires_importantes = 0
                 total_freq_paires = 0
-                
                 for (n1, n2), freq in self.stats.paires_freq.items():
                     if n1 == numero or n2 == numero:
-                        if freq > 50:  # Seuil pour paires significatives
+                        if freq > 50:
                             paires_importantes += 1
                             total_freq_paires += freq
-                
-                # Score basé sur nombre et fréquence des paires importantes
                 if paires_importantes > 0:
                     pair_score = min(
                         (paires_importantes * 2) + (total_freq_paires / 250),
-                        12  # Maximum 12 points au lieu de 15
+                        weights['paires'] * 100
                     )
-            
             score_total += pair_score
-            
-            # 6. ÉQUILIBRAGE ZONES (8%) - Répartition géographique optimale
+            # 6. ÉQUILIBRAGE ZONES
             zone_score = 0
             if hasattr(self.stats, 'patterns_zones'):
-                # Déterminer la zone du numéro
                 if 1 <= numero <= 17:
                     zone_key = 'zone_1_17'
                 elif 18 <= numero <= 35:
                     zone_key = 'zone_18_35'
                 elif 36 <= numero <= 52:
                     zone_key = 'zone_36_52'
-                else:  # 53-70
+                else:
                     zone_key = 'zone_53_70'
-                
-                # Score basé sur l'activité de la zone
                 zone_freq = self.stats.patterns_zones.get(zone_key, 0)
                 max_zone_freq = max(self.stats.patterns_zones.values()) if self.stats.patterns_zones else 1
-                
                 if max_zone_freq > 0:
-                    zone_score = (zone_freq / max_zone_freq) * 8  # 8 points au lieu de 10
+                    zone_score = (zone_freq / max_zone_freq) * (weights['zones'] * 100)
                 else:
-                    zone_score = 4  # Score par défaut
-            else:
-                zone_score = 4  # Score par défaut si pas de données zones
-            
+                    zone_score = 0.5 * (weights['zones'] * 100)
             score_total += zone_score
-            
             scores[numero] = round(score_total, 3)
         
         # Tri et sélection du TOP 30 avec scores détaillés

@@ -2,7 +2,6 @@ duckdb
 pandas
 requests
 xgboost
-scypy
 scipy
 matplotlib
 numpy
@@ -13,13 +12,10 @@ psutil
 numba
 optuna
 dotenv
-numba
 redis
 pyyaml
 stumpy
 statsmodels
-flask
-flask-cors
 flask
 flask-cors
 pyarrow
