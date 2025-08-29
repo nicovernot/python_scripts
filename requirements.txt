@@ -20,3 +20,4 @@ flask
 flask-cors
 pyarrow
 fastparquet
+beautifulsoup4
