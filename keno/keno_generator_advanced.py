@@ -1421,6 +1421,183 @@ class KenoGeneratorAdvanced:
         
         return "\n".join(report)
     
+    def get_top30_ml_predictions(self) -> List[Tuple[int, float]]:
+        """
+        Obtient le TOP 30 des numéros selon les prédictions ML
+        
+        Returns:
+            List[Tuple[int, float]]: Liste des (numéro, probabilité) triée par probabilité décroissante
+        """
+        if 'multilabel' not in self.ml_models:
+            self._log("❌ Modèle ML multi-label non disponible", "ERROR")
+            return []
+        
+        try:
+            self._log("🤖 Calcul du TOP 30 selon les prédictions ML...")
+            
+            model = self.ml_models['multilabel']
+            
+            # Préparation des features pour la prédiction
+            current_date = pd.Timestamp.now()
+            df_predict = pd.DataFrame({
+                'date_de_tirage': [current_date],
+                **{f'boule{i}': [0] for i in range(1, 21)}  # Valeurs dummy
+            })
+            
+            # Ajout des features temporelles
+            df_features = self.add_cyclic_features(df_predict)
+            
+            # Features d'historique (utiliser les derniers tirages disponibles)
+            lag_features = {}
+            
+            if self.stats and self.stats.derniers_tirages:
+                for lag in range(1, 6):
+                    for ball_num in range(1, 21):
+                        col_name = f'lag{lag}_boule{ball_num}'
+                        if lag <= len(self.stats.derniers_tirages):
+                            last_draw = self.stats.derniers_tirages[-(lag)]
+                            if ball_num <= len(last_draw):
+                                lag_features[col_name] = last_draw[ball_num - 1] if ball_num <= len(last_draw) else 0
+                            else:
+                                lag_features[col_name] = 0
+                        else:
+                            lag_features[col_name] = 0
+            else:
+                # Valeurs par défaut si pas d'historique
+                for lag in range(1, 6):
+                    for ball_num in range(1, 21):
+                        lag_features[f'lag{lag}_boule{ball_num}'] = 0
+            
+            # Ajout des features d'historique
+            lag_df = pd.DataFrame(lag_features, index=df_features.index)
+            
+            # Features de zones
+            zone_features = {}
+            if self.stats:
+                total_draws = len(self.stats.derniers_tirages) if self.stats.derniers_tirages else 1
+                zone_features['zone1_count'] = self.stats.zones_freq.get("zone1_17", 0) / total_draws
+                zone_features['zone2_count'] = self.stats.zones_freq.get("zone18_35", 0) / total_draws 
+                zone_features['zone3_count'] = self.stats.zones_freq.get("zone36_52", 0) / total_draws
+                zone_features['zone4_count'] = self.stats.zones_freq.get("zone53_70", 0) / total_draws
+            else:
+                zone_features = {'zone1_count': 5, 'zone2_count': 5, 'zone3_count': 5, 'zone4_count': 5}
+            
+            zone_df = pd.DataFrame([zone_features], index=df_features.index)
+            df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
+            
+            feature_cols = ['day_sin', 'day_cos', 'month_sin', 'month_cos']
+            feature_cols.extend(lag_features.keys())
+            feature_cols.extend(['zone1_count', 'zone2_count', 'zone3_count', 'zone4_count'])
+            
+            # Préparation des features pour la prédiction
+            X_pred = df_features[feature_cols].fillna(0)
+            
+            # Prédiction des probabilités pour tous les numéros
+            probabilities = model.predict_proba(X_pred)
+            
+            # Extraction des probabilités pour la classe positive (numéro tiré)
+            number_probs = []
+            for i in range(min(KENO_PARAMS['total_numbers'], len(probabilities))):
+                num = i + 1  # Numéros de 1 à 70
+                if len(probabilities[i][0]) > 1:  # Vérifier qu'on a bien les 2 classes
+                    prob = probabilities[i][0][1]  # Probabilité de la classe positive
+                else:
+                    prob = 0.5  # Valeur par défaut
+                number_probs.append((num, prob))
+            
+            # Tri par probabilité décroissante et sélection du TOP 30
+            number_probs.sort(key=lambda x: x[1], reverse=True)
+            top30 = number_probs[:30]
+            
+            self._log(f"✅ TOP 30 ML calculé - Probabilité moyenne: {np.mean([prob for _, prob in top30]):.4f}")
+            return top30
+            
+        except Exception as e:
+            self._log(f"❌ Erreur lors du calcul TOP 30 ML: {e}", "ERROR")
+            import traceback
+            self._log(f"Détails: {traceback.format_exc()}")
+            return []
+
+    def save_top30_ml_csv(self, filename: str = None) -> str:
+        """
+        Sauvegarde le TOP 30 des numéros ML dans un fichier CSV dédié
+        
+        Args:
+            filename: Nom du fichier (optionnel)
+            
+        Returns:
+            str: Chemin du fichier sauvegardé
+        """
+        if not filename:
+            filename = "keno_top30_ml.csv"
+        
+        filepath = self.output_dir / filename
+        
+        # Obtenir le TOP 30 ML
+        top30_ml = self.get_top30_ml_predictions()
+        
+        if not top30_ml:
+            self._log("❌ Impossible de générer le TOP 30 ML", "ERROR")
+            return ""
+        
+        # Préparation des données enrichies
+        top30_data = []
+        for rang, (numero, probabilite) in enumerate(top30_ml, 1):
+            # Informations statistiques supplémentaires
+            freq_globale = self.stats.frequences.get(numero, 0) if self.stats else 0
+            freq_recente = self.stats.frequences_recentes.get(numero, 0) if self.stats else 0
+            retard = self.stats.retards.get(numero, 0) if self.stats else 0
+            
+            # Zone géographique
+            if 1 <= numero <= 17:
+                zone = "1-17"
+            elif 18 <= numero <= 35:
+                zone = "18-35"
+            elif 36 <= numero <= 52:
+                zone = "36-52"
+            else:
+                zone = "53-70"
+            
+            # Tendance récente (si disponible)
+            tendance_50 = self.stats.tendances_50.get(numero, 1.0) if hasattr(self.stats, 'tendances_50') else 1.0
+            
+            # Nombre de paires fréquentes
+            nb_paires_freq = 0
+            if self.stats and hasattr(self.stats, 'paires_freq'):
+                for (n1, n2), freq in self.stats.paires_freq.items():
+                    if (n1 == numero or n2 == numero) and freq > 50:
+                        nb_paires_freq += 1
+            
+            top30_data.append({
+                'Rang': rang,
+                'Numero': numero,
+                'Probabilite_ML': round(probabilite, 6),
+                'Confiance': 'Très Haute' if probabilite > 0.8 else 'Haute' if probabilite > 0.6 else 'Moyenne' if probabilite > 0.4 else 'Faible',
+                'Freq_Globale': freq_globale,
+                'Freq_Recente_100': freq_recente,
+                'Retard_Actuel': retard,
+                'Tendance_50j': round(tendance_50, 3),
+                'Zone': zone,
+                'Parite': 'Pair' if numero % 2 == 0 else 'Impair',
+                'Nb_Paires_Freq': nb_paires_freq,
+                'Recommandation': '🔥 TRÈS FORT' if rang <= 5 else '⭐ FORT' if rang <= 15 else '✓ BON'
+            })
+        
+        # Sauvegarde en CSV
+        df_top30 = pd.DataFrame(top30_data)
+        df_top30.to_csv(filepath, index=False)
+        
+        # Statistiques pour le log
+        avg_prob = np.mean([data['Probabilite_ML'] for data in top30_data])
+        total_pairs = sum(1 for data in top30_data if data['Parite'] == 'Pair')
+        
+        self._log(f"💾 TOP 30 ML sauvegardé: {filepath}")
+        self._log(f"   🎯 Top 5: {', '.join(str(data['Numero']) for data in top30_data[:5])}")
+        self._log(f"   📊 Probabilité moyenne: {avg_prob:.4f}")
+        self._log(f"   ⚖️  Répartition pairs/impairs: {total_pairs}/{30-total_pairs}")
+        
+        return str(filepath)
+    
     def run(self, num_grids: int = 100, save_file: str = None, 
            retrain: bool = False) -> bool:
         """
@@ -1463,10 +1640,15 @@ class KenoGeneratorAdvanced:
                 self._log("❌ Aucune grille générée", "ERROR")
                 return False
             
-            # 5. Sauvegarde
+            # 5. Sauvegarde des grilles
             result_file = self.save_results(grids_with_scores, save_file)
             
-            # 6. Rapport
+            # 6. NOUVEAU: Sauvegarde du TOP 30 ML si disponible
+            top30_ml_file = ""
+            if HAS_ML and 'multilabel' in self.ml_models:
+                top30_ml_file = self.save_top30_ml_csv()
+            
+            # 7. Rapport
             report = self.generate_report(grids_with_scores)
             
             # Affichage des résultats
@@ -1474,11 +1656,18 @@ class KenoGeneratorAdvanced:
             self._log("🎯 GÉNÉRATION KENO TERMINÉE")
             self._log("=" * 70)
             
-            # Top 5
+            # Top 5 grilles
             self._log("\n🏆 Top 5 des grilles recommandées:")
             for i, (grid, score) in enumerate(grids_with_scores[:5], 1):
                 nums_str = " - ".join(f"{n:2d}" for n in grid)
                 self._log(f"   {i}. [{nums_str}] | Score: {score:.4f}")
+            
+            # TOP 30 ML si disponible
+            if top30_ml_file:
+                top30_ml = self.get_top30_ml_predictions()
+                if top30_ml:
+                    top10_ml = [str(num) for num, _ in top30_ml[:10]]
+                    self._log(f"\n🤖 TOP 10 numéros ML: {' - '.join(top10_ml)}")
             
             # Statistiques
             scores = [score for _, score in grids_with_scores]
@@ -1490,7 +1679,9 @@ class KenoGeneratorAdvanced:
             # Temps d'exécution
             elapsed = time.time() - start_time
             self._log(f"\n⏱️  Temps d'exécution: {elapsed:.2f} secondes")
-            self._log(f"📁 Résultats sauvegardés: {result_file}")
+            self._log(f"📁 Grilles sauvegardées: {result_file}")
+            if top30_ml_file:
+                self._log(f"🤖 TOP 30 ML sauvegardé: {top30_ml_file}")
             
             # Sauvegarde du rapport
             report_file = self.output_dir / "rapport_keno.md"
@@ -1614,7 +1805,7 @@ class KenoGeneratorAdvanced:
                         for ball_num in range(1, 21):
                             lag_features[f'lag{lag}_boule{ball_num}'] = 0
                 
-                lag_df = pd.DataFrame(lag_features, index=df_features.index)
+                lag_df = pd.DataFrame(lag_features, index=df_predict.index)
                 
                 # Features de zones
                 zone_features = {}
@@ -1627,7 +1818,7 @@ class KenoGeneratorAdvanced:
                 else:
                     zone_features = {'zone1_count': 5, 'zone2_count': 5, 'zone3_count': 5, 'zone4_count': 5}
                 
-                zone_df = pd.DataFrame([zone_features], index=df_features.index)
+                zone_df = pd.DataFrame([zone_features], index=df_predict.index)
                 df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
                 
                 feature_cols = ['day_sin', 'day_cos', 'month_sin', 'month_cos']
@@ -1818,13 +2009,6 @@ class KenoGeneratorAdvanced:
         top30_df.to_csv(export_path, index=False)
         
         # Statistiques du TOP 30 pour validation
-        total_pairs = sum(1 for num in top30_numbers if num % 2 == 0)
-        repartition_zones = [0, 0, 0, 0]
-        for num in top30_numbers:
-            zone_idx = min((num - 1) // 18, 3)
-            repartition_zones[zone_idx] += 1
-        
-        # Statistiques ML pour le reporting
         ml_status = "✅ ACTIF" if ml_score_available else "⚠️ INDISPONIBLE"
         avg_ml_prob = sum(ml_predictions.get(num, 0.5) for num in top30_numbers) / 30 if ml_predictions else 0.5
         
