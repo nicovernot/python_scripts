@@ -10,13 +10,27 @@ from pathlib import Path
 def convert_keno_csv_to_parquet():
     """Convertit les fichiers CSV Keno en format Parquet pour optimiser les performances"""
     
-    # Chemins des fichiers
-    csv_path = Path("keno_data/keno_202010.csv")
-    parquet_path = Path("keno_data/keno_202010.parquet")
+    # Chemins des fichiers - correction du chemin relatif
+    base_dir = Path(__file__).parent  # Répertoire du script
+    csv_path = base_dir / "keno_data/keno_202010.csv"
+    parquet_path = base_dir / "keno_data/keno_202010.parquet"
     
     print(f"🔄 Conversion du fichier CSV Keno en Parquet...")
     print(f"   Source: {csv_path}")
     print(f"   Destination: {parquet_path}")
+    
+    # Vérifier si le fichier source existe
+    if not csv_path.exists():
+        print(f"❌ Fichier source introuvable: {csv_path}")
+        # Chercher d'autres fichiers CSV dans le répertoire
+        keno_data_dir = base_dir / "keno_data"
+        if keno_data_dir.exists():
+            csv_files = list(keno_data_dir.glob("*.csv"))
+            if csv_files:
+                print(f"📁 Fichiers CSV disponibles:")
+                for f in csv_files:
+                    print(f"   - {f.name}")
+        return None
     
     try:
         # Lecture du CSV avec le bon séparateur

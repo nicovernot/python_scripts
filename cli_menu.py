@@ -77,8 +77,13 @@ class LotoKenoMenu:
         if self.clear_screen_enabled:
             os.system('clear' if os.name == 'posix' else 'cls')
     
-    def format_date_range(self, first_date, last_date):
+    def format_date_range(self, date_range):
         """Formate une plage de dates au format MM/YYYY → MM/YYYY"""
+        if date_range is None or len(date_range) != 2:
+            return None
+            
+        first_date, last_date = date_range
+        
         try:
             # Essayer de parser différents formats de date
             from datetime import datetime
@@ -154,10 +159,10 @@ class LotoKenoMenu:
         if self.loto_csv.exists():
             size = self.loto_csv.stat().st_size / (1024*1024)
             mtime = datetime.fromtimestamp(self.loto_csv.stat().st_mtime)
-            first_date, last_date = self.get_csv_date_range(self.loto_csv)
+            date_range_tuple = self.get_csv_date_range(self.loto_csv)
             date_info = ""
-            if first_date and last_date:
-                date_range = self.format_date_range(first_date, last_date)
+            if date_range_tuple and date_range_tuple[0] and date_range_tuple[1]:
+                date_range = self.format_date_range(date_range_tuple)
                 if date_range:
                     date_info = f", {date_range}"
             print(f"  🎲 Loto:  {Colors.OKGREEN}✓ Disponible{Colors.ENDC} ({size:.1f}MB, MAJ: {mtime.strftime('%d/%m/%Y')}{date_info})")
@@ -168,10 +173,10 @@ class LotoKenoMenu:
         if self.keno_csv.exists():
             size = self.keno_csv.stat().st_size / (1024*1024)
             mtime = datetime.fromtimestamp(self.keno_csv.stat().st_mtime)
-            first_date, last_date = self.get_csv_date_range(self.keno_csv)
+            date_range_tuple = self.get_csv_date_range(self.keno_csv)
             date_info = ""
-            if first_date and last_date:
-                date_range = self.format_date_range(first_date, last_date)
+            if date_range_tuple and date_range_tuple[0] and date_range_tuple[1]:
+                date_range = self.format_date_range(date_range_tuple)
                 if date_range:
                     date_info = f", {date_range}"
             print(f"  🎰 Keno:  {Colors.OKGREEN}✓ Disponible{Colors.ENDC} ({size:.1f}MB, MAJ: {mtime.strftime('%d/%m/%Y')}{date_info})")
@@ -199,6 +204,20 @@ class LotoKenoMenu:
         print("  2️⃣2️⃣ Générateur Loto avancé (ML + IA)")
         print()
         
+        print(f"{Colors.BOLD}🎯 TOP NUMÉROS ÉQUILIBRÉS{Colors.ENDC}")
+        print("  2️⃣8️⃣ 🏆 TOP 25 Loto équilibrés (stratégie optimisée)")
+        print("  2️⃣9️⃣ 🏆 TOP 30 Keno équilibrés (stratégie optimisée)")
+        print("  3️⃣0️⃣ 📊 Voir TOP 25 Loto (dernière génération)")
+        print("  3️⃣1️⃣ 📊 Voir TOP 30 Keno (dernière génération)")
+        print()
+        
+        print(f"{Colors.BOLD}🎲 GÉNÉRATION GRILLES TOP CSV{Colors.ENDC}")
+        print("  3️⃣2️⃣ 🎯 Grilles Loto TOP 25 → CSV optimisé")
+        print("  3️⃣3️⃣ 🎯 Grilles Keno TOP 30 → CSV optimisé")
+        print("  3️⃣4️⃣ 📝 Grilles Loto TOP 25 → Markdown détaillé")
+        print("  3️⃣5️⃣ 📝 Grilles Keno TOP 30 → Markdown détaillé")
+        print()
+        
         print(f"{Colors.OKCYAN}🎰 ANALYSE KENO{Colors.ENDC}")
         print("  8️⃣  Analyse Keno complète (nouveaux algorithmes)")
         print("  9️⃣  Pipeline Keno complet avec visualisations + nettoyage auto")
@@ -207,6 +226,20 @@ class LotoKenoMenu:
         print("  2️⃣5️⃣ Générateur Keno avancé (ML + IA)")
         print("  2️⃣6️⃣ 📊 Statistiques Keno complètes (CSV + graphiques)")
         print("  2️⃣7️⃣ ⚡ Analyse Keno rapide (recommandations express)")
+        print()
+        
+        print(f"{Colors.BOLD}🔥 KENO PATTERNS AVANCÉS{Colors.ENDC}")
+        print("  3️⃣6️⃣ 🧠 Générateur patterns avancés (DuckDB + 15 patterns)")
+        print("  3️⃣7️⃣ 📊 TOP 30 numéros patterns → CSV")
+        print("  3️⃣8️⃣ 🎯 Générateur personnalisé (paramètres libres)")
+        print("  3️⃣9️⃣ 🔍 Test des patterns (vérification complète)")
+        print()
+        
+        print(f"{Colors.BOLD}🎯 SYSTÈME RÉDUCTEUR INTELLIGENT{Colors.ENDC}")
+        print("  4️⃣0️⃣ 🧠 Générateur intelligent avec PuLP")
+        print("  4️⃣1️⃣ 📊 Systèmes réducteurs (Bas/Moyen/Haut)")
+        print("  4️⃣2️⃣ 🎲 Génération basée sur paires fréquentes")
+        print("  4️⃣3️⃣ 📊 Générer TOP 30 Keno (KenoGeneratorAdvanced)")
         print()
         
         print(f"{Colors.OKGREEN}🧪 TESTS ET MAINTENANCE{Colors.ENDC}")
@@ -267,6 +300,236 @@ class LotoKenoMenu:
             
         print("\n" + "═" * 50)
         input(f"\n{Colors.BOLD}Appuyez sur Entrée pour continuer...{Colors.ENDC}")
+
+    def handle_grilles_loto_top_csv(self):
+        """Génération grilles Loto TOP 25 → CSV optimisé"""
+        print(f"\n{Colors.BOLD}🎯 GÉNÉRATION GRILLES LOTO TOP 25 → CSV{Colors.ENDC}")
+        print("Génération de grilles optimisées basées sur les 25 meilleurs numéros Loto")
+        print("  • Utilise le fichier TOP 25 le plus récent")
+        print("  • Optimisation PuLP ou algorithme glouton")
+        print("  • Export CSV structuré avec analyses détaillées")
+        print()
+        
+        # Configuration de la génération
+        try:
+            nb_grilles = int(input("Nombre de grilles (5-50) [10]: ").strip() or "10")
+            if nb_grilles < 5 or nb_grilles > 50:
+                raise ValueError("Nombre invalide")
+        except:
+            nb_grilles = 10
+        
+        try:
+            top_nombres = int(input("Nombre de numéros TOP à utiliser (10-25) [20]: ").strip() or "20")
+            if top_nombres < 10 or top_nombres > 25:
+                raise ValueError("Nombre invalide")
+        except:
+            top_nombres = 20
+        
+        try:
+            taille_grille = int(input("Numéros par grille (5-10) [5]: ").strip() or "5")
+            if taille_grille < 5 or taille_grille > 10:
+                raise ValueError("Taille invalide")
+        except:
+            taille_grille = 5
+        
+        # Choix de l'optimisation
+        print(f"\n{Colors.OKBLUE}⚙️ Type d'optimisation:{Colors.ENDC}")
+        print("1️⃣  PuLP (optimisation linéaire, recommandé)")
+        print("2️⃣  Glouton (algorithme rapide)")
+        
+        optim_choice = input("Optimisation (1-2) [1]: ").strip() or "1"
+        optimisation = "pulp" if optim_choice == "1" else "glouton"
+        
+        # Construction et exécution de la commande
+        command = f"python grilles/generateur_grilles.py --top-csv --jeu loto --top-nombres {top_nombres} --optimisation {optimisation} --taille-grille-loto {taille_grille} --grilles {nb_grilles} --export --format csv --verbose"
+        
+        print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+        print(f"   Jeu: Loto")
+        print(f"   Grilles: {nb_grilles}")
+        print(f"   TOP numéros: {top_nombres}")
+        print(f"   Taille grilles: {taille_grille}")
+        print(f"   Optimisation: {optimisation}")
+        print(f"   Format: CSV")
+        
+        confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm not in ['n', 'non', 'no']:
+            self.execute_command(command, "Génération Grilles Loto TOP 25 → CSV")
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+
+    def handle_grilles_keno_top_csv(self):
+        """Génération grilles Keno TOP 30 → CSV optimisé"""
+        print(f"\n{Colors.BOLD}🎯 GÉNÉRATION GRILLES KENO TOP 30 → CSV{Colors.ENDC}")
+        print("Génération de grilles optimisées basées sur les 30 meilleurs numéros Keno")
+        print("  • Utilise le fichier TOP 30 le plus récent")
+        print("  • Optimisation PuLP ou algorithme glouton")
+        print("  • Export CSV structuré avec analyses détaillées")
+        print()
+        
+        # Configuration de la génération
+        try:
+            nb_grilles = int(input("Nombre de grilles (5-50) [12]: ").strip() or "12")
+            if nb_grilles < 5 or nb_grilles > 50:
+                raise ValueError("Nombre invalide")
+        except:
+            nb_grilles = 12
+        
+        try:
+            top_nombres = int(input("Nombre de numéros TOP à utiliser (15-30) [25]: ").strip() or "25")
+            if top_nombres < 15 or top_nombres > 30:
+                raise ValueError("Nombre invalide")
+        except:
+            top_nombres = 25
+        
+        try:
+            taille_grille = int(input("Numéros par grille (6-10) [8]: ").strip() or "8")
+            if taille_grille < 6 or taille_grille > 10:
+                raise ValueError("Taille invalide")
+        except:
+            taille_grille = 8
+        
+        # Choix de l'optimisation
+        print(f"\n{Colors.OKBLUE}⚙️ Type d'optimisation:{Colors.ENDC}")
+        print("1️⃣  PuLP (optimisation linéaire, recommandé)")
+        print("2️⃣  Glouton (algorithme rapide)")
+        
+        optim_choice = input("Optimisation (1-2) [1]: ").strip() or "1"
+        optimisation = "pulp" if optim_choice == "1" else "glouton"
+        
+        # Construction et exécution de la commande
+        command = f"python grilles/generateur_grilles.py --top-csv --jeu keno --top-nombres {top_nombres} --optimisation {optimisation} --taille-grille-keno {taille_grille} --grilles {nb_grilles} --export --format csv --verbose"
+        
+        print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+        print(f"   Jeu: Keno")
+        print(f"   Grilles: {nb_grilles}")
+        print(f"   TOP numéros: {top_nombres}")
+        print(f"   Taille grilles: {taille_grille}")
+        print(f"   Optimisation: {optimisation}")
+        print(f"   Format: CSV")
+        
+        confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm not in ['n', 'non', 'no']:
+            self.execute_command(command, "Génération Grilles Keno TOP 30 → CSV")
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+
+    def handle_grilles_loto_top_markdown(self):
+        """Génération grilles Loto TOP 25 → Markdown détaillé"""
+        print(f"\n{Colors.BOLD}📝 GÉNÉRATION GRILLES LOTO TOP 25 → MARKDOWN{Colors.ENDC}")
+        print("Génération de grilles optimisées avec rapport Markdown détaillé")
+        print("  • Utilise le fichier TOP 25 le plus récent")
+        print("  • Optimisation PuLP ou algorithme glouton")
+        print("  • Rapport Markdown avec tableaux et analyses")
+        print("  • Conseils et recommandations d'utilisation")
+        print()
+        
+        # Configuration de la génération
+        try:
+            nb_grilles = int(input("Nombre de grilles (5-30) [8]: ").strip() or "8")
+            if nb_grilles < 5 or nb_grilles > 30:
+                raise ValueError("Nombre invalide")
+        except:
+            nb_grilles = 8
+        
+        try:
+            top_nombres = int(input("Nombre de numéros TOP à utiliser (10-25) [18]: ").strip() or "18")
+            if top_nombres < 10 or top_nombres > 25:
+                raise ValueError("Nombre invalide")
+        except:
+            top_nombres = 18
+        
+        try:
+            taille_grille = int(input("Numéros par grille (5-8) [5]: ").strip() or "5")
+            if taille_grille < 5 or taille_grille > 8:
+                raise ValueError("Taille invalide")
+        except:
+            taille_grille = 5
+        
+        # Choix de l'optimisation
+        print(f"\n{Colors.OKBLUE}⚙️ Type d'optimisation:{Colors.ENDC}")
+        print("1️⃣  PuLP (optimisation linéaire, recommandé)")
+        print("2️⃣  Glouton (algorithme rapide)")
+        
+        optim_choice = input("Optimisation (1-2) [1]: ").strip() or "1"
+        optimisation = "pulp" if optim_choice == "1" else "glouton"
+        
+        # Construction et exécution de la commande
+        command = f"python grilles/generateur_grilles.py --top-csv --jeu loto --top-nombres {top_nombres} --optimisation {optimisation} --taille-grille-loto {taille_grille} --grilles {nb_grilles} --export --format markdown --verbose"
+        
+        print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+        print(f"   Jeu: Loto")
+        print(f"   Grilles: {nb_grilles}")
+        print(f"   TOP numéros: {top_nombres}")
+        print(f"   Taille grilles: {taille_grille}")
+        print(f"   Optimisation: {optimisation}")
+        print(f"   Format: Markdown")
+        
+        confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm not in ['n', 'non', 'no']:
+            self.execute_command(command, "Génération Grilles Loto TOP 25 → Markdown")
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+
+    def handle_grilles_keno_top_markdown(self):
+        """Génération grilles Keno TOP 30 → Markdown détaillé"""
+        print(f"\n{Colors.BOLD}📝 GÉNÉRATION GRILLES KENO TOP 30 → MARKDOWN{Colors.ENDC}")
+        print("Génération de grilles optimisées avec rapport Markdown détaillé")
+        print("  • Utilise le fichier TOP 30 le plus récent")
+        print("  • Optimisation PuLP ou algorithme glouton")
+        print("  • Rapport Markdown avec tableaux et analyses")
+        print("  • Conseils et recommandations d'utilisation")
+        print()
+        
+        # Configuration de la génération
+        try:
+            nb_grilles = int(input("Nombre de grilles (5-30) [10]: ").strip() or "10")
+            if nb_grilles < 5 or nb_grilles > 30:
+                raise ValueError("Nombre invalide")
+        except:
+            nb_grilles = 10
+        
+        try:
+            top_nombres = int(input("Nombre de numéros TOP à utiliser (15-30) [22]: ").strip() or "22")
+            if top_nombres < 15 or top_nombres > 30:
+                raise ValueError("Nombre invalide")
+        except:
+            top_nombres = 22
+        
+        try:
+            taille_grille = int(input("Numéros par grille (6-10) [9]: ").strip() or "9")
+            if taille_grille < 6 or taille_grille > 10:
+                raise ValueError("Taille invalide")
+        except:
+            taille_grille = 9
+        
+        # Choix de l'optimisation
+        print(f"\n{Colors.OKBLUE}⚙️ Type d'optimisation:{Colors.ENDC}")
+        print("1️⃣  PuLP (optimisation linéaire, recommandé)")
+        print("2️⃣  Glouton (algorithme rapide)")
+        
+        optim_choice = input("Optimisation (1-2) [1]: ").strip() or "1"
+        optimisation = "pulp" if optim_choice == "1" else "glouton"
+        
+        # Construction et exécution de la commande
+        command = f"python grilles/generateur_grilles.py --top-csv --jeu keno --top-nombres {top_nombres} --optimisation {optimisation} --taille-grille-keno {taille_grille} --grilles {nb_grilles} --export --format markdown --verbose"
+        
+        print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+        print(f"   Jeu: Keno")
+        print(f"   Grilles: {nb_grilles}")
+        print(f"   TOP numéros: {top_nombres}")
+        print(f"   Taille grilles: {taille_grille}")
+        print(f"   Optimisation: {optimisation}")
+        print(f"   Format: Markdown")
+        
+        confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm not in ['n', 'non', 'no']:
+            self.execute_command(command, "Génération Grilles Keno TOP 30 → Markdown")
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
         
     def wait_and_continue(self, message="Appuyez sur Entrée pour continuer..."):
         """Pause avec message"""
@@ -657,7 +920,7 @@ class LotoKenoMenu:
             self.execute_command("./lancer_api.sh", "Lancement de l'API Flask")
             
         elif choice == "16":
-            self.execute_command("python test_api.py", "Test de l'API Flask")
+            self.execute_command("python test/test_api.py", "Test de l'API Flask")
             
         elif choice == "17":
             self.handle_systeme_reduit_simple()
@@ -920,7 +1183,7 @@ class LotoKenoMenu:
             
             confirm = input(f"{Colors.OKGREEN}Lancer l'analyse complète ? (O/n): {Colors.ENDC}").strip().lower()
             if confirm in ['', 'o', 'oui', 'y', 'yes']:
-                self.execute_command("python keno/analyse_stats_keno_complet.py", "Statistiques Keno Complètes")
+                self.execute_command("python keno/duckdb_keno.py --auto-consolidated --plots --export-stats", "Statistiques Keno Complètes")
             else:
                 print("Opération annulée.")
                 self.wait_and_continue()
@@ -955,6 +1218,280 @@ class LotoKenoMenu:
             
             command = f"python keno/analyse_keno_rapide.py --csv keno/keno_data/keno_consolidated.csv --top {top_n} {graph_option}".strip()
             self.execute_command(command, f"Analyse Keno Rapide (Top {top_n})")
+            
+        elif choice == "28":
+            print(f"\n{Colors.BOLD}🏆 TOP 25 LOTO ÉQUILIBRÉS{Colors.ENDC}")
+            print("Génération des 25 numéros Loto avec le plus de chances selon la stratégie équilibrée :")
+            print("  • Analyse composite : Fréquence (35%) + Retard (30%) + Paires (20%) + Zones (15%)")
+            print("  • Plage 1-49 numéros avec équilibrage 3 zones")
+            print("  • Export CSV fixe (remplace le fichier précédent)")
+            print("  • Rapport Markdown détaillé avec suggestions")
+            print()
+            
+            # Sélection du fichier de données Loto
+            loto_data_path = Path("loto/loto_data")
+            if loto_data_path.exists():
+                csv_files = list(loto_data_path.glob("*.csv"))
+                if csv_files:
+                    latest_file = max(csv_files, key=lambda f: f.stat().st_mtime)
+                    print(f"📁 Fichier détecté: {latest_file.name}")
+                    date_range = self.format_date_range(self.get_csv_date_range(latest_file))
+                    if date_range:
+                        print(f"📅 Période: {date_range}")
+                    
+                    # Options de stratégie
+                    print(f"\n{Colors.OKBLUE}⚙️ Stratégies disponibles:{Colors.ENDC}")
+                    print("1️⃣  Équilibrée (recommandé)")
+                    print("2️⃣  Focus retard")
+                    print("3️⃣  Focus fréquence")
+                    print("0️⃣  Annuler")
+                    
+                    strategy_choice = input(f"\n{Colors.BOLD}Stratégie (1-3) [1]: {Colors.ENDC}").strip() or "1"
+                    
+                    if strategy_choice == "0":
+                        self.wait_and_continue()
+                        return True
+                    
+                    strategy_map = {
+                        "1": "equilibre",
+                        "2": "focus_retard", 
+                        "3": "focus_frequence"
+                    }
+                    
+                    strategy = strategy_map.get(strategy_choice, "equilibre")
+                    
+                    # Options d'export
+                    print(f"\n{Colors.OKBLUE}📊 Options d'export:{Colors.ENDC}")
+                    export_stats = input("Exporter les statistiques détaillées ? (O/n): ").strip().lower()
+                    plots = input("Générer les visualisations ? (o/N): ").strip().lower()
+                    
+                    # Construction de la commande
+                    command = f"python loto/duckdb_loto.py --csv {latest_file} --config-file loto/strategies.yml"
+                    
+                    if export_stats not in ['n', 'non', 'no']:
+                        command += " --export-stats"
+                    
+                    if plots in ['o', 'oui', 'y', 'yes']:
+                        command += " --plots"
+                    
+                    description = f"TOP 25 Loto Équilibrés (stratégie: {strategy})"
+                    
+                    print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+                    print(f"   Fichier: {latest_file.name}")
+                    print(f"   Stratégie: {strategy}")
+                    print(f"   Export CSV: loto_stats_exports/top_25_numeros_equilibres_loto.csv")
+                    
+                    confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+                    if confirm not in ['n', 'non', 'no']:
+                        self.execute_command(command, description)
+                    else:
+                        print("Opération annulée.")
+                        self.wait_and_continue()
+                else:
+                    print(f"{Colors.FAIL}❌ Aucun fichier CSV Loto trouvé dans {loto_data_path}{Colors.ENDC}")
+                    self.wait_and_continue()
+            else:
+                print(f"{Colors.FAIL}❌ Répertoire loto/loto_data non trouvé{Colors.ENDC}")
+                self.wait_and_continue()
+                
+        elif choice == "29":
+            print(f"\n{Colors.BOLD}🏆 TOP 30 KENO ÉQUILIBRÉS{Colors.ENDC}")
+            print("Génération des 30 numéros Keno avec le plus de chances selon la stratégie équilibrée :")
+            print("  • Analyse composite : Fréquence (30%) + Retard (25%) + Paires (25%) + Zones (20%)")
+            print("  • Plage 1-70 numéros avec équilibrage 5 zones")
+            print("  • Export CSV fixe (remplace le fichier précédent)")
+            print("  • Analyse de 11 stratégies probabilistes")
+            print()
+            
+            # Sélection du fichier de données Keno
+            keno_data_path = Path("keno/keno_data")
+            if keno_data_path.exists():
+                csv_files = list(keno_data_path.glob("*.csv"))
+                if csv_files:
+                    # Proposer le fichier consolidé par défaut, sinon le plus récent
+                    consolidated_file = keno_data_path / "keno_consolidated.csv"
+                    if consolidated_file.exists():
+                        selected_file = consolidated_file
+                        print(f"📁 Fichier recommandé: {selected_file.name} (données consolidées)")
+                    else:
+                        selected_file = max(csv_files, key=lambda f: f.stat().st_mtime)
+                        print(f"📁 Fichier détecté: {selected_file.name}")
+                    
+                    date_range = self.format_date_range(self.get_csv_date_range(selected_file))
+                    if date_range:
+                        print(f"📅 Période: {date_range}")
+                    
+                    # Options d'export
+                    print(f"\n{Colors.OKBLUE}📊 Options d'export:{Colors.ENDC}")
+                    export_stats = input("Exporter les statistiques détaillées ? (O/n): ").strip().lower()
+                    plots = input("Générer les visualisations ? (o/N): ").strip().lower()
+                    
+                    # Construction de la commande
+                    command = f"python keno/duckdb_keno.py --csv {selected_file}"
+                    
+                    if export_stats not in ['n', 'non', 'no']:
+                        command += " --export-stats"
+                    
+                    if plots in ['o', 'oui', 'y', 'yes']:
+                        command += " --plots"
+                    
+                    description = "TOP 30 Keno Équilibrés (stratégie optimisée)"
+                    
+                    print(f"\n{Colors.OKGREEN}✅ Configuration:{Colors.ENDC}")
+                    print(f"   Fichier: {selected_file.name}")
+                    print(f"   Export CSV: keno_stats_exports/top_30_numeros_equilibres_keno.csv")
+                    print(f"   Stratégies: 11 algorithmes probabilistes")
+                    
+                    confirm = input(f"\n{Colors.BOLD}Lancer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+                    if confirm not in ['n', 'non', 'no']:
+                        self.execute_command(command, description)
+                    else:
+                        print("Opération annulée.")
+                        self.wait_and_continue()
+                else:
+                    print(f"{Colors.FAIL}❌ Aucun fichier CSV Keno trouvé dans {keno_data_path}{Colors.ENDC}")
+                    self.wait_and_continue()
+            else:
+                print(f"{Colors.FAIL}❌ Répertoire keno/keno_data non trouvé{Colors.ENDC}")
+                self.wait_and_continue()
+                
+        elif choice == "30":
+            print(f"\n{Colors.BOLD}📊 AFFICHAGE TOP 25 LOTO{Colors.ENDC}")
+            
+            # Vérifier l'existence du fichier
+            csv_file = Path("loto_stats_exports/top_25_numeros_equilibres_loto.csv")
+            if csv_file.exists():
+                print(f"📁 Fichier: {csv_file}")
+                print(f"📅 Dernière modification: {datetime.fromtimestamp(csv_file.stat().st_mtime).strftime('%d/%m/%Y %H:%M:%S')}")
+                print()
+                
+                try:
+                    df = pd.read_csv(csv_file, sep=';')
+                    
+                    print(f"{Colors.OKGREEN}🏆 TOP 25 NUMÉROS LOTO ÉQUILIBRÉS{Colors.ENDC}")
+                    print("=" * 80)
+                    print(f"{'Rang':<4} {'Numéro':<6} {'Score':<8} {'Zone':<15} {'Retard':<7} {'Fréq':<5}")
+                    print("-" * 80)
+                    
+                    # Afficher les 10 premiers avec couleurs
+                    for i, row in df.head(10).iterrows():
+                        color = Colors.OKGREEN if i < 3 else Colors.OKCYAN if i < 5 else Colors.ENDC
+                        print(f"{color}{row['rang']:<4} {row['numero']:<6} {row['score_composite']:<8.4f} {row['zone']:<15} {row['retard_actuel']:<7} {row['freq_absolue']:<5}{Colors.ENDC}")
+                    
+                    if len(df) > 10:
+                        print(f"\n{Colors.WARNING}... et {len(df) - 10} autres numéros (voir fichier CSV complet){Colors.ENDC}")
+                    
+                    # Statistiques de zone
+                    print(f"\n{Colors.OKBLUE}📍 RÉPARTITION PAR ZONES:{Colors.ENDC}")
+                    zone_counts = df['zone'].value_counts()
+                    for zone, count in zone_counts.items():
+                        percentage = (count / len(df)) * 100
+                        print(f"   {zone}: {count} numéros ({percentage:.1f}%)")
+                    
+                    # Suggestions pratiques
+                    top_5 = df.head(5)['numero'].tolist()
+                    top_7 = df.head(7)['numero'].tolist()
+                    top_10 = df.head(10)['numero'].tolist()
+                    
+                    print(f"\n{Colors.BOLD}💡 SUGGESTIONS PRATIQUES:{Colors.ENDC}")
+                    print(f"   Grille 5 numéros: {top_5}")
+                    print(f"   Système 7 numéros: {top_7}")
+                    print(f"   Système 10 numéros: {top_10}")
+                    
+                except Exception as e:
+                    print(f"{Colors.FAIL}❌ Erreur lors de la lecture du fichier: {e}{Colors.ENDC}")
+            else:
+                print(f"{Colors.FAIL}❌ Fichier TOP 25 Loto non trouvé{Colors.ENDC}")
+                print("💡 Générez d'abord les TOP 25 avec l'option 28")
+            
+            self.wait_and_continue()
+            
+        elif choice == "31":
+            print(f"\n{Colors.BOLD}📊 AFFICHAGE TOP 30 KENO{Colors.ENDC}")
+            
+            # Vérifier l'existence du fichier
+            csv_file = Path("keno_stats_exports/top_30_numeros_equilibres_keno.csv")
+            if csv_file.exists():
+                print(f"📁 Fichier: {csv_file}")
+                print(f"📅 Dernière modification: {datetime.fromtimestamp(csv_file.stat().st_mtime).strftime('%d/%m/%Y %H:%M:%S')}")
+                print()
+                
+                try:
+                    df = pd.read_csv(csv_file, sep=';')
+                    
+                    print(f"{Colors.OKGREEN}🏆 TOP 30 NUMÉROS KENO ÉQUILIBRÉS{Colors.ENDC}")
+                    print("=" * 80)
+                    print(f"{'Rang':<4} {'Numéro':<6} {'Score':<8} {'Zone':<15} {'Retard':<7} {'Fréq':<5}")
+                    print("-" * 80)
+                    
+                    # Afficher les 10 premiers avec couleurs
+                    for i, row in df.head(10).iterrows():
+                        color = Colors.OKGREEN if i < 3 else Colors.OKCYAN if i < 5 else Colors.ENDC
+                        print(f"{color}{row['rang']:<4} {row['numero']:<6} {row['score_composite']:<8.4f} {row['zone']:<15} {row['retard_actuel']:<7} {row['freq_absolue']:<5}{Colors.ENDC}")
+                    
+                    if len(df) > 10:
+                        print(f"\n{Colors.WARNING}... et {len(df) - 10} autres numéros (voir fichier CSV complet){Colors.ENDC}")
+                    
+                    # Statistiques de zone
+                    print(f"\n{Colors.OKBLUE}📍 RÉPARTITION PAR ZONES:{Colors.ENDC}")
+                    zone_counts = df['zone'].value_counts()
+                    for zone, count in zone_counts.items():
+                        percentage = (count / len(df)) * 100
+                        print(f"   {zone}: {count} numéros ({percentage:.1f}%)")
+                    
+                    # Suggestions pratiques
+                    top_10 = df.head(10)['numero'].tolist()
+                    top_15 = df.head(15)['numero'].tolist()
+                    top_20 = df.head(20)['numero'].tolist()
+                    
+                    print(f"\n{Colors.BOLD}💡 SUGGESTIONS PRATIQUES:{Colors.ENDC}")
+                    print(f"   Grille 10 numéros: {top_10}")
+                    print(f"   Système 15 numéros: {top_15}")
+                    print(f"   Système 20 numéros: {top_20}")
+                    
+                except Exception as e:
+                    print(f"{Colors.FAIL}❌ Erreur lors de la lecture du fichier: {e}{Colors.ENDC}")
+            else:
+                print(f"{Colors.FAIL}❌ Fichier TOP 30 Keno non trouvé{Colors.ENDC}")
+                print("💡 Générez d'abord les TOP 30 avec l'option 29")
+            
+            self.wait_and_continue()
+                
+        elif choice == "32":
+            self.handle_grilles_loto_top_csv()
+            
+        elif choice == "33":
+            self.handle_grilles_keno_top_csv()
+            
+        elif choice == "34":
+            self.handle_grilles_loto_top_markdown()
+            
+        elif choice == "35":
+            self.handle_grilles_keno_top_markdown()
+            
+        elif choice == "36":
+            self.handle_keno_patterns_advanced()
+            
+        elif choice == "37":
+            self.handle_keno_top30_csv()
+            
+        elif choice == "38":
+            self.handle_keno_generator_custom()
+            
+        elif choice == "39":
+            self.handle_keno_patterns_test()
+            
+        elif choice == "40":
+            self.handle_keno_intelligent_generator()
+            
+        elif choice == "41":
+            self.handle_keno_system_reducer()
+            
+        elif choice == "42":
+            self.handle_keno_pairs_generator()
+            
+        elif choice == "43":
+            self.handle_keno_generate_top30()
                 
         elif choice == "0":
             print(f"\n{Colors.OKGREEN}👋 Au revoir ! Bonne chance pour vos analyses !{Colors.ENDC}")
@@ -965,6 +1502,594 @@ class LotoKenoMenu:
             self.wait_and_continue()
             
         return True
+    
+    def handle_keno_patterns_advanced(self):
+        """Générateur patterns avancés avec DuckDB et 15 patterns"""
+        print(f"\n{Colors.BOLD}🧠 GÉNÉRATEUR KENO PATTERNS AVANCÉS{Colors.ENDC}")
+        print("Ce générateur utilise l'analyse complète des patterns :")
+        print("  • 🔢 Fréquences multi-période (global, 100, 50, 20 tirages)")
+        print("  • ⏰ Retards et overdue numbers avec historique")
+        print("  • 🎯 Paires et trios fréquents")
+        print("  • 📊 Patterns parité, sommes, zones")
+        print("  • 📈 Tendances 10/50/100 tirages")
+        print("  • 🚀 DuckDB pour optimisation SQL")
+        print()
+        
+        # Configuration du nombre de grilles
+        while True:
+            try:
+                grids_input = input(f"Nombre de grilles à générer (5-50, défaut: 10): ").strip()
+                if not grids_input:
+                    grids = 10
+                else:
+                    grids = int(grids_input)
+                    if grids < 5 or grids > 50:
+                        print(f"{Colors.FAIL}❌ Nombre de grilles doit être entre 5 et 50{Colors.ENDC}")
+                        continue
+                break
+            except ValueError:
+                print(f"{Colors.FAIL}❌ Veuillez entrer un nombre valide{Colors.ENDC}")
+        
+        command = f"python3 -c \"import sys; sys.path.append('.'); from keno.keno_generator_advanced import KenoGeneratorAdvanced; gen = KenoGeneratorAdvanced(); gen.load_data(); gen.analyze_patterns(); grids = gen.generate_frequency_based_grids({grids}); print('🎯 Grilles générées avec patterns avancés:'); [print(f'  {{i+1:2d}}. {{sorted(grid)}}') for i, grid in enumerate(grids)]\""
+        description = f"Générateur Patterns Avancés ({grids} grilles)"
+        
+        print(f"\n{Colors.WARNING}⚠️  Configuration:{Colors.ENDC}")
+        print(f"   • Grilles: {grids}")
+        print(f"   • Patterns: 15 types d'analyse")
+        print(f"   • Optimisation: DuckDB")
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_top30_csv(self):
+        """Génération TOP 30 numéros patterns → CSV"""
+        print(f"\n{Colors.BOLD}📊 TOP 30 NUMÉROS PATTERNS → CSV{Colors.ENDC}")
+        print("Génération d'un CSV avec les 30 meilleurs numéros basés sur les patterns :")
+        print("  • 🔢 Score composite (fréquences + retards + tendances)")
+        print("  • 📊 Détails par pattern (global, récent, retard)")
+        print("  • 📈 Tendances et recommandations")
+        print("  • 💾 Export CSV structuré")
+        print()
+        
+        # Options d'export
+        print(f"{Colors.OKBLUE}📋 Options d'export:{Colors.ENDC}")
+        print("1️⃣  Export simple (top 30 + scores)")
+        print("2️⃣  Export détaillé (tous les patterns)")
+        print("3️⃣  Export avec grilles recommandées")
+        print("0️⃣  Retour au menu")
+        
+        export_choice = input("\n🎯 Type d'export: ").strip()
+        
+        if export_choice == "0":
+            self.wait_and_continue()
+            return
+        elif export_choice == "1":
+            detail_level = "simple"
+        elif export_choice == "2":
+            detail_level = "detaille"
+        elif export_choice == "3":
+            detail_level = "avec_grilles"
+        else:
+            print(f"{Colors.FAIL}Choix invalide, export simple par défaut{Colors.ENDC}")
+            detail_level = "simple"
+        
+        command = f"python3 -c \"import sys; sys.path.append('.'); from keno.keno_generator_advanced import KenoGeneratorAdvanced; import pandas as pd; from datetime import datetime; import os; gen = KenoGeneratorAdvanced(); gen.load_data(); stats = gen.analyze_patterns(); scores = {{}}; [scores.update({{num: (stats.frequences.get(num, 0)/max(stats.frequences.values()))*0.4 + (stats.frequences_recentes.get(num, 0)/max(stats.frequences_recentes.values()) if stats.frequences_recentes else 0)*0.3 + (1-stats.retards.get(num, 0)/max(stats.retards.values()) if stats.retards else 0)*0.2 + ((stats.tendances_50.get(num, 1.0)-1.0)*0.1 if stats.tendances_50.get(num, 1.0) > 1.0 else 0)}}) for num in range(1, 71)]; top30 = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:30]; df = pd.DataFrame([{{'rang': i+1, 'numero': num, 'score': round(score, 4), 'freq_globale': stats.frequences.get(num, 0), 'freq_recente': stats.frequences_recentes.get(num, 0), 'retard': stats.retards.get(num, 0), 'tendance': round(stats.tendances_50.get(num, 1.0), 3)}} for i, (num, score) in enumerate(top30)]); os.makedirs('keno_output', exist_ok=True); filename = f'keno_top30_{{datetime.now().strftime(\\\"%Y%m%d_%H%M%S\\\")}}.csv'; df.to_csv(f'keno_output/{{filename}}', index=False); print(f'✅ TOP 30 exporté: keno_output/{{filename}}'); print(f'📊 Top 5: {{\\', \\'.join([str(row[\\\'numero\\\']) for _, row in df.head().iterrows()])}}')\""
+        description = f"TOP 30 Numéros Patterns → CSV ({detail_level})"
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer l'export CSV ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_generator_custom(self):
+        """Générateur personnalisé avec paramètres libres"""
+        print(f"\n{Colors.BOLD}🎯 GÉNÉRATEUR KENO PERSONNALISÉ{Colors.ENDC}")
+        print("Configuration complète de votre générateur :")
+        print("  • 🔢 Nombre de grilles personnalisé")
+        print("  • 🎚️  Stratégies au choix")
+        print("  • 📊 Patterns sélectionnables")
+        print("  • 💾 Export personnalisé")
+        print()
+        
+        # Configuration du nombre de grilles
+        while True:
+            try:
+                grids_input = input(f"Nombre de grilles (5-100, défaut: 15): ").strip()
+                grids = 15 if not grids_input else int(grids_input)
+                if grids < 5 or grids > 100:
+                    print(f"{Colors.FAIL}❌ Nombre doit être entre 5 et 100{Colors.ENDC}")
+                    continue
+                break
+            except ValueError:
+                print(f"{Colors.FAIL}❌ Veuillez entrer un nombre valide{Colors.ENDC}")
+        
+        # Export des résultats
+        export_csv = input("Exporter en CSV ? (O/n): ").strip().lower() in ['', 'o', 'oui', 'y', 'yes']
+        
+        command = f"python3 -c \"import sys; sys.path.append('.'); from keno.keno_generator_advanced import KenoGeneratorAdvanced; import pandas as pd; from datetime import datetime; gen = KenoGeneratorAdvanced(); gen.load_data(); gen.analyze_patterns(); grids = gen.generate_frequency_based_grids({grids}); print('🎯 {grids} grilles générées:'); [print(f'  {{i+1:2d}}. {{grid}}') for i, grid in enumerate(grids)]"
+        
+        if export_csv:
+            command += f"; import os; os.makedirs('keno_output', exist_ok=True); df = pd.DataFrame([{{'grille': i+1, 'numeros': ', '.join(map(str, grid))}} for i, grid in enumerate(grids)]); filename = f'keno_custom_{{datetime.now().strftime(\"%Y%m%d_%H%M%S\")}}.csv'; df.to_csv(f'keno_output/{{filename}}', index=False); print(f'✅ Export CSV: keno_output/{{filename}}')\""
+        else:
+            command += '\"'
+        
+        description = f"Générateur Personnalisé ({grids} grilles)"
+        
+        print(f"\n{Colors.WARNING}⚠️  Configuration finale:{Colors.ENDC}")
+        print(f"   • Grilles: {grids}")
+        print(f"   • Export CSV: {'Oui' if export_csv else 'Non'}")
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_patterns_test(self):
+        """Test des patterns - vérification complète"""
+        print(f"\n{Colors.BOLD}🔍 TEST DES PATTERNS KENO{Colors.ENDC}")
+        print("Vérification complète de tous les patterns :")
+        print("  • 🔢 15 types de patterns analysés")
+        print("  • 🚀 Test DuckDB vs Pandas")
+        print("  • 📊 Validation des calculs")
+        print("  • 🎯 Test de génération")
+        print()
+        
+        confirm = input(f"{Colors.OKGREEN}Lancer les tests de vérification ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            command = "python test_patterns_verification.py"
+            description = "Test Complet des Patterns"
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_intelligent_generator(self):
+        """Générateur intelligent v2 avec PuLP et profil intelligent"""
+        print(f"\n{Colors.BOLD}🧠 GÉNÉRATEUR KENO INTELLIGENT V2{Colors.ENDC}")
+        print("Générateur avancé avec optimisation intelligente :")
+        print("  • 🎯 TOP 30 numéros avec profil intelligent")
+        print("  • 🔗 Génération basée sur paires fréquentes")
+        print("  • ⚖️  Optimisation PuLP avec diversité garantie")
+        print("  • 📊 Paramètres optimaux (pair/impair, zones, sommes)")
+        print("  • 🎲 Système réducteur multi-stratégies")
+        print("  • 🌟 4 algorithmes hybrides pour la diversité")
+        print()
+        
+        # Vérifier s'il y a un CSV TOP 30 standard
+        top30_found = False
+        top30_file = Path("keno_output/keno_top30.csv")
+        
+        if top30_file.exists():
+            age_hours = (datetime.now().timestamp() - top30_file.stat().st_mtime) / 3600
+            print(f"📂 TOP 30 trouvé: {top30_file.name} (âge: {age_hours:.1f}h)")
+            top30_found = True
+        
+        if not top30_found:
+            print(f"{Colors.WARNING}⚠️  Aucun TOP 30 récent trouvé{Colors.ENDC}")
+            generate_top30 = input("🔄 Générer un nouveau TOP 30 d'abord ? (O/n): ").strip().lower()
+            
+            if generate_top30 in ['', 'o', 'oui', 'y', 'yes']:
+                print(f"\n{Colors.OKBLUE}🚀 Génération TOP 30 avec KenoGeneratorAdvanced...{Colors.ENDC}")
+                try:
+                    from keno.keno_generator_advanced import KenoGeneratorAdvanced
+                    
+                    generator = KenoGeneratorAdvanced()
+                    if generator.load_data():
+                        generator.analyze_patterns()
+                        top30_numbers = generator.calculate_and_export_top30()
+                        print(f"{Colors.OKGREEN}✅ TOP 30 généré avec succès!{Colors.ENDC}")
+                        print(f"   🎯 Top 10: {', '.join(map(str, top30_numbers[:10]))}")
+                    else:
+                        print(f"{Colors.FAIL}❌ Impossible de charger les données{Colors.ENDC}")
+                        
+                except Exception as e:
+                    print(f"{Colors.FAIL}❌ Erreur génération TOP 30: {e}{Colors.ENDC}")
+                    
+                print()
+        
+        # Sélection du profil
+        print(f"{Colors.OKBLUE}📋 Profils disponibles:{Colors.ENDC}")
+        print("1️⃣  Bas - 50 grilles (couverture minimale)")
+        print("2️⃣  Moyen - 80 grilles (équilibre optimal)")
+        print("3️⃣  Haut - 100 grilles (couverture maximale)")
+        print("0️⃣  Retour au menu")
+        
+        profile_choice = input("\n🎯 Choisissez un profil (défaut: 2): ").strip()
+        
+        if profile_choice == "0":
+            return
+            
+        try:
+            from keno_intelligent_generator_v2 import KenoIntelligentGeneratorV2
+            
+            # Mapping des choix
+            if profile_choice == "1":
+                profile = "bas"
+            elif profile_choice == "3":
+                profile = "haut"
+            else:
+                profile = "moyen"  # Défaut
+            
+            print(f"\n{Colors.OKGREEN}🚀 Lancement du générateur intelligent v2 - Profil {profile.title()}{Colors.ENDC}")
+            
+            # Génération du système avec détection automatique CSV
+            generator = KenoIntelligentGeneratorV2()
+            success = generator.generate_system(profile)
+            
+            if success:
+                print(f"\n{Colors.OKGREEN}✅ Système {profile} généré avec succès!{Colors.ENDC}")
+                print(f"📁 Fichiers exportés dans le dossier 'keno_output/'")
+                input("\n👉 Appuyez sur Entrée pour continuer...")
+            else:
+                print(f"\n{Colors.FAIL}❌ Échec de génération du système {profile}{Colors.ENDC}")
+                input("\n👉 Appuyez sur Entrée pour continuer...")
+                
+        except ImportError as e:
+            print(f"\n{Colors.FAIL}❌ Erreur d'import: {e}{Colors.ENDC}")
+            print("Assurez-vous que le module keno_intelligent_generator_v2 est disponible")
+            input("\n👉 Appuyez sur Entrée pour continuer...")
+        except Exception as e:
+            print(f"\n{Colors.FAIL}❌ Erreur lors de la génération: {e}{Colors.ENDC}")
+            input("\n👉 Appuyez sur Entrée pour continuer...")
+    
+    def handle_keno_generate_top30(self):
+        """Génération du TOP 30 avec KenoGeneratorAdvanced"""
+        print(f"\n{Colors.BOLD}📊 GÉNÉRATION TOP 30 KENO AVANCÉ{Colors.ENDC}")
+        print("Génération du TOP 30 intelligent avec scoring multi-critères :")
+        print("  • 🎯 Analyse de 3520+ tirages historiques")
+        print("  • 🧠 Scoring intelligent (fréquence, retard, tendances, pairs)")
+        print("  • 📈 Export CSV avec métadonnées complètes")
+        print("  • 🚀 Optimisé avec DuckDB")
+        print()
+        
+        confirm = input(f"{Colors.OKGREEN}Générer le TOP 30 ? (O/n): {Colors.ENDC}").strip().lower()
+        
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            try:
+                from keno.keno_generator_advanced import KenoGeneratorAdvanced
+                
+                print(f"\n{Colors.OKBLUE}🚀 Lancement KenoGeneratorAdvanced...{Colors.ENDC}")
+                
+                generator = KenoGeneratorAdvanced()
+                
+                if generator.load_data():
+                    generator.analyze_patterns()
+                    top30_numbers = generator.calculate_and_export_top30()
+                    
+                    print(f"\n{Colors.OKGREEN}✅ TOP 30 généré avec succès!{Colors.ENDC}")
+                    print(f"   🎯 Top 10: {', '.join(map(str, top30_numbers[:10]))}")
+                    print(f"   📁 Fichier exporté dans 'keno_output/'")
+                    
+                else:
+                    print(f"\n{Colors.FAIL}❌ Impossible de charger les données{Colors.ENDC}")
+                    
+            except ImportError as e:
+                print(f"\n{Colors.FAIL}❌ Erreur d'import: {e}{Colors.ENDC}")
+            except Exception as e:
+                print(f"\n{Colors.FAIL}❌ Erreur: {e}{Colors.ENDC}")
+                
+            input("\n👉 Appuyez sur Entrée pour continuer...")
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+        """Générateur intelligent v2 avec PuLP et profil intelligent"""
+        print(f"\n{Colors.BOLD}🧠 GÉNÉRATEUR KENO INTELLIGENT V2{Colors.ENDC}")
+        print("Générateur avancé avec optimisation intelligente :")
+        print("  • 🎯 TOP 30 numéros avec profil intelligent")
+        print("  • 🔗 Génération basée sur paires fréquentes")
+        print("  • ⚖️  Optimisation PuLP avec diversité garantie")
+        print("  • 📊 Paramètres optimaux (pair/impair, zones, sommes)")
+        print("  • 🎲 Système réducteur multi-stratégies")
+        print("  • 🌟 4 algorithmes hybrides pour la diversité")
+        print()
+        
+        # Sélection du profil
+        print(f"{Colors.OKBLUE}📋 Profils disponibles:{Colors.ENDC}")
+        print("1️⃣  Bas - 50 grilles (couverture minimale)")
+        print("2️⃣  Moyen - 80 grilles (équilibre optimal)")
+        print("3️⃣  Haut - 100 grilles (couverture maximale)")
+        print("0️⃣  Retour au menu")
+        
+        profile_choice = input("\n🎯 Choisissez un profil (défaut: 2): ").strip()
+        
+        if profile_choice == "0":
+            return
+            
+        try:
+            from keno_intelligent_generator_v2 import KenoIntelligentGeneratorV2
+            
+            # Mapping des choix
+            if profile_choice == "1":
+                profile = "bas"
+            elif profile_choice == "3":
+                profile = "haut"
+            else:
+                profile = "moyen"  # Défaut
+            
+            print(f"\n{Colors.OKGREEN}🚀 Lancement du générateur intelligent v2 - Profil {profile.title()}{Colors.ENDC}")
+            
+            # Génération du système
+            generator = KenoIntelligentGeneratorV2()
+            success = generator.generate_system(profile)
+            
+            if success:
+                print(f"\n{Colors.OKGREEN}✅ Système {profile} généré avec succès!{Colors.ENDC}")
+                print(f"📁 Fichiers exportés dans le dossier 'keno_output/'")
+                input("\n👉 Appuyez sur Entrée pour continuer...")
+            else:
+                print(f"\n{Colors.FAIL}❌ Échec de génération du système {profile}{Colors.ENDC}")
+                input("\n👉 Appuyez sur Entrée pour continuer...")
+                
+        except ImportError as e:
+            print(f"\n{Colors.FAIL}❌ Erreur d'import: {e}{Colors.ENDC}")
+            print("Assurez-vous que le module keno_intelligent_generator_v2 est disponible")
+            input("\n👉 Appuyez sur Entrée pour continuer...")
+        except Exception as e:
+            print(f"\n{Colors.FAIL}❌ Erreur lors de la génération: {e}{Colors.ENDC}")
+            input("\n👉 Appuyez sur Entrée pour continuer...")
+        print(f"   • Optimisation PuLP/Alternative")
+        print(f"   • Export CSV + métadonnées")
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            # Passer le profil via variable d'environnement ou modification du script
+            temp_script = f"""
+import sys
+sys.path.append('.')
+from keno_intelligent_generator import KenoIntelligentGenerator
+
+# Simulation du choix automatique
+original_input = input
+def mock_input(prompt):
+    if "profil" in prompt.lower():
+        return "{profile_choice or '2'}"
+    return original_input(prompt)
+
+__builtins__['input'] = mock_input
+
+# Exécution
+generator = KenoIntelligentGenerator()
+if generator.load_and_analyze():
+    generator.calculate_intelligent_top30()
+    generator.analyze_optimal_parameters()
+    generator.extract_top_pairs()
+    grids, metadata = generator.generate_system_grids("{profile}")
+    files = generator.export_system_grids(grids, metadata)
+    print("✅ Génération terminée avec succès!")
+else:
+    print("❌ Échec de la génération")
+"""
+            
+            with open("temp_intelligent_script.py", "w") as f:
+                f.write(temp_script)
+            
+            command = "python temp_intelligent_script.py && rm temp_intelligent_script.py"
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_system_reducer(self):
+        """Systèmes réducteurs avec différents profils"""
+        print(f"\n{Colors.BOLD}📊 SYSTÈMES RÉDUCTEURS KENO{Colors.ENDC}")
+        print("Génération de systèmes optimisés avec réduction intelligente :")
+        print("  • 🎯 Basé sur TOP 30 intelligent")
+        print("  • 🔗 Utilisation des paires les plus fréquentes")
+        print("  • ⚖️  Équilibrage automatique (zones, parité, sommes)")
+        print("  • 📊 3 profils de couverture")
+        print()
+        
+        # Choix multiple de profils
+        print(f"{Colors.OKBLUE}📋 Générer plusieurs profils ?{Colors.ENDC}")
+        print("1️⃣  Un seul profil")
+        print("2️⃣  Tous les profils (Bas + Moyen + Haut)")
+        print("0️⃣  Retour au menu")
+        
+        choice = input("\n🎯 Votre choix: ").strip()
+        
+        if choice == "0":
+            self.wait_and_continue()
+            return
+        elif choice == "2":
+            # Génération de tous les profils
+            temp_script = """
+import sys
+sys.path.append('.')
+from keno_intelligent_generator import KenoIntelligentGenerator
+
+generator = KenoIntelligentGenerator()
+if generator.load_and_analyze():
+    generator.calculate_intelligent_top30()
+    generator.analyze_optimal_parameters()
+    generator.extract_top_pairs()
+    
+    for profile in ["bas", "moyen", "haut"]:
+        print(f"\\n🎯 Génération profil {profile.upper()}...")
+        grids, metadata = generator.generate_system_grids(profile)
+        files = generator.export_system_grids(grids, metadata)
+        print(f"✅ Profil {profile} terminé")
+    
+    print("\\n🏆 TOUS LES PROFILS GÉNÉRÉS AVEC SUCCÈS!")
+else:
+    print("❌ Échec de l'initialisation")
+"""
+            
+            with open("temp_all_profiles.py", "w") as f:
+                f.write(temp_script)
+            
+            command = "python temp_all_profiles.py && rm temp_all_profiles.py"
+            description = "Génération de tous les profils (Bas + Moyen + Haut)"
+            
+        else:
+            # Un seul profil
+            print(f"\n{Colors.OKBLUE}📋 Profil à générer:{Colors.ENDC}")
+            print("1️⃣  Bas - 50 grilles")
+            print("2️⃣  Moyen - 80 grilles")
+            print("3️⃣  Haut - 100 grilles")
+            
+            profile_choice = input("\n🎯 Profil (défaut: 2): ").strip()
+            
+            if profile_choice == "1":
+                profile = "bas"
+            elif profile_choice == "3":
+                profile = "haut"
+            else:
+                profile = "moyen"
+            
+            temp_script = f"""
+import sys
+sys.path.append('.')
+from keno_intelligent_generator import KenoIntelligentGenerator
+
+generator = KenoIntelligentGenerator()
+if generator.load_and_analyze():
+    generator.calculate_intelligent_top30()
+    generator.analyze_optimal_parameters()
+    generator.extract_top_pairs()
+    grids, metadata = generator.generate_system_grids("{profile}")
+    files = generator.export_system_grids(grids, metadata)
+    print("✅ Génération terminée avec succès!")
+else:
+    print("❌ Échec de la génération")
+"""
+            
+            with open("temp_single_profile.py", "w") as f:
+                f.write(temp_script)
+            
+            command = "python temp_single_profile.py && rm temp_single_profile.py"
+            description = f"Système Réducteur - Profil {profile.capitalize()}"
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_keno_pairs_generator(self):
+        """Générateur basé sur les paires fréquentes"""
+        print(f"\n{Colors.BOLD}🎲 GÉNÉRATEUR BASÉ SUR PAIRES{Colors.ENDC}")
+        print("Génération spécialisée utilisant les combinaisons de paires :")
+        print("  • 🔗 Paires les plus fréquentes du TOP 30")
+        print("  • 🎯 Composition optimale des grilles")
+        print("  • ⚖️  Respect des paramètres optimaux")
+        print("  • 📊 Export détaillé avec analyse")
+        print()
+        
+        # Configuration
+        while True:
+            try:
+                grids_input = input(f"Nombre de grilles (10-200, défaut: 50): ").strip()
+                grids = 50 if not grids_input else int(grids_input)
+                if grids < 10 or grids > 200:
+                    print(f"{Colors.FAIL}❌ Nombre doit être entre 10 et 200{Colors.ENDC}")
+                    continue
+                break
+            except ValueError:
+                print(f"{Colors.FAIL}❌ Veuillez entrer un nombre valide{Colors.ENDC}")
+        
+        # Stratégie de paires
+        print(f"\n{Colors.OKBLUE}🔗 Stratégie de paires:{Colors.ENDC}")
+        print("1️⃣  Conservative (3-4 paires par grille max)")
+        print("2️⃣  Équilibrée (2-3 paires par grille)")
+        print("3️⃣  Agressive (1-2 paires par grille)")
+        
+        strategy_choice = input("Stratégie (défaut: 2): ").strip() or "2"
+        
+        strategy_map = {
+            "1": "conservative",
+            "2": "equilibree", 
+            "3": "agressive"
+        }
+        
+        strategy = strategy_map.get(strategy_choice, "equilibree")
+        
+        temp_script = f"""
+import sys
+sys.path.append('.')
+from keno_intelligent_generator import KenoIntelligentGenerator
+import pandas as pd
+from datetime import datetime
+import os
+
+generator = KenoIntelligentGenerator()
+if generator.load_and_analyze():
+    generator.calculate_intelligent_top30()
+    generator.analyze_optimal_parameters()
+    generator.extract_top_pairs()
+    
+    print("🎲 Génération avec focus sur les paires...")
+    
+    # Génération spécialisée paires
+    grids = []
+    strategy = "{strategy}"
+    
+    for i in range({grids}):
+        grid = generator.generate_smart_grid()  # Utilise déjà la logique de paires
+        grids.append(grid)
+    
+    print(f"✅ {{len(grids)}} grilles générées avec stratégie {{strategy}}")
+    
+    # Export spécialisé
+    os.makedirs("keno_output", exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    pairs_data = []
+    for i, grid in enumerate(grids, 1):
+        # Analyse des paires dans la grille
+        pairs_in_grid = []
+        for j in range(len(grid)):
+            for k in range(j+1, len(grid)):
+                pair = tuple(sorted([grid[j], grid[k]]))
+                if pair in [tuple(sorted(p)) for p in generator.top_pairs[:50]]:
+                    pairs_in_grid.append(pair)
+        
+        pairs_data.append({{
+            'grille': i,
+            'numeros': ', '.join(map(str, grid)),
+            'nb_paires_frequentes': len(pairs_in_grid),
+            'paires_details': '; '.join([f'{{p[0]}}-{{p[1]}}' for p in pairs_in_grid]),
+            'somme': sum(grid),
+            'pairs': sum(1 for n in grid if n % 2 == 0),
+            'qualite': round(generator.validate_grid_quality(grid)['global'], 3)
+        }})
+    
+    df = pd.DataFrame(pairs_data)
+    filename = f"keno_output/pairs_generator_{{timestamp}}.csv"
+    df.to_csv(filename, index=False, encoding='utf-8')
+    
+    print(f"✅ Export spécialisé paires: {{filename}}")
+    print(f"📊 Paires moyennes par grille: {{df['nb_paires_frequentes'].mean():.1f}}")
+    
+else:
+    print("❌ Échec de l'initialisation")
+"""
+        
+        with open("temp_pairs_generator.py", "w") as f:
+            f.write(temp_script)
+        
+        command = "python temp_pairs_generator.py && rm temp_pairs_generator.py"
+        description = f"Générateur Paires ({grids} grilles, stratégie {strategy})"
+        
+        print(f"\n{Colors.WARNING}⚠️  Configuration:{Colors.ENDC}")
+        print(f"   • Grilles: {grids}")
+        print(f"   • Stratégie: {strategy}")
+        print(f"   • Focus sur paires fréquentes")
+        
+        confirm = input(f"\n{Colors.OKGREEN}Confirmer la génération ? (O/n): {Colors.ENDC}").strip().lower()
+        if confirm in ['', 'o', 'oui', 'y', 'yes']:
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
         
     def run(self):
         """Lance le menu principal"""

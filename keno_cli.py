@@ -103,15 +103,18 @@ class KenoMain:
         if not force and not self.check_data_availability():
             return False
         
-        analyzer_script = self.keno_dir / "analyse_keno_complete.py"
+        # Utiliser duckdb_keno.py au lieu de analyse_keno_complete.py (supprimé car redondant)
+        analyzer_script = self.keno_dir / "duckdb_keno.py"
         
         if not analyzer_script.exists():
             print(f"❌ Script non trouvé: {analyzer_script}")
             return False
         
         try:
+            # Exécuter duckdb_keno.py avec les paramètres appropriés
             result = subprocess.run([
-                sys.executable, str(analyzer_script)
+                sys.executable, str(analyzer_script), 
+                "--auto-consolidated", "--plots", "--export-stats"
             ], capture_output=True, text=True, cwd=self.keno_dir.parent)
             
             if result.returncode == 0:

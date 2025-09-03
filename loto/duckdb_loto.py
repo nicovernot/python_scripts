@@ -242,6 +242,12 @@ class LotoStrategist:
         # Calculer les poids de prédiction
         prediction_weights = self.calculate_prediction_weights(all_stats)
         
+        # Générer les 25 numéros optimaux avec la stratégie équilibrée
+        top_25_df = self.generate_top_25_balanced_numbers(all_stats)
+        
+        # Exporter les 25 numéros vers CSV
+        csv_file = self.export_top_25_to_csv(top_25_df)
+        
         # Générer un large pool de combinaisons candidates
         self.logger.info("🎯 Génération de combinaisons candidates...")
         candidate_combinations = self._generate_smart_combinations(prediction_weights, num_combinations=5000)
@@ -308,7 +314,8 @@ class LotoStrategist:
                     break
         
         self.logger.info(f"✅ {len(final_grids)} grilles générées et optimisées")
-        return final_grids, all_stats
+        self.logger.info(f"🎯 Top 25 numéros équilibrés exportés vers CSV")
+        return final_grids, all_stats, top_25_df, csv_file
 
     def _create_visualizations(self, all_stats: Dict):
         """Crée et sauvegarde un ensemble de graphiques d'analyse."""
@@ -344,7 +351,7 @@ class LotoStrategist:
             plt.close()
         self.logger.info(f"📈 Graphiques sauvegardés dans '{self.PLOTS_DIR}'")
 
-    def _export_statistics_to_csv(self, all_stats: Dict):
+    def _export_statistics_to_csv(self, all_stats: Dict, top_25_df: pd.DataFrame = None):
         """Exporte les statistiques clés dans des fichiers CSV."""
         self.logger.info(f"📄 Export des statistiques au format CSV...")
         if not os.path.exists(self.STATS_DIR): os.makedirs(self.STATS_DIR)
@@ -353,7 +360,163 @@ class LotoStrategist:
         all_stats['pair_counts'].to_csv(os.path.join(self.STATS_DIR, "frequence_paires.csv"), index=False)
         all_stats['sums_distribution'].to_frame(name='somme_tirage').to_csv(os.path.join(self.STATS_DIR, "distribution_sommes.csv"))
         all_stats['even_odd_distribution'].to_frame(name='occurrences').to_csv(os.path.join(self.STATS_DIR, "distribution_pairs_impairs.csv"))
+        
+        # Export des recommandations en Markdown avec TOP 25
+        self._create_loto_report_with_top_25(all_stats, top_25_df)
+        
         self.logger.info(f"💾 Fichiers CSV sauvegardés dans '{self.STATS_DIR}'")
+    
+    def _create_loto_report_with_top_25(self, all_stats: Dict, top_25_df: pd.DataFrame = None):
+        """Crée un rapport Markdown complet incluant les TOP 25 numéros."""
+        
+        # Créer le répertoire de sortie s'il n'existe pas
+        output_dir = "loto/output"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        report_path = f"{output_dir}/rapport_analyse.md"
+        
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write("# 🎯 ANALYSE LOTO STRATÉGIQUE AVANCÉE\n\n")
+            f.write(f"**Généré le :** {datetime.now().strftime('%d/%m/%Y à %H:%M:%S')}  \n")
+            f.write(f"**Stratégie utilisée :** {self.strategy_name}  \n")
+            f.write(f"**Description :** {self.strategy_description}  \n")
+            f.write(f"**Nombre de tirages analysés :** {len(all_stats.get('df_pandas', []))} tirages  \n\n")
+            
+            # Section TOP 25 NUMÉROS ÉQUILIBRÉS
+            if top_25_df is not None and not top_25_df.empty:
+                f.write("## 🎯 TOP 25 NUMÉROS OPTIMAUX - STRATÉGIE ÉQUILIBRÉE\n\n")
+                f.write("**Méthodologie :** Analyse composite basée sur les fréquences, retards, paires et équilibrage des zones  \n")
+                f.write("**Pondération :** Fréquence (35%) + Retard (30%) + Paires (20%) + Zones (15%)  \n")
+                f.write("**Adaptation Loto :** Optimisé pour 5 numéros sur 49 avec 3 zones équilibrées  \n\n")
+                
+                f.write("### 📊 TOP 10 NUMÉROS RECOMMANDÉS\n\n")
+                f.write("| Rang | Numéro | Score Composite | Zone | Fréquence | Score Retard | Score Paires |\n")
+                f.write("|------|--------|-----------------|------|-----------|--------------|-------------|\n")
+                
+                for idx, row in top_25_df.head(10).iterrows():
+                    f.write(f"| {row['rang']:2d} | **{row['numero']:2d}** | {row['score_composite']:.4f} | {row['zone']} | {row['frequence']:.3f} | {row['score_retard']:.3f} | {row['score_paires']:.3f} |\n")
+                
+                f.write(f"\n### 📋 LISTE COMPLÈTE DES 25 NUMÉROS\n\n")
+                f.write("**Numéros classés par score composite :**  \n")
+                top_25_numbers = [str(row['numero']) for _, row in top_25_df.iterrows()]
+                f.write(f"`{' - '.join(top_25_numbers)}`\n\n")
+                
+                # Analyse des zones pour les 25 numéros
+                zone_counts = top_25_df['zone'].value_counts().to_dict()
+                
+                f.write("### 📍 RÉPARTITION PAR ZONES (TOP 25)\n\n")
+                f.write(f"- **Zone 1 (1-{self.LOW_ZONE_END}) :** {zone_counts.get(f'Zone 1 (1-{self.LOW_ZONE_END})', 0)} numéros  \n")
+                f.write(f"- **Zone 2 ({self.LOW_ZONE_END + 1}-{self.MID_ZONE_END}) :** {zone_counts.get(f'Zone 2 ({self.LOW_ZONE_END + 1}-{self.MID_ZONE_END})', 0)} numéros  \n")
+                f.write(f"- **Zone 3 ({self.MID_ZONE_END + 1}-{self.max_number}) :** {zone_counts.get(f'Zone 3 ({self.MID_ZONE_END + 1}-{self.max_number})', 0)} numéros  \n\n")
+                
+                # Suggestions d'utilisation adaptées au Loto
+                f.write("### 💡 SUGGESTIONS D'UTILISATION LOTO\n\n")
+                f.write("**Pour grilles de 5 numéros (standard) :**  \n")
+                f.write("- Sélectionnez les 5 premiers numéros du classement  \n")
+                f.write("- Ou composez avec 2-3 numéros du TOP 5 + 2-3 numéros du TOP 6-15  \n\n")
+                
+                f.write("**Pour grilles de 7 numéros (système) :**  \n")
+                f.write("- Utilisez les 7 premiers numéros du classement  \n")
+                f.write("- Garantit une couverture équilibrée et optimisée  \n\n")
+                
+                f.write("**Pour grilles de 10 numéros (système étendu) :**  \n")
+                f.write("- Prenez les 10 premiers numéros pour une couverture maximale  \n")
+                f.write("- Idéal pour maximiser les chances avec un investissement contrôlé  \n\n")
+                
+                f.write("**Pour grilles multiples :**  \n")
+                f.write("- Utilisez les 15-20 premiers numéros et créez plusieurs combinaisons  \n")
+                f.write("- Alternez entre les différentes zones pour un équilibrage optimal  \n\n")
+                
+                f.write("---\n\n")
+            
+            # Section statistiques générales
+            f.write("## 📊 STATISTIQUES GÉNÉRALES\n\n")
+            
+            if 'numbers_analysis' in all_stats:
+                analysis_df = all_stats['numbers_analysis']
+                
+                # Numéros les plus fréquents
+                top_freq = analysis_df.nlargest(5, 'Frequence')
+                f.write("### 🔥 TOP 5 NUMÉROS LES PLUS FRÉQUENTS\n\n")
+                for _, row in top_freq.iterrows():
+                    f.write(f"- **{row['Numero']}** : {row['Frequence']} apparitions  \n")
+                f.write("\n")
+                
+                # Numéros en retard
+                top_retard = analysis_df.nlargest(5, 'Jours_Depuis_Tirage')
+                f.write("### ⏰ TOP 5 NUMÉROS EN RETARD\n\n")
+                for _, row in top_retard.iterrows():
+                    f.write(f"- **{row['Numero']}** : {row['Jours_Depuis_Tirage']} jours  \n")
+                f.write("\n")
+            
+            # Section conseils généraux
+            f.write("## 💡 CONSEILS STRATÉGIQUES\n\n")
+            f.write("### 🎲 Approche Recommandée\n\n")
+            f.write("1. **Équilibrage :** Sélectionnez des numéros de chaque zone géographique  \n")
+            f.write("2. **Diversification :** Mélangez numéros fréquents et numéros en retard  \n")
+            f.write("3. **Modération :** Évitez trop de numéros consécutifs ou de même dizaine  \n")
+            f.write("4. **Régularité :** Utilisez ces analyses de façon cohérente  \n\n")
+            
+            f.write("### ⚖️ Stratégie d'Équilibrage\n\n")
+            f.write("- **Zone 1 (1-17) :** Privilégiez 1-2 numéros  \n")
+            f.write("- **Zone 2 (18-34) :** Sélectionnez 2-3 numéros  \n")
+            f.write("- **Zone 3 (35-49) :** Choisissez 1-2 numéros  \n\n")
+            
+            f.write("## ⚠️ RAPPEL IMPORTANT\n\n")
+            f.write("> **Les jeux de hasard comportent des risques.**  \n")
+            f.write("> Ces recommandations sont basées sur l'analyse statistique des données historiques et ne garantissent aucun résultat.  \n")
+            f.write("> **Jouez avec modération et responsabilité.**\n\n")
+            
+            f.write("---\n\n")
+            f.write("*Rapport généré automatiquement par l'Analyseur Loto Stratégique*\n")
+        
+        self.logger.info(f"✅ Rapport Loto avec TOP 25 exporté dans {report_path}")
+    
+    def print_results_with_top_25(self, results: List[Dict], top_25_df: pd.DataFrame, csv_file: str):
+        """Affiche les grilles générées avec les TOP 25 numéros équilibrés."""
+        
+        # Afficher d'abord les TOP 25 numéros équilibrés
+        print("\n🎯 TOP 25 NUMÉROS ÉQUILIBRÉS - STRATÉGIE OPTIMALE LOTO")
+        print("=" * 65)
+        print(f"📄 Fichier CSV généré: {csv_file}")
+        print("\n🏆 TOP 10 NUMÉROS RECOMMANDÉS:")
+        for idx, row in top_25_df.head(10).iterrows():
+            zone_short = row['zone'].split(' ')[1]  # Extraire "(1-17)"
+            print(f"   {row['rang']:2d}. Numéro {row['numero']:2d} - Score: {row['score_composite']:.4f} ({zone_short})")
+        
+        print(f"\n📋 Les 25 numéros complets sont disponibles dans le fichier CSV")
+        print(f"   Localisation: {csv_file}")
+        
+        # Ensuite afficher les grilles générées
+        print("\n" + "="*80 + f"\n🎯 GRILLES GÉNÉRÉES AVEC LA STRATÉGIE '{self.strategy_name.upper()}' (ML-Enhanced)\n" + "="*80)
+        
+        for i, result in enumerate(results, 1):
+            validation = result.get('validation', {})
+            quality_indicators = []
+            
+            if validation.get('sum_ok', False): quality_indicators.append("✓Somme")
+            if validation.get('balance_ok', False): quality_indicators.append("✓Équilibre")
+            if validation.get('zones_ok', False): quality_indicators.append("✓Zones")
+            if validation.get('diversity_ok', False): quality_indicators.append("✓Diversité")
+            
+            quality_str = " | ".join(quality_indicators) if quality_indicators else "Standard"
+            
+            print(f"\n🎲 GRILLE #{i} (Score ML: {result['score']:.1f}/100)")
+            print(f"   Numéros: {result['grille']}")
+            print(f"   Somme: {result['somme']} | Pairs/Impairs: {result['pairs']}/{self.numbers_per_draw - result['pairs']} | Étendue: {result.get('range', 'N/A')}")
+            print(f"   Zones: {result.get('zones', 'N/A')} | Consécutifs: {result.get('consecutifs', 0)} | Diversité unités: {result.get('diversite_unites', 'N/A')}")
+            print(f"   Qualité: {quality_str}")
+        
+        # Statistiques globales
+        if results:
+            avg_score = np.mean([r['score'] for r in results])
+            avg_quality = np.mean([r.get('validation', {}).get('quality_score', 0) for r in results])
+            print(f"\n📊 STATISTIQUES GLOBALES")
+            print(f"   Score ML moyen: {avg_score:.1f}/100")
+            print(f"   Qualité moyenne: {avg_quality:.1%}")
+            print(f"   TOP 25 numéros équilibrés générés et exportés")
+            
+        print("\n" + "="*80)
         
     def print_results(self, results: List[Dict]):
         """Affiche les grilles générées avec détails avancés."""
@@ -385,6 +548,179 @@ class LotoStrategist:
             print(f"   Qualité moyenne: {avg_quality:.1%}")
             
         print("\n" + "="*80)
+
+    def generate_top_25_balanced_numbers(self, all_stats: Dict) -> pd.DataFrame:
+        """
+        Génère les 25 numéros avec le plus de chances de sortir selon une stratégie équilibrée.
+        Combine fréquences, retards, zones et paires pour un score optimal (adapté au Loto 49).
+        """
+        self.logger.info("🎯 Génération des 25 numéros optimaux (stratégie équilibrée Loto)...")
+        
+        # Créer un DataFrame pour tous les numéros (1-49)
+        all_numbers = pd.DataFrame({'numero': range(1, self.max_number + 1)})
+        analysis_df = all_stats['numbers_analysis'].set_index('Numero')
+        
+        # === CALCUL DES SCORES INDIVIDUELS ===
+        
+        # 1. Score de fréquence (normalisé 0-1)
+        freq_scores = analysis_df['Frequence']
+        max_freq = freq_scores.max()
+        freq_scores_norm = freq_scores / max_freq if max_freq > 0 else freq_scores
+        
+        # 2. Score de retard inversé (plus le retard est important, plus le score est élevé)
+        delay_scores = analysis_df['Jours_Depuis_Tirage']
+        max_delay = delay_scores.max()
+        delay_scores_norm = delay_scores / max_delay if max_delay > 0 else delay_scores
+        
+        # 3. Score des paires (moyenne des fréquences des meilleures paires)
+        pair_scores = {}
+        if not all_stats['pair_counts'].empty:
+            # Pour chaque numéro, calculer son score basé sur ses meilleures paires
+            for num in range(1, self.max_number + 1):
+                pairs_df = all_stats['pair_counts']
+                num_pairs = pairs_df[
+                    (pairs_df['n1'] == num) | (pairs_df['n2'] == num)
+                ].head(10)  # Top 10 paires pour ce numéro
+                if not num_pairs.empty:
+                    pair_scores[num] = num_pairs['count'].mean()
+                else:
+                    pair_scores[num] = 0
+            
+            pair_scores_series = pd.Series(pair_scores)
+            max_pair = pair_scores_series.max()
+            pair_scores_norm = pair_scores_series / max_pair if max_pair > 0 else pair_scores_series
+        else:
+            pair_scores_norm = pd.Series(0, index=range(1, self.max_number + 1))
+        
+        # 4. Score d'équilibrage par zones (adapté au Loto 49)
+        zone_scores = {}
+        # Calcul de la répartition historique moyenne par zones
+        df_pandas = all_stats['df_pandas']
+        if not df_pandas.empty:
+            zone_counts = {'low': 0, 'mid': 0, 'high': 0}
+            total_draws = len(df_pandas)
+            
+            for _, row in df_pandas.iterrows():
+                nums = [row[col] for col in self.balls_cols if pd.notna(row[col])]
+                for num in nums:
+                    if num <= self.LOW_ZONE_END:
+                        zone_counts['low'] += 1
+                    elif num <= self.MID_ZONE_END:
+                        zone_counts['mid'] += 1
+                    else:
+                        zone_counts['high'] += 1
+            
+            # Calculer les fréquences moyennes par zone
+            if total_draws > 0:
+                zone_freq = {k: v / (total_draws * self.numbers_per_draw) for k, v in zone_counts.items()}
+                total_freq = sum(zone_freq.values())
+                
+                if total_freq > 0:
+                    # Bonus pour les zones sous-représentées (stratégie d'équilibrage)
+                    zone_weights = {
+                        'low': 1.0 - (zone_freq['low'] / total_freq),
+                        'mid': 1.0 - (zone_freq['mid'] / total_freq),
+                        'high': 1.0 - (zone_freq['high'] / total_freq)
+                    }
+                else:
+                    zone_weights = {'low': 1.0, 'mid': 1.0, 'high': 1.0}
+            else:
+                zone_weights = {'low': 1.0, 'mid': 1.0, 'high': 1.0}
+            
+            for num in range(1, self.max_number + 1):
+                if num <= self.LOW_ZONE_END:
+                    zone_scores[num] = zone_weights['low']
+                elif num <= self.MID_ZONE_END:
+                    zone_scores[num] = zone_weights['mid']
+                else:
+                    zone_scores[num] = zone_weights['high']
+        else:
+            zone_scores = {num: 1.0 for num in range(1, self.max_number + 1)}
+        
+        zone_scores_series = pd.Series(zone_scores)
+        
+        # === CALCUL DU SCORE COMPOSITE ===
+        
+        # Pondération équilibrée des différents facteurs (adaptée au Loto)
+        weights = {
+            'frequency': 0.35,    # Fréquence historique (plus important au Loto)
+            'delay': 0.30,        # Retard (probabilité de sortie)
+            'pairs': 0.20,        # Performance en paires
+            'zones': 0.15         # Équilibrage des zones
+        }
+        
+        # Calculer le score final pour chaque numéro
+        final_scores = {}
+        for num in range(1, self.max_number + 1):
+            freq_score = freq_scores_norm.get(num, 0)
+            delay_score = delay_scores_norm.get(num, 0)
+            pair_score = pair_scores_norm.get(num, 0)
+            zone_score = zone_scores_series.get(num, 1.0)
+            
+            final_score = (
+                freq_score * weights['frequency'] +
+                delay_score * weights['delay'] +
+                pair_score * weights['pairs'] +
+                zone_score * weights['zones']
+            )
+            
+            final_scores[num] = final_score
+        
+        # Créer le DataFrame final avec tous les détails
+        results_df = pd.DataFrame({
+            'numero': range(1, self.max_number + 1),
+            'score_composite': [final_scores[num] for num in range(1, self.max_number + 1)],
+            'frequence': [freq_scores_norm.get(num, 0) for num in range(1, self.max_number + 1)],
+            'score_retard': [delay_scores_norm.get(num, 0) for num in range(1, self.max_number + 1)],
+            'score_paires': [pair_scores_norm.get(num, 0) for num in range(1, self.max_number + 1)],
+            'score_zones': [zone_scores_series.get(num, 1.0) for num in range(1, self.max_number + 1)],
+            'retard_actuel': [analysis_df.loc[num, 'Jours_Depuis_Tirage'] if num in analysis_df.index else 0 for num in range(1, self.max_number + 1)],
+            'freq_absolue': [analysis_df.loc[num, 'Frequence'] if num in analysis_df.index else 0 for num in range(1, self.max_number + 1)]
+        })
+        
+        # Trier par score composite décroissant
+        results_df = results_df.sort_values('score_composite', ascending=False).reset_index(drop=True)
+        
+        # Ajouter le classement
+        results_df['rang'] = range(1, len(results_df) + 1)
+        
+        # Ajouter des informations sur les zones (adaptées au Loto 49)
+        results_df['zone'] = results_df['numero'].apply(
+            lambda x: f'Zone 1 (1-{self.LOW_ZONE_END})' if x <= self.LOW_ZONE_END
+                     else f'Zone 2 ({self.LOW_ZONE_END + 1}-{self.MID_ZONE_END})' if x <= self.MID_ZONE_END
+                     else f'Zone 3 ({self.MID_ZONE_END + 1}-{self.max_number})'
+        )
+        
+        self.logger.info("✅ Top 25 numéros équilibrés générés avec succès")
+        return results_df.head(25)
+    
+    def export_top_25_to_csv(self, top_25_df: pd.DataFrame) -> str:
+        """Exporte les 25 meilleurs numéros vers un fichier CSV (remplace le fichier existant)."""
+        
+        # Créer le nom de fichier fixe (sera remplacé à chaque génération)
+        filename = f"{self.STATS_DIR}/top_25_numeros_equilibres_loto.csv"
+        
+        # Préparer les données pour l'export
+        export_df = top_25_df.copy()
+        
+        # Arrondir les scores pour la lisibilité
+        numeric_cols = ['score_composite', 'frequence', 'score_retard', 'score_paires', 'score_zones']
+        for col in numeric_cols:
+            export_df[col] = export_df[col].round(4)
+        
+        # Réorganiser les colonnes pour un meilleur affichage
+        column_order = [
+            'rang', 'numero', 'score_composite', 'zone',
+            'frequence', 'score_retard', 'score_paires', 'score_zones',
+            'retard_actuel', 'freq_absolue'
+        ]
+        export_df = export_df[column_order]
+        
+        # Exporter vers CSV
+        export_df.to_csv(filename, index=False, encoding='utf-8', sep=';')
+        
+        self.logger.info(f"📊 Top 25 numéros Loto exportés vers: {filename}")
+        return filename
 
     @lru_cache(maxsize=128)
     def _calculate_features_for_combination(self, combination: Tuple[int, ...]) -> Dict:
@@ -768,9 +1104,9 @@ def main():
         db_con = duckdb.connect(':memory:')
         table_name = strategist.load_data_from_csv(args.csv, db_con)
 
-        results, all_stats = strategist.generate_grids(db_con, table_name, args.grids)
+        results, all_stats, top_25_df, csv_file = strategist.generate_grids(db_con, table_name, args.grids)
         
-        strategist.print_results(results)
+        strategist.print_results_with_top_25(results, top_25_df, csv_file)
 
         res= pd.DataFrame(results)
         res.to_csv(os.path.join(strategist.STATS_DIR,"grilles.csv"))
@@ -778,7 +1114,7 @@ def main():
         if args.plots:
             strategist._create_visualizations(all_stats)
         if args.export_stats:
-            strategist._export_statistics_to_csv(all_stats)
+            strategist._export_statistics_to_csv(all_stats, top_25_df)
         
         db_con.close()
 

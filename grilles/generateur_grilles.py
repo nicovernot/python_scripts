@@ -42,6 +42,21 @@ except ImportError:
     def get_config_bool(key, default=False): return default
     def get_config_int(key, default=0): return default
 
+# Imports pour l'optimisation
+try:
+    import pulp
+    PULP_AVAILABLE = True
+except ImportError:
+    PULP_AVAILABLE = False
+    print("⚠️  PuLP non disponible. Installation recommandée : pip install pulp")
+
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    print("⚠️  Pandas non disponible. Installation recommandée : pip install pandas")
+
 
 class SystemeReduit:
     """
@@ -393,6 +408,245 @@ class SystemeReduit:
             return "🔴 Système à améliorer - Revoir les paramètres"
 
 
+class SystemeReduitOptimise:
+    """
+    Générateur de systèmes réduits optimisé utilisant les CSV TOP et PuLP
+    
+    Cette classe utilise :
+    - Les fichiers TOP 25 Loto / TOP 30 Keno pour sélectionner les meilleurs numéros
+    - L'optimisation PuLP pour minimiser le nombre de grilles tout en maximisant la couverture
+    - Des algorithmes avancés de réduction de systèmes
+    """
+    
+    def __init__(self, jeu: str, taille_grille: int = None):
+        """
+        Initialise le système réduit optimisé
+        
+        Args:
+            jeu: 'loto' ou 'keno'
+            taille_grille: Nombre de numéros par grille (défaut: 5 pour Loto, 10 pour Keno)
+        """
+        self.jeu = jeu.lower()
+        
+        if self.jeu == 'loto':
+            self.csv_path = Path("loto_stats_exports/top_25_numeros_equilibres_loto.csv")
+            self.max_numeros = 49
+            self.taille_grille = taille_grille or 5
+            self.min_grille = 6  # Pour Loto, on peut faire des grilles de 6-10 numéros
+            self.max_grille = 10
+        elif self.jeu == 'keno':
+            self.csv_path = Path("keno_stats_exports/top_30_numeros_equilibres_keno.csv")
+            self.max_numeros = 70
+            self.taille_grille = taille_grille or 10
+            self.min_grille = 6  # Pour Keno, on peut faire des grilles de 6-10 numéros
+            self.max_grille = 10
+        else:
+            raise ValueError("Le jeu doit être 'loto' ou 'keno'")
+        
+        self.top_numeros = []
+        self.scores = {}
+        
+        # Vérifier les dépendances
+        if not PANDAS_AVAILABLE:
+            raise ImportError("Pandas requis pour cette fonctionnalité. Installez avec : pip install pandas")
+        
+        if not PULP_AVAILABLE:
+            print("⚠️  PuLP non disponible. Utilisation de l'algorithme de base sans optimisation avancée.")
+    
+    def charger_top_numeros(self, nombre_numeros: int = None) -> bool:
+        """
+        Charge les numéros TOP depuis le fichier CSV
+        
+        Args:
+            nombre_numeros: Nombre de numéros à utiliser (défaut: 15 pour Loto, 20 pour Keno)
+        """
+        if not self.csv_path.exists():
+            print(f"❌ Fichier TOP non trouvé : {self.csv_path}")
+            print(f"💡 Générez d'abord les TOP avec l'option {28 if self.jeu == 'loto' else 29} du menu CLI")
+            return False
+        
+        try:
+            df = pd.read_csv(self.csv_path, sep=';')
+            
+            # Définir le nombre de numéros par défaut
+            if nombre_numeros is None:
+                nombre_numeros = 15 if self.jeu == 'loto' else 20
+            
+            # Limiter selon la taille disponible
+            nombre_numeros = min(nombre_numeros, len(df))
+            
+            # Extraire les TOP numéros
+            top_df = df.head(nombre_numeros)
+            self.top_numeros = top_df['numero'].tolist()
+            
+            # Extraire les scores pour pondération
+            self.scores = dict(zip(top_df['numero'], top_df['score_composite']))
+            
+            print(f"✅ {len(self.top_numeros)} numéros TOP {self.jeu.upper()} chargés")
+            print(f"   Numéros : {self.top_numeros}")
+            print(f"   Score max : {max(self.scores.values()):.3f}")
+            print(f"   Score min : {min(self.scores.values()):.3f}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Erreur lors du chargement : {e}")
+            return False
+    
+    def generer_grilles_optimisees_pulp(self, nb_grilles: int, taille_grille: int = None) -> List[List[int]]:
+        """
+        Génère des grilles optimisées avec PuLP
+        
+        Args:
+            nb_grilles: Nombre de grilles à générer
+            taille_grille: Taille des grilles (défaut: celle définie à l'init)
+        """
+        if not PULP_AVAILABLE:
+            print("⚠️  PuLP non disponible, utilisation de la méthode alternative")
+            return self.generer_grilles_optimisees_alternative(nb_grilles, taille_grille)
+        
+        if not self.top_numeros:
+            raise ValueError("Chargez d'abord les numéros TOP avec charger_top_numeros()")
+        
+        taille = taille_grille or self.taille_grille
+        
+        print(f"\n🔄 Génération de {nb_grilles} grilles optimisées avec PuLP...")
+        print(f"   Pool de numéros : {len(self.top_numeros)}")
+        print(f"   Taille par grille : {taille}")
+        
+        # Créer le problème d'optimisation
+        prob = pulp.LpProblem("SystemeReduitOptimal", pulp.LpMinimize)
+        
+        # Variables binaires : x[i][j] = 1 si le numéro j est dans la grille i
+        numeros = self.top_numeros
+        grilles_vars = {}
+        
+        for i in range(nb_grilles):
+            grilles_vars[i] = {}
+            for j in numeros:
+                grilles_vars[i][j] = pulp.LpVariable(f"grille_{i}_numero_{j}", cat='Binary')
+        
+        # Contrainte 1: Chaque grille doit avoir exactement 'taille' numéros
+        for i in range(nb_grilles):
+            prob += pulp.lpSum([grilles_vars[i][j] for j in numeros]) == taille
+        
+        # Objectif: Maximiser la couverture pondérée (minimiser le négatif)
+        # Chaque numéro contribue selon son score
+        couverture_ponderee = pulp.lpSum([
+            self.scores[j] * grilles_vars[i][j] 
+            for i in range(nb_grilles) 
+            for j in numeros
+        ])
+        
+        prob += -couverture_ponderee  # Minimiser le négatif = maximiser
+        
+        # Contrainte 2: Équilibrage - éviter de sur-utiliser certains numéros
+        for j in numeros:
+            utilisation = pulp.lpSum([grilles_vars[i][j] for i in range(nb_grilles)])
+            # Un numéro ne peut être utilisé dans plus de nb_grilles/2 grilles
+            prob += utilisation <= max(1, nb_grilles // 2)
+        
+        # Résoudre
+        print("   🧮 Résolution du problème d'optimisation...")
+        prob.solve(pulp.PULP_CBC_CMD(msg=0))
+        
+        # Extraire les résultats
+        grilles = []
+        if prob.status == pulp.LpStatusOptimal:
+            for i in range(nb_grilles):
+                grille = []
+                for j in numeros:
+                    if grilles_vars[i][j].varValue == 1:
+                        grille.append(j)
+                grilles.append(sorted(grille))
+            
+            print(f"   ✅ Optimisation réussie ! {len(grilles)} grilles générées")
+        else:
+            print(f"   ⚠️  Optimisation échouée (statut: {prob.status})")
+            return self.generer_grilles_optimisees_alternative(nb_grilles, taille_grille)
+        
+        return grilles
+    
+    def generer_grilles_optimisees_alternative(self, nb_grilles: int, taille_grille: int = None) -> List[List[int]]:
+        """
+        Méthode alternative d'optimisation sans PuLP
+        Utilise un algorithme glouton avec pondération par scores
+        """
+        if not self.top_numeros:
+            raise ValueError("Chargez d'abord les numéros TOP avec charger_top_numeros()")
+        
+        taille = taille_grille or self.taille_grille
+        
+        print(f"\n🔄 Génération de {nb_grilles} grilles avec algorithme glouton pondéré...")
+        
+        grilles = []
+        utilisation_numeros = {num: 0 for num in self.top_numeros}
+        
+        for i in range(nb_grilles):
+            # Créer une grille en privilégiant les numéros les mieux notés et moins utilisés
+            grille = []
+            numeros_disponibles = self.top_numeros.copy()
+            
+            for _ in range(taille):
+                if not numeros_disponibles:
+                    break
+                
+                # Calculer un score combiné : score original - pénalité d'utilisation
+                scores_ajustes = {}
+                for num in numeros_disponibles:
+                    score_base = self.scores[num]
+                    penalite = utilisation_numeros[num] * 0.1  # Pénalité progressive
+                    scores_ajustes[num] = score_base - penalite
+                
+                # Sélectionner le meilleur numéro
+                meilleur_num = max(scores_ajustes, key=scores_ajustes.get)
+                grille.append(meilleur_num)
+                numeros_disponibles.remove(meilleur_num)
+                utilisation_numeros[meilleur_num] += 1
+            
+            grilles.append(sorted(grille))
+        
+        print(f"   ✅ {len(grilles)} grilles générées avec méthode alternative")
+        return grilles
+    
+    def analyser_couverture_optimisee(self, grilles: List[List[int]]) -> Dict[str, Any]:
+        """
+        Analyse la couverture des grilles optimisées
+        """
+        if not grilles:
+            return {}
+        
+        # Statistiques de base
+        total_numeros_utilises = set()
+        for grille in grilles:
+            total_numeros_utilises.update(grille)
+        
+        # Calcul des scores moyens
+        scores_moyens = []
+        for grille in grilles:
+            score_grille = sum(self.scores.get(num, 0) for num in grille) / len(grille)
+            scores_moyens.append(score_grille)
+        
+        # Équilibrage de l'utilisation
+        utilisation = {}
+        for grille in grilles:
+            for num in grille:
+                utilisation[num] = utilisation.get(num, 0) + 1
+        
+        return {
+            'nb_grilles': len(grilles),
+            'taille_moyenne_grille': sum(len(g) for g in grilles) / len(grilles),
+            'numeros_uniques_utilises': len(total_numeros_utilises),
+            'couverture_pool': len(total_numeros_utilises) / len(self.top_numeros) * 100,
+            'score_moyen_global': sum(scores_moyens) / len(scores_moyens),
+            'score_max_grille': max(scores_moyens),
+            'score_min_grille': min(scores_moyens),
+            'utilisation_max': max(utilisation.values()) if utilisation else 0,
+            'utilisation_min': min(utilisation.values()) if utilisation else 0,
+            'equilibrage_score': 100 - (max(utilisation.values()) - min(utilisation.values())) * 10 if utilisation else 0
+        }
+
+
 class GenerateurGrilles:
     """Classe principale pour la génération de grilles Loto/Keno avec systèmes réduits"""
     
@@ -538,10 +792,22 @@ class GenerateurGrilles:
             writer.writerow(['=== ANALYSE ==='])
             writer.writerow(['Indicateur', 'Valeur'])
             writer.writerow(['Nombre de grilles', analyse['nb_grilles']])
-            writer.writerow(['Grilles uniques', analyse['grilles_uniques']])
-            writer.writerow(['% Unicité', f"{analyse['pourcentage_unique']:.1f}%"])
-            writer.writerow(['Score qualité', f"{analyse['score_qualite']:.1f}/100"])
-            writer.writerow(['Recommandation', analyse['recommandation']])
+            
+            # Analyse différente selon le mode
+            if 'grilles_uniques' in analyse:
+                # Mode classique
+                writer.writerow(['Grilles uniques', analyse['grilles_uniques']])
+                writer.writerow(['% Unicité', f"{analyse['pourcentage_unique']:.1f}%"])
+                writer.writerow(['Score qualité', f"{analyse['score_qualite']:.1f}/100"])
+                writer.writerow(['Recommandation', analyse['recommandation']])
+            else:
+                # Mode TOP CSV optimisé
+                writer.writerow(['Numéros uniques utilisés', analyse['numeros_uniques_utilises']])
+                writer.writerow(['Couverture du pool TOP', f"{analyse['couverture_pool']:.1f}%"])
+                writer.writerow(['Score moyen', f"{analyse['score_moyen_global']:.3f}"])
+                writer.writerow(['Score max', f"{analyse['score_max_grille']:.3f}"])
+                writer.writerow(['Score min', f"{analyse['score_min_grille']:.3f}"])
+                writer.writerow(['Équilibrage', f"{analyse['equilibrage_score']:.1f}/100"])
         
         return str(fichier_path)
     
@@ -582,10 +848,19 @@ class GenerateurGrilles:
             
             f.write(f"📅 Date de génération : {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
             f.write(f"🎲 Nombre de grilles : {len(grilles)}\n")
-            f.write(f"⭐ Score de qualité : {analyse['score_qualite']:.1f}/100\n")
-            f.write(f"💡 Recommandation : {analyse['recommandation']}\n\n")
             
-            f.write("📋 GRILLES GÉNÉRÉES\n")
+            # Informations différentes selon le mode
+            if 'score_qualite' in analyse:
+                # Mode classique
+                f.write(f"⭐ Score de qualité : {analyse['score_qualite']:.1f}/100\n")
+                f.write(f"💡 Recommandation : {analyse['recommandation']}\n\n")
+            else:
+                # Mode TOP CSV optimisé
+                f.write(f"🎯 Numéros uniques utilisés : {analyse['numeros_uniques_utilises']}\n")
+                f.write(f"� Score moyen : {analyse['score_moyen_global']:.3f}\n")
+                f.write(f"⚖️ Équilibrage : {analyse['equilibrage_score']:.1f}/100\n\n")
+            
+            f.write("�📋 GRILLES GÉNÉRÉES\n")
             f.write("-" * 30 + "\n\n")
             
             for i, grille in enumerate(grilles, 1):
@@ -595,21 +870,32 @@ class GenerateurGrilles:
             f.write("📊 ANALYSE DÉTAILLÉE\n")
             f.write("=" * 50 + "\n\n")
             
-            f.write(f"Grilles uniques : {analyse['grilles_uniques']}/{analyse['nb_grilles']} ")
-            f.write(f"({analyse['pourcentage_unique']:.1f}%)\n\n")
-            
-            if 'plus_utilises' in analyse:
-                f.write("🔥 Numéros les plus utilisés :\n")
-                for num, count in analyse['plus_utilises']:
-                    f.write(f"   {num:2d} : {count} fois\n")
-                f.write("\n")
-            
-            if 'couverture' in analyse:
-                couv = analyse['couverture']
-                f.write("📈 Couverture théorique :\n")
-                f.write(f"   Combinaisons couvertes : {couv['couverture_combinaisons']:.1f}%\n")
-                f.write(f"   Probabilité garantie : {couv['probabilite_garantie']:.1f}%\n")
-                f.write(f"   Efficacité : {couv['efficacite']:.1f}%\n")
+            # Analyse différente selon le mode
+            if 'grilles_uniques' in analyse:
+                # Mode classique
+                f.write(f"Grilles uniques : {analyse['grilles_uniques']}/{analyse['nb_grilles']} ")
+                f.write(f"({analyse['pourcentage_unique']:.1f}%)\n\n")
+                
+                if 'plus_utilises' in analyse:
+                    f.write("🔥 Numéros les plus utilisés :\n")
+                    for num, count in analyse['plus_utilises']:
+                        f.write(f"   {num:2d} : {count} fois\n")
+                    f.write("\n")
+                
+                if 'couverture' in analyse:
+                    couv = analyse['couverture']
+                    f.write("📈 Couverture théorique :\n")
+                    f.write(f"   Combinaisons couvertes : {couv['couverture_combinaisons']:.1f}%\n")
+                    f.write(f"   Probabilité garantie : {couv['probabilite_garantie']:.1f}%\n")
+                    f.write(f"   Efficacité : {couv['efficacite']:.1f}%\n")
+            else:
+                # Mode TOP CSV optimisé
+                f.write(f"Numéros uniques utilisés : {analyse['numeros_uniques_utilises']}\n")
+                f.write(f"Couverture du pool TOP : {analyse['couverture_pool']:.1f}%\n")
+                f.write(f"Score moyen global : {analyse['score_moyen_global']:.3f}\n")
+                f.write(f"Score maximum : {analyse['score_max_grille']:.3f}\n")
+                f.write(f"Score minimum : {analyse['score_min_grille']:.3f}\n")
+                f.write(f"Équilibrage : {analyse['equilibrage_score']:.1f}/100\n")
         
         return str(fichier_path)
     
@@ -624,8 +910,17 @@ class GenerateurGrilles:
             f.write("## 📊 Informations Générales\n\n")
             f.write(f"- **📅 Date de génération :** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
             f.write(f"- **🎲 Nombre de grilles :** {len(grilles)}\n")
-            f.write(f"- **⭐ Score de qualité :** {analyse['score_qualite']:.1f}/100\n")
-            f.write(f"- **💡 Recommandation :** {analyse['recommandation']}\n\n")
+            
+            # Informations différentes selon le mode
+            if 'score_qualite' in analyse:
+                # Mode classique
+                f.write(f"- **⭐ Score de qualité :** {analyse['score_qualite']:.1f}/100\n")
+                f.write(f"- **💡 Recommandation :** {analyse['recommandation']}\n\n")
+            else:
+                # Mode TOP CSV optimisé
+                f.write(f"- **🎯 Numéros uniques utilisés :** {analyse['numeros_uniques_utilises']}\n")
+                f.write(f"- **📈 Score moyen :** {analyse['score_moyen_global']:.3f}\n")
+                f.write(f"- **⚖️ Équilibrage :** {analyse['equilibrage_score']:.1f}/100\n\n")
             
             f.write("## 🎲 Grilles Générées\n\n")
             
@@ -651,37 +946,49 @@ class GenerateurGrilles:
             
             f.write("\n## 📈 Analyse Détaillée\n\n")
             
-            f.write("### ✅ Statistiques de Base\n\n")
-            f.write(f"- **Grilles uniques :** {analyse['grilles_uniques']}/{analyse['nb_grilles']} ")
-            f.write(f"({analyse['pourcentage_unique']:.1f}%)\n")
-            f.write(f"- **Score de qualité :** {analyse['score_qualite']:.1f}/100\n")
-            f.write(f"- **Recommandation :** {analyse['recommandation']}\n\n")
-            
-            if 'plus_utilises' in analyse:
-                f.write("### 🔥 Numéros les Plus Utilisés\n\n")
-                f.write("| Numéro | Occurrences |\n")
-                f.write("|--------|-------------|\n")
-                for num, count in analyse['plus_utilises']:
-                    f.write(f"| **{num:02d}** | {count} fois |\n")
-                f.write("\n")
-            
-            if 'moins_utilises' in analyse and analyse['moins_utilises']:
-                f.write("### ❄️ Numéros les Moins Utilisés\n\n")
-                f.write("| Numéro | Occurrences |\n")
-                f.write("|--------|-------------|\n")
-                for num, count in analyse['moins_utilises']:
-                    f.write(f"| **{num:02d}** | {count} fois |\n")
-                f.write("\n")
-            
-            if 'couverture' in analyse:
-                couv = analyse['couverture']
-                f.write("### 🎯 Couverture Théorique\n\n")
-                f.write("| Indicateur | Valeur |\n")
-                f.write("|------------|--------|\n")
-                f.write(f"| **Combinaisons couvertes** | {couv['couverture_combinaisons']:.1f}% |\n")
-                f.write(f"| **Probabilité garantie** | {couv['probabilite_garantie']:.1f}% |\n")
-                f.write(f"| **Efficacité du système** | {couv['efficacite']:.1f}% |\n")
-                f.write(f"| **Combinaisons théoriques** | {couv['total_combinaisons_theoriques']:,} |\n")
+            # Analyse différente selon le mode
+            if 'grilles_uniques' in analyse:
+                # Mode classique
+                f.write("### ✅ Statistiques de Base\n\n")
+                f.write(f"- **Grilles uniques :** {analyse['grilles_uniques']}/{analyse['nb_grilles']} ")
+                f.write(f"({analyse['pourcentage_unique']:.1f}%)\n")
+                f.write(f"- **Score de qualité :** {analyse['score_qualite']:.1f}/100\n")
+                f.write(f"- **Recommandation :** {analyse['recommandation']}\n\n")
+                
+                if 'plus_utilises' in analyse:
+                    f.write("### 🔥 Numéros les Plus Utilisés\n\n")
+                    f.write("| Numéro | Occurrences |\n")
+                    f.write("|--------|-------------|\n")
+                    for num, count in analyse['plus_utilises']:
+                        f.write(f"| **{num:02d}** | {count} fois |\n")
+                    f.write("\n")
+                
+                if 'moins_utilises' in analyse and analyse['moins_utilises']:
+                    f.write("### ❄️ Numéros les Moins Utilisés\n\n")
+                    f.write("| Numéro | Occurrences |\n")
+                    f.write("|--------|-------------|\n")
+                    for num, count in analyse['moins_utilises']:
+                        f.write(f"| **{num:02d}** | {count} fois |\n")
+                    f.write("\n")
+                
+                if 'couverture' in analyse:
+                    couv = analyse['couverture']
+                    f.write("### 🎯 Couverture Théorique\n\n")
+                    f.write("| Indicateur | Valeur |\n")
+                    f.write("|------------|--------|\n")
+                    f.write(f"| **Combinaisons couvertes** | {couv['couverture_combinaisons']:.1f}% |\n")
+                    f.write(f"| **Probabilité garantie** | {couv['probabilite_garantie']:.1f}% |\n")
+                    f.write(f"| **Efficacité du système** | {couv['efficacite']:.1f}% |\n")
+                    f.write(f"| **Combinaisons théoriques** | {couv['total_combinaisons_theoriques']:,} |\n")
+            else:
+                # Mode TOP CSV optimisé
+                f.write("### 🎯 Statistiques d'Optimisation\n\n")
+                f.write(f"- **Numéros uniques utilisés :** {analyse['numeros_uniques_utilises']}\n")
+                f.write(f"- **Couverture du pool TOP :** {analyse['couverture_pool']:.1f}%\n")
+                f.write(f"- **Score moyen global :** {analyse['score_moyen_global']:.3f}\n")
+                f.write(f"- **Score maximum :** {analyse['score_max_grille']:.3f}\n")
+                f.write(f"- **Score minimum :** {analyse['score_min_grille']:.3f}\n")
+                f.write(f"- **Équilibrage :** {analyse['equilibrage_score']:.1f}/100\n\n")
                 f.write("\n")
             
             f.write("## 🎮 Comment Utiliser Ces Grilles\n\n")
@@ -690,12 +997,24 @@ class GenerateurGrilles:
             f.write("3. **Suivre les résultats** pour évaluer la performance du système\n\n")
             
             f.write("## 💡 Conseils\n\n")
-            if analyse['score_qualite'] >= 80:
-                f.write("✅ **Système de haute qualité** - Excellent choix de numéros et répartition optimale\n\n")
-            elif analyse['score_qualite'] >= 60:
-                f.write("🟡 **Système de bonne qualité** - Quelques améliorations possibles\n\n")
+            
+            # Conseils différents selon le mode
+            if 'score_qualite' in analyse:
+                # Mode classique
+                if analyse['score_qualite'] >= 80:
+                    f.write("✅ **Système de haute qualité** - Excellent choix de numéros et répartition optimale\n\n")
+                elif analyse['score_qualite'] >= 60:
+                    f.write("🟡 **Système de bonne qualité** - Quelques améliorations possibles\n\n")
+                else:
+                    f.write("🔴 **Système à optimiser** - Considérez augmenter le nombre de numéros favoris\n\n")
             else:
-                f.write("🔴 **Système à optimiser** - Considérez augmenter le nombre de numéros favoris\n\n")
+                # Mode TOP CSV optimisé
+                if analyse['equilibrage_score'] >= 90:
+                    f.write("✅ **Optimisation excellente** - Grilles parfaitement équilibrées avec TOP numéros\n\n")
+                elif analyse['equilibrage_score'] >= 70:
+                    f.write("🟡 **Bonne optimisation** - Grilles bien équilibrées avec les meilleurs numéros\n\n")
+                else:
+                    f.write("🔴 **Optimisation basique** - Grilles correctes mais équilibrage à améliorer\n\n")
             
             f.write("- 🎯 Les systèmes réduits ne garantissent pas de gains mais optimisent vos chances\n")
             f.write("- 📊 La garantie ne s'applique que si vos favoris contiennent les 5 bons numéros\n")
@@ -901,11 +1220,25 @@ Exemples d'utilisation :
 
   # Méthode aléatoire intelligente
   python generateur_grilles.py --nombres 1,7,12,18,23,29,34,39,45,49 --grilles 15 --methode aleatoire
+
+  # NOUVEAUX : Utilisation des CSV TOP avec optimisation
+  
+  # Loto avec TOP 25 (5 numéros par grille, optimisation PuLP)
+  python generateur_grilles.py --top-csv --jeu loto --grilles 5 --export
+
+  # Keno avec TOP 30 (8 numéros par grille, algorithme glouton)
+  python generateur_grilles.py --top-csv --jeu keno --grilles 10 --taille-grille-keno 8 --optimisation glouton
+
+  # Loto avec TOP 15 numéros et grilles de 6 numéros
+  python generateur_grilles.py --top-csv --jeu loto --grilles 8 --top-nombres 15 --taille-grille-loto 6
+
+  # Mode automatique avec méthode top-optimise
+  python generateur_grilles.py --methode top-optimise --grilles 12 --export --format json
         """
     )
     
-    # Arguments principaux
-    group = parser.add_mutually_exclusive_group(required=True)
+    # Arguments principaux (optionnel si --top-csv est utilisé)
+    group = parser.add_mutually_exclusive_group()
     group.add_argument(
         '--nombres',
         type=str,
@@ -953,9 +1286,43 @@ Exemples d'utilisation :
     
     parser.add_argument(
         '--methode',
-        choices=['optimal', 'aleatoire'],
+        choices=['optimal', 'aleatoire', 'top-optimise'],
         default='optimal',
-        help='Méthode de génération (défaut: optimal)'
+        help='Méthode de génération (défaut: optimal, top-optimise: utilise les CSV TOP avec optimisation PuLP)'
+    )
+    
+    # Nouvelles options pour les CSV TOP
+    parser.add_argument(
+        '--top-csv',
+        action='store_true',
+        help='Utiliser les fichiers CSV TOP 25 Loto / TOP 30 Keno au lieu de numéros manuels'
+    )
+    
+    parser.add_argument(
+        '--top-nombres',
+        type=int,
+        help='Nombre de numéros TOP à utiliser (défaut: 15 pour Loto, 20 pour Keno)'
+    )
+    
+    parser.add_argument(
+        '--optimisation',
+        choices=['pulp', 'glouton'],
+        default='pulp',
+        help='Type d\'optimisation (pulp: optimisation linéaire, glouton: algorithme glouton, défaut: pulp)'
+    )
+    
+    parser.add_argument(
+        '--taille-grille-keno',
+        type=int,
+        choices=range(6, 11),
+        help='Taille des grilles Keno (6-10 numéros) quand --top-csv est utilisé'
+    )
+    
+    parser.add_argument(
+        '--taille-grille-loto',
+        type=int,
+        choices=[5, 6, 7, 8, 9, 10],
+        help='Taille des grilles Loto (5-10 numéros) quand --top-csv est utilisé'
     )
     
     parser.add_argument(
@@ -979,19 +1346,25 @@ Exemples d'utilisation :
     
     args = parser.parse_args()
     
+    # Validation conditionnelle
+    if not args.top_csv and not args.nombres and not args.fichier:
+        parser.error("L'argument --nombres ou --fichier est requis sauf si --top-csv est utilisé")
+    
     try:
         # Initialisation du générateur
         generateur = GenerateurGrilles(args.jeu)
         
-        # Chargement des numéros
-        if args.nombres:
-            try:
-                nombres = [int(x.strip()) for x in args.nombres.split(',')]
-            except ValueError:
-                print("❌ Erreur : Format des numéros invalide. Utilisez: 1,2,3,4,5")
-                sys.exit(1)
-        else:
-            nombres = generateur.charger_nombres_depuis_fichier(args.fichier)
+        # Chargement des numéros (seulement si pas en mode TOP CSV)
+        nombres = None
+        if not args.top_csv:
+            if args.nombres:
+                try:
+                    nombres = [int(x.strip()) for x in args.nombres.split(',')]
+                except ValueError:
+                    print("❌ Erreur : Format des numéros invalide. Utilisez: 1,2,3,4,5")
+                    sys.exit(1)
+            else:
+                nombres = generateur.charger_nombres_depuis_fichier(args.fichier)
         
         # Validation des paramètres
         if args.grilles <= 0:
@@ -1002,7 +1375,134 @@ Exemples d'utilisation :
             print("❌ Erreur : Maximum 10000 grilles autorisées")
             sys.exit(1)
         
-        # Génération
+        # Validation des nombres seulement si pas en mode TOP CSV
+        if not args.top_csv and nombres:
+            jeu_detecte = generateur.detecter_jeu(nombres)
+            if jeu_detecte != generateur.jeu:
+                print(f"⚠️  Attention : Jeu détecté ({jeu_detecte}) différent du jeu configuré ({generateur.jeu})")
+        
+        # Gestion des nouvelles options TOP CSV
+        if args.top_csv or args.methode == 'top-optimise':
+            print("\n🎯 MODE TOP CSV OPTIMISÉ")
+            print("=" * 40)
+            
+            # Déterminer le jeu si auto
+            jeu_final = args.jeu
+            if jeu_final == 'auto':
+                if args.taille_grille_loto:
+                    jeu_final = 'loto'
+                elif args.taille_grille_keno:
+                    jeu_final = 'keno'
+                else:
+                    # Détecter selon les fichiers CSV disponibles
+                    loto_csv = Path("loto_stats_exports/top_25_numeros_equilibres_loto.csv")
+                    keno_csv = Path("keno_stats_exports/top_30_numeros_equilibres_keno.csv")
+                    
+                    if loto_csv.exists() and not keno_csv.exists():
+                        jeu_final = 'loto'
+                    elif keno_csv.exists() and not loto_csv.exists():
+                        jeu_final = 'keno'
+                    else:
+                        print("🎲 Les deux fichiers CSV sont disponibles. Choisissez explicitement --jeu loto ou --jeu keno")
+                        print("1️⃣  Loto (TOP 25 numéros)")
+                        print("2️⃣  Keno (TOP 30 numéros)")
+                        
+                        while True:
+                            choix = input("Votre choix (1-2): ").strip()
+                            if choix == "1":
+                                jeu_final = 'loto'
+                                break
+                            elif choix == "2":
+                                jeu_final = 'keno'
+                                break
+                            else:
+                                print("Choix invalide. Entrez 1 ou 2.")
+            
+            # Déterminer la taille de grille
+            if jeu_final == 'loto':
+                taille_grille = args.taille_grille_loto or 5
+            elif jeu_final == 'keno':
+                taille_grille = args.taille_grille_keno or 10
+            
+            print(f"🎮 Jeu sélectionné : {jeu_final.upper()}")
+            print(f"🔢 Taille des grilles : {taille_grille} numéros")
+            
+            # Initialiser le système optimisé
+            try:
+                systeme_optimise = SystemeReduitOptimise(jeu_final, taille_grille)
+                
+                # Charger les numéros TOP
+                if not systeme_optimise.charger_top_numeros(args.top_nombres):
+                    print("❌ Impossible de charger les numéros TOP")
+                    sys.exit(1)
+                
+                # Générer les grilles optimisées
+                if args.optimisation == 'pulp' and PULP_AVAILABLE:
+                    grilles = systeme_optimise.generer_grilles_optimisees_pulp(args.grilles, taille_grille)
+                else:
+                    if args.optimisation == 'pulp' and not PULP_AVAILABLE:
+                        print("⚠️  PuLP non disponible, utilisation de l'algorithme glouton")
+                    grilles = systeme_optimise.generer_grilles_optimisees_alternative(args.grilles, taille_grille)
+                
+                # Analyser les résultats
+                analyse_optimisee = systeme_optimise.analyser_couverture_optimisee(grilles)
+                
+                # Affichage des résultats
+                print(f"\n🎲 GRILLES GÉNÉRÉES (MODE TOP CSV)")
+                print("=" * 50)
+                
+                for i, grille in enumerate(grilles[:10], 1):
+                    score_grille = sum(systeme_optimise.scores.get(num, 0) for num in grille) / len(grille)
+                    print(f"Grille {i:2d} : {' - '.join(f'{n:2d}' for n in grille)} (Score: {score_grille:.3f})")
+                
+                if len(grilles) > 10:
+                    print(f"... et {len(grilles) - 10} autres grilles")
+                
+                print(f"\n📊 ANALYSE OPTIMISÉE")
+                print("=" * 35)
+                print(f"Grilles générées : {analyse_optimisee['nb_grilles']}")
+                print(f"Numéros uniques utilisés : {analyse_optimisee['numeros_uniques_utilises']}")
+                print(f"Couverture du pool TOP : {analyse_optimisee['couverture_pool']:.1f}%")
+                print(f"Score moyen : {analyse_optimisee['score_moyen_global']:.3f}")
+                print(f"Score max : {analyse_optimisee['score_max_grille']:.3f}")
+                print(f"Score min : {analyse_optimisee['score_min_grille']:.3f}")
+                print(f"Équilibrage : {analyse_optimisee['equilibrage_score']:.1f}/100")
+                
+                # Export si demandé
+                if args.export:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    if jeu_final == 'loto':
+                        nom_fichier = f"grilles_loto_top25_optimisees_{timestamp}"
+                    else:
+                        nom_fichier = f"grilles_keno_top30_optimisees_{timestamp}"
+                    
+                    # Export selon le format
+                    if args.format == 'csv':
+                        chemin_export = generateur._exporter_csv(grilles, analyse_optimisee, nom_fichier)
+                    elif args.format == 'json':
+                        chemin_export = generateur._exporter_json(grilles, analyse_optimisee, nom_fichier)
+                    elif args.format in ['md', 'markdown']:
+                        chemin_export = generateur._exporter_markdown(grilles, analyse_optimisee, nom_fichier)
+                    else:
+                        chemin_export = generateur._exporter_txt(grilles, analyse_optimisee, nom_fichier)
+                    
+                    print(f"\n📁 Export réussi : {chemin_export}")
+                
+                print("\n✅ Génération TOP CSV terminée avec succès !")
+                return
+                
+            except Exception as e:
+                print(f"❌ Erreur dans le mode TOP CSV : {e}")
+                if args.verbose:
+                    import traceback
+                    traceback.print_exc()
+                sys.exit(1)
+        
+        # Génération normale (seulement si pas en mode TOP CSV)
+        if nombres is None:
+            print("❌ Erreur : Aucun numéro fourni pour la génération normale")
+            sys.exit(1)
+            
         resultats = generateur.generer(
             nombres=nombres,
             nb_grilles=args.grilles,

@@ -36,7 +36,7 @@ class KenoIntelligentGenerator:
             # Cherche le fichier de fréquences le plus récent
             freq_files = list(Path("keno_stats_exports").glob("frequences_keno_*.csv"))
             if not freq_files:
-                print("❌ Aucun fichier d'analyse trouvé. Lancez d'abord analyse_keno_complete.py")
+                print("❌ Aucun fichier d'analyse trouvé. Lancez d'abord duckdb_keno.py pour générer les statistiques")
                 return False
             
             latest_file = max(freq_files, key=lambda f: f.stat().st_mtime)
