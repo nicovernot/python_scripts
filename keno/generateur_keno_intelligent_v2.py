@@ -206,7 +206,12 @@ class KenoIntelligentGenerator:
             print(f"   Fréq moy: {stats['freq_moyenne']:.1f}")
             print(f"   Retard  : {stats['retard_moyen']:.1f} tirages")
             print(f"   Zones   : {stats['zones']['faible']}-{stats['zones']['moyenne']}-{stats['zones']['forte']}")
-            print(f"   Parité  : {stats['parite']['pairs']}P/{stats['parite']['impairs']}I")
+            
+            # ...avant d'utiliser total_pairs...
+            total_pairs = stats['parite']['pairs']
+            total_impairs = stats['parite']['impairs']
+            # ...utilisation...
+            print(f"   Parité  : {total_pairs}P/{total_impairs}I")
         
         print(f"\n💡 CONSEILS D'UTILISATION :")
         print(f"   • Les grilles sont classées par score de performance")
@@ -246,10 +251,12 @@ class KenoIntelligentGenerator:
                 f.write(f"Score : {grid_info['score']:.3f}\n")
                 
                 stats = self.analyze_grid_stats(grid_info['grille'])
+                total_pairs = stats['parite']['pairs']
+                total_impairs = stats['parite']['impairs']
                 f.write(f"Fréquence moyenne : {stats['freq_moyenne']:.1f}\n")
                 f.write(f"Retard moyen : {stats['retard_moyen']:.1f}\n")
                 f.write(f"Répartition zones : {stats['zones']}\n")
-                f.write(f"Parité : {stats['parite']}\n\n")
+                f.write(f"Parité : {total_pairs}P/{total_impairs}I\n\n")
         
         print(f"\n💾 SAUVEGARDE :")
         print(f"   📊 Grilles : {grid_file}")
