@@ -98,41 +98,67 @@ class KenoIntelligentGenerator:
     def generate_smart_grid(self, strategy='balanced', num_count=10):
         """Génère une grille intelligente selon la stratégie"""
         all_numbers = list(range(1, 71))
-        
+
         if strategy == 'hot':
-            # Privilégie les numéros fréquents
             scores = [(num, self.frequencies.get(num, 0)) for num in all_numbers]
             scores.sort(key=lambda x: x[1], reverse=True)
             candidates = [num for num, _ in scores[:20]]
-            
+
         elif strategy == 'cold':
-            # Privilégie les numéros en retard
             scores = [(num, self.delays.get(num, 0)) for num in all_numbers]
             scores.sort(key=lambda x: x[1], reverse=True)
             candidates = [num for num, _ in scores[:20]]
-            
+
         elif strategy == 'balanced':
-            # Équilibre fréquence et retard
             scores = [(num, self.get_number_score(num)) for num in all_numbers]
             scores.sort(key=lambda x: x[1], reverse=True)
             candidates = [num for num, _ in scores[:25]]
-            
+
+        elif strategy == 'trend':
+            # Tendance sur les 20 derniers tirages
+            recent_freq = Counter()
+            # Suppose que tu as une méthode pour récupérer les 20 derniers tirages
+            recent_draws = self.get_recent_draws(20)
+            for tirage in recent_draws:
+                for num in tirage:
+                    recent_freq[num] += 1
+            scores = [(num, recent_freq.get(num, 0)) for num in all_numbers]
+            scores.sort(key=lambda x: x[1], reverse=True)
+            candidates = [num for num, _ in scores[:20]]
+
+        elif strategy == 'zone':
+            # Équilibre entre les zones
+            zone1 = [n for n in all_numbers if 1 <= n <= 23]
+            zone2 = [n for n in all_numbers if 24 <= n <= 46]
+            zone3 = [n for n in all_numbers if 47 <= n <= 70]
+            candidates = random.sample(zone1, num_count // 3) + \
+                         random.sample(zone2, num_count // 3) + \
+                         random.sample(zone3, num_count - 2 * (num_count // 3))
+
+        elif strategy == 'random_strong':
+            scores = [(num, self.get_number_score(num)) for num in all_numbers]
+            scores.sort(key=lambda x: x[1], reverse=True)
+            candidates = [num for num, _ in scores[:30]]
+
         else:  # random
             candidates = all_numbers
-        
-        # Sélection finale avec un peu d'aléatoire
+
         np.random.seed(int(datetime.now().timestamp()) % 10000)
-        
         if len(candidates) >= num_count:
             selected = np.random.choice(candidates, num_count, replace=False)
         else:
             selected = candidates + list(np.random.choice(
-                [n for n in all_numbers if n not in candidates], 
-                num_count - len(candidates), 
+                [n for n in all_numbers if n not in candidates],
+                num_count - len(candidates),
                 replace=False
             ))
-        
-        # Conversion en int Python pour éviter les types numpy
+
+        # Affichage des scores pour le TOP 30 (debug)
+        if strategy in ['balanced', 'random_strong']:
+            print("TOP 30 scores :")
+            for num, score in scores[:30]:
+                print(f"Numéro {num}: score {score:.3f}")
+
         return sorted([int(x) for x in selected])
     
     def generate_multiple_grids(self, count=5, num_per_grid=10):
