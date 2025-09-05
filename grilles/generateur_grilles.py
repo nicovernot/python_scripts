@@ -1377,8 +1377,8 @@ Exemples d'utilisation :
         
         # Validation des nombres seulement si pas en mode TOP CSV
         if not args.top_csv and nombres:
-            jeu_detecte = generateur.detecter_jeu(nombres)
-            if jeu_detecte != generateur.jeu:
+            jeu_detecte = generateur.detecter_jeu_automatique(nombres)
+            if jeu_detecte != generateur.jeu and generateur.jeu != 'auto':
                 print(f"⚠️  Attention : Jeu détecté ({jeu_detecte}) différent du jeu configuré ({generateur.jeu})")
         
         # Gestion des nouvelles options TOP CSV
@@ -1529,7 +1529,3 @@ Exemples d'utilisation :
             import traceback
             traceback.print_exc()
         sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

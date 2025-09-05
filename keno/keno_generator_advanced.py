@@ -290,7 +290,7 @@ class KenoGeneratorAdvanced:
         for _, row in self.data.iterrows():
             # Support des différents formats de colonnes
             if 'b1' in self.data.columns:
-                draw = [int(row[f'b{i}']) for i in range(1, 21)]
+                draw = [int(row[f'boule{i}']) for i in range(1, 21)]
             else:
                 draw = [int(row[f'boule{i}']) for i in range(1, 21)]
             all_draws.append(sorted(draw))
@@ -1258,15 +1258,21 @@ class KenoGeneratorAdvanced:
                     pair_freq = self.stats.paires_freq[pair]
                     score += pair_freq / 1000  # Normalisation
         
-        # Score de dispersion (éviter les numéros trop consécutifs)
-        consecutive_count = 0
+        # Score de dispersion (éviter les numéros trop proches)
+        dispersion_score = 0
         sorted_grid = sorted(grid)
         for i in range(len(sorted_grid) - 1):
-            if sorted_grid[i + 1] - sorted_grid[i] == 1:
-                consecutive_count += 1
-        
-        if consecutive_count <= 2:  # Maximum 2 paires consécutives acceptables
-            score += 0.05
+            if sorted_grid[i + 1] - sorted_grid[i] > 2:
+                dispersion_score += 0.05
+        score += dispersion_score
+
+        # Ajout du score trio fréquent
+        trio_score = 0
+        if hasattr(self.stats, 'trios_freq'):
+            for trio, freq in self.stats.trios_freq.items():
+                if any(n in trio for n in grid) and freq > 20:
+                    trio_score += freq / 500
+        score += trio_score
         
         return score
     
@@ -1437,6 +1443,9 @@ class KenoGeneratorAdvanced:
             
             model = self.ml_models['multilabel']
             
+            # Initialisation de feature_cols
+            feature_cols = ['day_sin', 'day_cos', 'month_sin', 'month_cos']
+            
             # Préparation des features pour la prédiction
             current_date = pd.Timestamp.now()
             df_predict = pd.DataFrame({
@@ -1454,6 +1463,7 @@ class KenoGeneratorAdvanced:
                 for lag in range(1, 6):
                     for ball_num in range(1, 21):
                         col_name = f'lag{lag}_boule{ball_num}'
+                        # Utiliser les derniers tirages pour construire l'historique
                         if lag <= len(self.stats.derniers_tirages):
                             last_draw = self.stats.derniers_tirages[-(lag)]
                             if ball_num <= len(last_draw):
@@ -1462,16 +1472,19 @@ class KenoGeneratorAdvanced:
                                 lag_features[col_name] = 0
                         else:
                             lag_features[col_name] = 0
+                        feature_cols.append(col_name)
             else:
                 # Valeurs par défaut si pas d'historique
                 for lag in range(1, 6):
                     for ball_num in range(1, 21):
-                        lag_features[f'lag{lag}_boule{ball_num}'] = 0
+                        col_name = f'lag{lag}_boule{ball_num}'
+                        lag_features[col_name] = 0
+                        feature_cols.append(col_name)
             
-            # Ajout des features d'historique
+            # Ajout des features d'historique en une fois pour éviter la fragmentation
             lag_df = pd.DataFrame(lag_features, index=df_features.index)
             
-            # Features de zones
+            # Features de zones (moyennes historiques)
             zone_features = {}
             if self.stats:
                 total_draws = len(self.stats.derniers_tirages) if self.stats.derniers_tirages else 1
@@ -1480,13 +1493,17 @@ class KenoGeneratorAdvanced:
                 zone_features['zone3_count'] = self.stats.zones_freq.get("zone36_52", 0) / total_draws
                 zone_features['zone4_count'] = self.stats.zones_freq.get("zone53_70", 0) / total_draws
             else:
-                zone_features = {'zone1_count': 5, 'zone2_count': 5, 'zone3_count': 5, 'zone4_count': 5}
+                zone_features['zone1_count'] = 5  # Valeurs moyennes
+                zone_features['zone2_count'] = 5
+                zone_features['zone3_count'] = 5
+                zone_features['zone4_count'] = 5
             
+            # Création du DataFrame pour les zones
             zone_df = pd.DataFrame([zone_features], index=df_features.index)
-            df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
             
-            feature_cols = ['day_sin', 'day_cos', 'month_sin', 'month_cos']
-            feature_cols.extend(lag_features.keys())
+            # Concaténation de toutes les nouvelles features en une seule fois
+            df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
+                
             feature_cols.extend(['zone1_count', 'zone2_count', 'zone3_count', 'zone4_count'])
             
             # Préparation des features pour la prédiction
@@ -1517,7 +1534,7 @@ class KenoGeneratorAdvanced:
             import traceback
             self._log(f"Détails: {traceback.format_exc()}")
             return []
-
+            
     def save_top30_ml_csv(self, filename: str = None) -> str:
         """
         Sauvegarde le TOP 30 des numéros ML dans un fichier CSV dédié
@@ -1642,8 +1659,8 @@ class KenoGeneratorAdvanced:
             
             # 5. Sauvegarde des grilles
             result_file = self.save_results(grids_with_scores, save_file)
-            
-            # 6. NOUVEAU: Sauvegarde du TOP 30 ML si disponible
+
+            #  6. NOUVEAU: Sauvegarde du TOP 30 ML si disponible
             top30_ml_file = ""
             if HAS_ML and 'multilabel' in self.ml_models:
                 top30_ml_file = self.save_top30_ml_csv()
@@ -2012,121 +2029,49 @@ class KenoGeneratorAdvanced:
         ml_status = "✅ ACTIF" if ml_score_available else "⚠️ INDISPONIBLE"
         avg_ml_prob = sum(ml_predictions.get(num, 0.5) for num in top30_numbers) / 30 if ml_predictions else 0.5
         
+        # Calcul de la répartition pairs/impairs
+        total_pairs = sum(1 for num in top30_numbers if num % 2 == 0)
+        total_impairs = 30 - total_pairs
+
+        # Calcul de la répartition zones
+        repartition_zones = [
+            sum(1 for num in top30_numbers if 1 <= num <= 17),
+            sum(1 for num in top30_numbers if 18 <= num <= 35),
+            sum(1 for num in top30_numbers if 36 <= num <= 52),
+            sum(1 for num in top30_numbers if 53 <= num <= 70)
+        ]
+
+        # Affichage
         self._log(f"✅ TOP 30 optimisé avec ML calculé et exporté:")
         self._log(f"   🤖 Statut ML: {ml_status}")
         if ml_score_available:
             self._log(f"   🧠 Probabilité ML moyenne TOP 30: {avg_ml_prob:.3f}")
         self._log(f"   📁 Fichier: {export_path}")
         self._log(f"   🎯 Top 10: {', '.join(map(str, top30_numbers[:10]))}")
-        self._log(f"   📊 Répartition pairs/impairs: {total_pairs}/{30-total_pairs}")
+        self._log(f"   📊 Répartition pairs/impairs: {total_pairs}/{total_impairs}")
         self._log(f"   🗺️  Répartition zones: {'-'.join(map(str, repartition_zones))}")
         self._log(f"   💯 Score moyen: {sum(scores[num] for num in top30_numbers)/30:.1f}")
         
         return top30_numbers
+# ...fin de la classe KenoGeneratorAdvanced...
 
-# ==============================================================================
-# 🚀 POINT D'ENTRÉE PRINCIPAL
-# ==============================================================================
-
-def main():
-    """Point d'entrée principal du script"""
-    
-    parser = argparse.ArgumentParser(
-        description="🎲 Générateur Intelligent de Grilles Keno v2.0",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Exemples d'utilisation:
-  python keno_generator_advanced.py --quick                    # 10 grilles, entraînement rapide
-  python keno_generator_advanced.py --balanced                 # 100 grilles, entraînement équilibré (défaut)
-  python keno_generator_advanced.py --comprehensive            # 500 grilles, entraînement complet
-  python keno_generator_advanced.py --intensive                # 1000 grilles, entraînement intensif
-  python keno_generator_advanced.py --retrain --comprehensive  # Force ré-entraînement + mode complet
-  python keno_generator_advanced.py --grids 50 --silent        # 50 grilles en mode silencieux
-
-Profils d'entraînement:
-  - quick:        Rapide (50 arbres, profondeur 8)
-  - balanced:     Équilibré (100 arbres, profondeur 12) [DÉFAUT]
-  - comprehensive: Complet (200 arbres, profondeur 15)
-  - intensive:    Intensif (300 arbres, profondeur 20)
-        """
-    )
-    
-    parser.add_argument('--grids', type=int, default=100,
-                       help='Nombre de grilles à générer (défaut: 100)')
-    parser.add_argument('--output', type=str,
-                       help='Nom du fichier de sortie (optionnel)')
-    parser.add_argument('--retrain', action='store_true',
-                       help='Force le réentraînement des modèles ML')
-    parser.add_argument('--quick', action='store_true',
-                       help='Mode rapide (10 grilles, entraînement ultra-rapide)')
-    parser.add_argument('--balanced', action='store_true',
-                       help='Mode équilibré (100 grilles, entraînement standard)')
-    parser.add_argument('--comprehensive', action='store_true',
-                       help='Mode complet (500 grilles, entraînement optimisé)')
-    parser.add_argument('--intensive', action='store_true',
-                       help='Mode intensif (1000 grilles, entraînement maximal)')
-    parser.add_argument('--silent', action='store_true',
-                       help='Mode silencieux')
-    parser.add_argument('--data', type=str,
-                       help='Chemin vers les données (optionnel)')
-    
+# Point d'entrée principal
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Générateur intelligent de grilles Keno")
+    parser.add_argument("--grids", type=int, default=100, help="Nombre de grilles à générer")
+    parser.add_argument("--retrain", action="store_true", help="Forcer le réentraînement du modèle ML")
+    parser.add_argument("--profile", type=str, default="balanced", choices=["quick", "balanced", "comprehensive", "intensive"], help="Profil d'entraînement ML")
+    parser.add_argument("--silent", action="store_true", help="Mode silencieux")
+    parser.add_argument("--data", type=str, help="Chemin vers le fichier de données Keno")
     args = parser.parse_args()
-    
-    # Gestion des profils d'entraînement mutuellement exclusifs
-    profile_count = sum([args.quick, args.balanced, args.comprehensive, args.intensive])
-    if profile_count > 1:
-        print("❌ Erreur: Un seul profil d'entraînement peut être sélectionné à la fois")
-        sys.exit(1)
-    
-    # Configuration selon le profil sélectionné
-    if args.quick:
-        args.grids = 10
-        training_profile = "quick"
-    elif args.balanced:
-        args.grids = 100
-        training_profile = "balanced"
-    elif args.comprehensive:
-        args.grids = 500
-        training_profile = "comprehensive"
-    elif args.intensive:
-        args.grids = 1000
-        training_profile = "intensive"
-    else:
-        # Mode par défaut (équilibré)
-        training_profile = "balanced"
-    
-    # Banner
-    if not args.silent:
-        profile_names = {
-            'quick': 'Ultra-rapide',
-            'balanced': 'Équilibré', 
-            'comprehensive': 'Complet',
-            'intensive': 'Intensif'
-        }
-        profile_display = profile_names.get(training_profile, 'Équilibré')
-        
-        print("=" * 70)
-        print("🎲 GÉNÉRATEUR INTELLIGENT DE GRILLES KENO v2.0 🎲")
-        print("=" * 70)
-        print("Machine Learning + Analyse Statistique")
-        print("Optimisation des combinaisons Keno")
-        print(f"📊 Profil: {profile_display} ({args.grids} grilles)")
-        print("=" * 70)
-    
-    # Initialisation et exécution
+
     generator = KenoGeneratorAdvanced(
         data_path=args.data,
         silent=args.silent,
-        training_profile=training_profile
+        training_profile=args.profile
     )
-    
-    success = generator.run(
-        num_grids=args.grids,
-        save_file=args.output,
-        retrain=args.retrain
-    )
-    
-    sys.exit(0 if success else 1)
-
-if __name__ == "__main__":
-    main()
+    success = generator.run(num_grids=args.grids, retrain=args.retrain)
+    if success:
+        print("✅ Génération terminée avec succès.")
+    else:
+        print("❌ Erreur lors de la génération.")        
