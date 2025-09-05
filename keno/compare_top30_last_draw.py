@@ -16,15 +16,15 @@ else:
 
 # Chargement du fichier consolidé et récupération du dernier tirage (le plus récent)
 df_conso = pd.read_csv(consolidated_path)
-df_conso['date'] = pd.to_datetime(df_conso['date'], errors='coerce')
-df_conso = df_conso.sort_values('date')
+df_conso['date_de_tirage'] = pd.to_datetime(df_conso['date_de_tirage'], errors='coerce')
+df_conso = df_conso.sort_values('date_de_tirage')
 last_draw = df_conso.iloc[-1]
 boule_cols = [col for col in df_conso.columns if col.startswith('b')]
 last_draw_nums = set(last_draw[boule_cols])
 
 # Comparaison
 common_nums = sorted(top30_nums & last_draw_nums)
-print(f"🎯 Numéros en commun entre le TOP 30 ML et le dernier tirage ({last_draw['date'].date()}):")
+print(f"🎯 Numéros en commun entre le TOP 30 ML et le dernier tirage ({last_draw['date_de_tirage'].date()}):")
 if common_nums:
     print(", ".join(str(n) for n in common_nums))
 else:

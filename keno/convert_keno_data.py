@@ -5,10 +5,11 @@ Script de conversion CSV vers Parquet pour les données Keno
 
 import pandas as pd
 from datetime import datetime
-
-source_csv = "/home/nico/projets/python_scripts/keno/keno_data/keno_consolidated.csv"
+import os
+base_dir = os.path.dirname(os.path.abspath(__file__))
+source_csv = os.path.join(base_dir, "keno_data", "keno_consolidated.csv")
 date_str = datetime.now().strftime("%Y%m%d")
-destination_parquet = f"/home/nico/projets/python_scripts/keno/keno_data/keno_consolidated_{date_str}.parquet"
+destination_parquet = os.path.join(base_dir, "keno_data", "keno_consolidated.parquet")
 
 print("🔄 Conversion du fichier CSV Keno en Parquet...")
 print(f"   Source: {source_csv}")

@@ -221,18 +221,51 @@ class KenoZipExtractor:
             logger.error(f"Erreur lors de la sauvegarde : {e}")
 
     def save_to_single_file(self, tirages: List[Dict], filename: str = "keno_consolidated.csv") -> None:
-        """Sauvegarde tous les tirages dans un seul fichier CSV consolidé"""
+        """Sauvegarde tous les tirages dans un seul fichier CSV consolidé avec les colonnes d'origine FDJ"""
         try:
-            filepath = self.data_dir / filename
-            with open(filepath, 'w', newline='', encoding='utf-8') as f:
+            # On récupère le chemin du dernier CSV extrait pour lire ses colonnes d'origine
+            last_csv_path = None
+            for file in self.data_dir.glob("extract_*/**/*.csv"):
+                last_csv_path = file
+            if last_csv_path is None:
+                for file in self.data_dir.glob("extract_*/*.csv"):
+                    last_csv_path = file
+            if last_csv_path is None:
+                logger.warning("Impossible de retrouver le CSV source pour les colonnes d'origine, export standard utilisé.")
+                # Fallback : export standard
+                with open(self.data_dir / filename, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['date', 'numero_tirage'] + [f'b{i}' for i in range(1, 21)])
+                    for tirage in tirages:
+                        row = [tirage['date'], tirage['numero_tirage']] + tirage['boules']
+                        writer.writerow(row)
+                logger.info(f"Fichier unique {filename} sauvegardé avec {len(tirages)} tirages (colonnes standard)")
+                return
+            # Lecture des colonnes d'origine
+            import pandas as pd
+            df_source = pd.read_csv(last_csv_path, sep=';', encoding='utf-8')
+            # On détecte les colonnes à garder : date, numero tirage, boules
+            date_col = None
+            numero_col = None
+            boules_cols = []
+            for col in df_source.columns:
+                col_lower = col.lower()
+                if 'date_de_tirage' in col_lower:
+                    date_col = col
+                elif date_col is None and ('date' in col_lower or 'jour' in col_lower) and 'forclusion' not in col_lower:
+                    date_col = col
+                elif 'numero' in col_lower and 'tirage' in col_lower:
+                    numero_col = col
+                elif 'boule' in col_lower and col_lower != 'numero_jokerplus':
+                    boules_cols.append(col)
+            # Export avec les noms d'origine
+            with open(self.data_dir / filename, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['date', 'numero_tirage', 'b1', 'b2', 'b3', 'b4', 'b5',
-                                 'b6', 'b7', 'b8', 'b9', 'b10', 'b11', 'b12', 'b13', 'b14',
-                                 'b15', 'b16', 'b17', 'b18', 'b19', 'b20'])
+                writer.writerow([date_col, numero_col] + boules_cols)
                 for tirage in tirages:
                     row = [tirage['date'], tirage['numero_tirage']] + tirage['boules']
                     writer.writerow(row)
-            logger.info(f"Fichier unique {filename} sauvegardé avec {len(tirages)} tirages")
+            logger.info(f"Fichier unique {filename} sauvegardé avec {len(tirages)} tirages (colonnes FDJ)")
         except Exception as e:
             logger.error(f"Erreur lors de la sauvegarde du fichier unique : {e}")
 

@@ -15,15 +15,15 @@ else:
     num_cols = [col for col in df_grilles.columns if col.startswith('numero_')]
     grilles = df_grilles[num_cols].values.tolist()
 
-# Chargement du fichier consolidé et récupération du dernier tirage (le plus récent)
+# Chargement du dernier tirage (toujours)
 df_conso = pd.read_csv(consolidated_path)
-df_conso['date'] = pd.to_datetime(df_conso['date'], errors='coerce')
-df_conso = df_conso.sort_values('date')
+df_conso['date_de_tirage'] = pd.to_datetime(df_conso['date_de_tirage'], errors='coerce')
+df_conso = df_conso.sort_values('date_de_tirage')
 last_draw = df_conso.iloc[-1]
 boule_cols = [col for col in df_conso.columns if col.startswith('b')]
 last_draw_nums = set(last_draw[boule_cols])
 
-print(f"🎯 Dernier tirage du {last_draw['date'].date()} : {', '.join(str(n) for n in last_draw_nums)}\n")
+print(f"🎯 Dernier tirage du {last_draw['date_de_tirage'].date()} : {', '.join(str(n) for n in last_draw_nums)}\n")
 
 # Comparaison grille par grille, triées par nombre de numéros en commun (du plus grand au plus petit)
 resultats = []
