@@ -240,6 +240,18 @@ class KenoGeneratorAdvanced:
         """Système de logging configuré"""
         if not self.silent or level == "ERROR":
             print(f"{message}")
+# ...existing code...
+
+    def _ensure_zone_freq_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Ajoute les colonnes zoneX_freq manquantes pour compatibilité avec le modèle ML.
+        """
+        for freq_col in ['zone1_freq', 'zone2_freq', 'zone3_freq', 'zone4_freq']:
+            if freq_col not in df.columns:
+                df[freq_col] = 0
+        return df
+
+# ...existing code...            
     
     def load_data(self) -> bool:
         """
@@ -708,7 +720,11 @@ class KenoGeneratorAdvanced:
                 'zone1_count': [],
                 'zone2_count': [],
                 'zone3_count': [],
-                'zone4_count': []
+                'zone4_count': [],
+                'zone1_freq': [],
+                'zone2_freq': [],
+                'zone3_freq': [],
+                'zone4_freq': []
             }
             
             for idx, row in df_features.iterrows():
@@ -720,6 +736,9 @@ class KenoGeneratorAdvanced:
             
             # Ajout des features de zones
             for zone_name, zone_values in zone_features.items():
+                # Correction : si la liste est vide ou de mauvaise taille, remplis avec des zéros
+                if len(zone_values) != len(df_features):
+                    zone_values = [0] * len(df_features)
                 df_features[zone_name] = zone_values
                 feature_cols.append(zone_name)
             
@@ -940,8 +959,10 @@ class KenoGeneratorAdvanced:
             
             # Concaténation de toutes les nouvelles features en une seule fois
             df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
-                
             feature_cols.extend(['zone1_count', 'zone2_count', 'zone3_count', 'zone4_count'])
+            # Ajout des colonnes zoneX_freq manquantes
+            df_features = self._ensure_zone_freq_columns(df_features)
+            feature_cols.extend(['zone1_freq', 'zone2_freq', 'zone3_freq', 'zone4_freq'])
             
             # Préparation des features pour la prédiction
             X_pred = df_features[feature_cols].fillna(0)
@@ -1192,28 +1213,19 @@ class KenoGeneratorAdvanced:
         return grid
     
     def _generate_pairs_based_grid(self, top_pairs: List[Tuple[Tuple[int, int], int]]) -> List[int]:
-        """Génère une grille basée sur les paires fréquentes"""
+        """Génère une grille basée sur les paires fréquentes (ultra-rapide)"""
         grid = []
         used_numbers = set()
-        
-        # Sélectionner des paires fréquentes
-        for (num1, num2), freq in top_pairs[:20]:  # Top 20 paires
-            if len(grid) >= 8:  # Laisser de la place pour 2 autres numéros
+        # Utiliser seulement les 10 paires les plus fréquentes pour accélérer
+        for (num1, num2), freq in top_pairs[:10]:
+            if len(grid) >= 8:
                 break
             if num1 not in used_numbers and num2 not in used_numbers:
                 grid.extend([num1, num2])
                 used_numbers.update([num1, num2])
-        
-        # Compléter si nécessaire
-        while len(grid) < 10:
-            candidates = [n for n in range(1, 71) if n not in used_numbers]
-            if candidates:
-                selected = random.choice(candidates)
-                grid.append(selected)
-                used_numbers.add(selected)
-            else:
-                break
-        
+        # Compléter la grille avec des numéros non utilisés
+        candidates = [n for n in range(1, 71) if n not in used_numbers]
+        grid += random.sample(candidates, 10 - len(grid))
         return grid
     
     def _generate_balanced_zones_grid(self) -> List[int]:
@@ -1545,8 +1557,10 @@ class KenoGeneratorAdvanced:
             
             # Concaténation de toutes les nouvelles features en une seule fois
             df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
-                
             feature_cols.extend(['zone1_count', 'zone2_count', 'zone3_count', 'zone4_count'])
+            # Ajout des colonnes zoneX_freq manquantes
+            df_features = self._ensure_zone_freq_columns(df_features)
+            feature_cols.extend(['zone1_freq', 'zone2_freq', 'zone3_freq', 'zone4_freq'])
             
             # Préparation des features pour la prédiction
             X_pred = df_features[feature_cols].fillna(0)
@@ -1631,7 +1645,7 @@ class KenoGeneratorAdvanced:
                 'Rang': rang,
                 'Numero': numero,
                 'Probabilite_ML': round(probabilite, 6),
-                'Confiance': 'Très Haute' if probabilite > 0.8 else 'Haute' if probabilite > 0.6 else 'Moyenne' if probabilite > 0.4 else 'Faible',
+                'Confiance': 'Très Haute' if probabilite > 0.8 else 'Haute' if probabilite > 0.6 else 'Moyenne' if probabilite >  0.4 else 'Faible',
                 'Freq_Globale': freq_globale,
                 'Freq_Recente_100': freq_recente,
                 'Retard_Actuel': retard,
@@ -1741,22 +1755,58 @@ class KenoGeneratorAdvanced:
         max_freq_recent = max(self.stats.frequences_recentes.values()) if self.stats.frequences_recentes else 1
         max_retard = max(self.stats.retards.values()) if self.stats.retards else 1
         max_tendance = max(self.stats.tendances_50.values()) if self.stats.tendances_50 else 1.0
+
+        # Pondérations dynamiques (exemple)
+        ml_weight = 0.15
+        freq_weight = 0.25
+        recent_weight = 0.20
+        retard_weight = 0.15
+        tendance_weight = 0.15
+        pair_weight = 0.05
+        trio_weight = 0.05
+        lift_weight = 0.10
+        diversity_penalty = 0.10
+
+        # Calcul du lift des paires
+        def lift(i, j):
+            cofreq = self.stats.paires_freq.get(tuple(sorted([i, j])), 0)
+            freq_i = self.stats.frequences.get(i, 1)
+            freq_j = self.stats.frequences.get(j, 1)
+            return cofreq / (freq_i * freq_j) if freq_i and freq_j else 0
+
         for num in range(1, KENO_PARAMS['total_numbers'] + 1):
             score = 0.0
-            score += (self.stats.frequences.get(num, 0) / max_freq) * 0.25
-            score += (self.stats.frequences_recentes.get(num, 0) / max_freq_recent) * 0.20
-            score += (1 - self.stats.retards.get(num, 0) / max_retard) * 0.15
-            score += (self.stats.tendances_50.get(num, 1.0) / max_tendance) * 0.15
-            # Score ML (si dispo)
+            score += (self.stats.frequences.get(num, 0) / max_freq) * freq_weight
+            score += (self.stats.frequences_recentes.get(num, 0) / max_freq_recent) * recent_weight
+            score += (1 - self.stats.retards.get(num, 0) / max_retard) * retard_weight
+            score += (self.stats.tendances_50.get(num, 1.0) / max_tendance) * tendance_weight
             if hasattr(self, 'ml_scores') and self.ml_scores and num in self.ml_scores:
-                score += self.ml_scores[num] * 0.15
+                score += self.ml_scores[num] * ml_weight
+
+            # Bonus lift sur les paires
+            lift_score = 0
+            for other in range(1, 71):
+                if other != num:
+                    lift_score += lift(num, other)
+            score += (lift_score / 69) * lift_weight
+
+            # Bonus pour les paires/trios fréquents
             pair_bonus = sum([self.stats.paires_freq.get(tuple(sorted([num, other])), 0) for other in range(1, 71) if other != num])
-            score += (pair_bonus / 1000) * 0.05
+            score += (pair_bonus / 1000) * pair_weight
             trio_bonus = sum([self.stats.trios_freq.get(tuple(sorted([num, other1, other2]),), 0)
                               for other1 in range(1, 71) for other2 in range(other1+1, 71)
                               if other1 != num and other2 != num])
-            score += (trio_bonus / 5000) * 0.05
+            score += (trio_bonus / 5000) * trio_weight
+
+            # Diversité : pénalité si trop de numéros dans la même dizaine ou même parité
+            dizaine = (num - 1) // 10
+            parite = num % 2
+            same_dizaine = sum(1 for other in range(1, 71) if other != num and (other - 1) // 10 == dizaine)
+            same_parite = sum(1 for other in range(1, 71) if other != num and other % 2 == parite)
+            score -= ((same_dizaine / 69) + (same_parite / 69)) * diversity_penalty
+
             scores[num] = score
+
         top30 = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:30]
         return [num for num, score in top30]
         
@@ -1765,6 +1815,8 @@ if __name__ == "__main__":
     parser.add_argument("--grids", type=int, default=40, help="Nombre de grilles à générer")
     parser.add_argument("--profile", type=str, default="balanced", help="Profil d'entraînement ML")
     parser.add_argument("--max-jobs", type=int, default=1, help="Nombre maximal de cœurs pour le training ML (1=mono, -1=auto)")
+    parser.add_argument("--report", action="store_true", help="Générer un rapport détaillé des grilles")
+    parser.add_argument("--save-top30-ml", action="store_true", help="Exporter le TOP 30 ML en CSV")
     args = parser.parse_args()
     # Patch le paramètre n_jobs dans get_training_params
     def patched_get_training_params(profile: str) -> dict:
@@ -1774,3 +1826,20 @@ if __name__ == "__main__":
     KenoGeneratorAdvanced.get_training_params = staticmethod(patched_get_training_params)
     generator = KenoGeneratorAdvanced(training_profile=args.profile)
     generator.run_full_pipeline(num_grids=args.grids, profile=args.profile)
+    
+    grids = generator.generate_optimized_grids(num_grids=args.grids)
+
+# Sauvegarde des résultats
+generator.save_results(grids)
+
+# Option : exporter le TOP 30 ML
+if args.save_top30_ml:
+    generator.save_top30_ml_csv()
+
+# Option : générer le rapport détaillé
+if args.report:
+    report = generator.generate_report(grids)
+    report_path = generator.output_dir / "rapport_keno.md"
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(report)
+    print(f"💾 Rapport détaillé sauvegardé : {report_path}")

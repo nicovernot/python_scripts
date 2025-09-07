@@ -2,7 +2,7 @@ import pandas as pd
 from pathlib import Path
 
 # Chemins des fichiers
-top30ml_path = Path("keno_output/keno_top30_ml.csv")
+top30ml_path = Path("keno_output/top30_keno_advanced.csv")
 consolidated_path = Path("keno/keno_data/keno_consolidated.csv")
 
 # Chargement du TOP 30 ML
