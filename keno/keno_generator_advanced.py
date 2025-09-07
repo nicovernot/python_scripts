@@ -240,8 +240,7 @@ class KenoGeneratorAdvanced:
         """Système de logging configuré"""
         if not self.silent or level == "ERROR":
             print(f"{message}")
-# ...existing code...
-
+    
     def _ensure_zone_freq_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Ajoute les colonnes zoneX_freq manquantes pour compatibilité avec le modèle ML.
@@ -251,7 +250,6 @@ class KenoGeneratorAdvanced:
                 df[freq_col] = 0
         return df
 
-# ...existing code...            
     
     def load_data(self) -> bool:
         """
@@ -964,784 +962,55 @@ class KenoGeneratorAdvanced:
             df_features = self._ensure_zone_freq_columns(df_features)
             feature_cols.extend(['zone1_freq', 'zone2_freq', 'zone3_freq', 'zone4_freq'])
             
-            # Préparation des features pour la prédiction
-            X_pred = df_features[feature_cols].fillna(0)
-            
-            # Génération de grilles avec variation
-            for grid_idx in range(num_grids):
-                # Ajout de petites variations aléatoires pour diversifier les prédictions
-                X_pred_variant = X_pred.copy()
-                
-                # Petites variations sur les features temporelles
-                noise_factor = 0.1 * (grid_idx / max(1, num_grids - 1))  # Variation progressive
-                X_pred_variant['day_sin'] += np.random.normal(0, noise_factor)
-                X_pred_variant['day_cos'] += np.random.normal(0, noise_factor)
-                
-                # Prédiction des probabilités pour tous les numéros
-                probabilities = model.predict_proba(X_pred_variant)
-                
-                # Extraction des probabilités pour la classe positive (numéro tiré)
-                # probabilities est une liste de probabilités pour chaque output
-                number_probs = {}
-                for i in range(KENO_PARAMS['total_numbers']):
-                    num = i + 1  # Numéros de 1 à 70
-                    if len(probabilities[i][0]) > 1:  # Vérifier qu'on a bien les 2 classes
-                        prob = probabilities[i][0][1]  # Probabilité de la classe positive
-                    else:
-                        prob = 0.5  # Valeur par défaut
-                    number_probs[num] = prob
-                
-                # Simulation d'un tirage réaliste Keno
-                # Dans un vrai tirage, on tire 20 numéros, mais le joueur en sélectionne 10
-                
-                # Sélection des numéros avec pondération par probabilité
-                numbers = list(range(1, KENO_PARAMS['total_numbers'] + 1))
-                probs = [number_probs[num] for num in numbers]
-                
-                # Normalisation des probabilités
-                probs_array = np.array(probs)
-                probs_normalized = probs_array / np.sum(probs_array)
-                
-                # Ajustement pour tenir compte des corrélations
-                # Boost des numéros qui apparaissent souvent ensemble
-                if self.stats and self.stats.paires_freq:
-                    correlation_boost = {num: 0 for num in numbers}
-                    
-                    # Identifier les paires fréquentes
-                    top_pairs = sorted(self.stats.paires_freq.items(), 
-                                     key=lambda x: x[1], reverse=True)[:50]
-                    
-                    for (num1, num2), freq in top_pairs:
-                        if num1 in number_probs and num2 in number_probs:
-                            # Si les deux numéros ont des probabilités élevées, boost mutuel
-                            if number_probs[num1] > 0.5 and number_probs[num2] > 0.5:
-                                correlation_boost[num1] += 0.1 * (freq / 1000)
-                                correlation_boost[num2] += 0.1 * (freq / 1000)
-                    
-                    # Application du boost
-                    for num in numbers:
-                        idx = num - 1
-                        probs_normalized[idx] += correlation_boost[num]
-                    
-                    # Re-normalisation
-                    probs_normalized = probs_normalized / np.sum(probs_normalized)
-                
-                # Sélection pondérée de 10 numéros (pour le joueur)
-                try:
-                    selected = np.random.choice(
-                        numbers, 
-                        size=10, 
-                        replace=False, 
-                        p=probs_normalized
-                    )
-                    grid_numbers = sorted(selected.tolist())
-                except:
-                    # Fallback en cas d'erreur
-                    top_indices = np.argsort(probs_normalized)[-10:]
-                    grid_numbers = sorted([numbers[i] for i in top_indices])
-                
-                predictions.append(grid_numbers)
-            
-            return predictions
-            
-        except Exception as e:
-            self._log(f"❌ Erreur lors de la prédiction ML: {e}", "ERROR")
-            import traceback
-            self._log(f"Détails: {traceback.format_exc()}")
-            return []
-    
-    def generate_frequency_based_grids(self, num_grids: int = 10) -> List[List[int]]:
-        """
-        Génère des grilles basées sur l'analyse complète des patterns
-        
-        Args:
-            num_grids: Nombre de grilles à générer
-            
-        Returns:
-            List[List[int]]: Liste des grilles générées optimisées
-        """
-        if not self.stats:
-            self._log("❌ Statistiques non disponibles", "ERROR")
-            return []
-        
-        self._log(f"🎯 Génération de {num_grids} grilles avec analyse complète des patterns")
-        grids = []
-        
-        # 1. ANALYSE DES FRÉQUENCES SUR DIFFÉRENTES PÉRIODES
-        freq_global = sorted(self.stats.frequences.items(), key=lambda x: x[1], reverse=True)
-        freq_recente = sorted(self.stats.frequences_recentes.items(), key=lambda x: x[1], reverse=True)
-        freq_50 = sorted(self.stats.frequences_50.items(), key=lambda x: x[1], reverse=True)
-        freq_20 = sorted(self.stats.frequences_20.items(), key=lambda x: x[1], reverse=True)
-        
-        # 2. ANALYSE DES RETARDS (OVERDUE NUMBERS)
-        retard_sorted = sorted(self.stats.retards.items(), key=lambda x: x[1], reverse=True)
-        
-        # 3. NUMÉROS CHAUDS ET FROIDS SELON DIFFÉRENTES PÉRIODES
-        hot_global = [num for num, _ in freq_global[:25]]           # Top 25 historique
-        hot_recent = [num for num, _ in freq_recente[:20]]          # Top 20 récent (100 tirages)
-        hot_tendance = [num for num, _ in freq_20[:15]]             # Top 15 tendance (20 tirages)
-        cold_retard = [num for num, _ in retard_sorted[:30]]        # Top 30 en retard
-        
-        # 4. ANALYSE DES TENDANCES
-        tendances_positives = []
-        for num, tendance in self.stats.tendances_50.items():
-            if tendance > 1.2:  # Numéros en forte hausse
-                tendances_positives.append((num, tendance))
-        tendances_positives.sort(key=lambda x: x[1], reverse=True)
-        hot_tendances = [num for num, _ in tendances_positives[:15]]
-        
-        # 5. PAIRES ET TRIOS FRÉQUENTS
-        top_pairs = sorted(self.stats.paires_freq.items(), key=lambda x: x[1], reverse=True)[:100]
-        if self.stats.trios_freq:
-            top_trios = sorted(self.stats.trios_freq.items(), key=lambda x: x[1], reverse=True)[:50]
-        else:
-            top_trios = []
-        
-        # 6. GÉNÉRATION DE GRILLES DIVERSIFIÉES
-        strategies = [
-            ("hot_global", "Numéros chauds historiques"),
-            ("hot_recent", "Numéros chauds récents"),
-            ("cold_retard", "Numéros en retard"),
-            ("hot_tendances", "Tendances positives"),
-            ("mixed_smart", "Mix intelligent"),
-            ("pairs_based", "Basé sur les paires"),
-            ("balanced_zones", "Équilibrage par zones"),
-            ("pattern_parité", "Pattern parité optimisé")
-        ]
-        
-        for i in range(num_grids):
-            strategy_name, strategy_desc = strategies[i % len(strategies)]
-            grid = []
-            
-            if strategy_name == "hot_global":
-                # Grille basée sur les numéros historiquement fréquents
-                grid = self._generate_hot_global_grid(hot_global)
-                
-            elif strategy_name == "hot_recent":
-                # Grille basée sur les tendances récentes
-                grid = self._generate_hot_recent_grid(hot_recent, hot_tendance)
-                
-            elif strategy_name == "cold_retard":
-                # Grille basée sur les numéros en retard
-                grid = self._generate_cold_retard_grid(cold_retard)
-                
-            elif strategy_name == "hot_tendances":
-                # Grille basée sur les tendances positives
-                grid = self._generate_tendance_grid(hot_tendances, hot_recent)
-                
-            elif strategy_name == "mixed_smart":
-                # Mix intelligent de tous les critères
-                grid = self._generate_mixed_smart_grid(hot_global, hot_recent, cold_retard, hot_tendances)
-                
-            elif strategy_name == "pairs_based":
-                # Grille basée sur les paires fréquentes
-                grid = self._generate_pairs_based_grid(top_pairs)
-                
-            elif strategy_name == "balanced_zones":
-                # Grille équilibrée par zones
-                grid = self._generate_balanced_zones_grid()
-                
-            elif strategy_name == "pattern_parité":
-                # Grille optimisée pour la parité
-                grid = self._generate_parite_optimized_grid(hot_global, hot_recent)
-            
-            # Validation et ajustement de la grille
-            if len(grid) < 10:
-                # Compléter avec des numéros manquants
-                available = [n for n in range(1, 71) if n not in grid]
-                weights = [self.stats.frequences.get(n, 1) for n in available]
-                while len(grid) < 10 and available:
-                    selected = random.choices(available, weights=weights, k=1)[0]
-                    grid.append(selected)
-                    idx = available.index(selected)
-                    available.pop(idx)
-                    weights.pop(idx)
-            
-            grid = sorted(grid[:10])
-            grids.append(grid)
-            self._log(f"   ✅ Grille {i+1}: {strategy_desc}")
-        
-        return grids
-    
-    def _generate_hot_global_grid(self, hot_global: List[int]) -> List[int]:
-        """Génère une grille basée sur les numéros historiquement fréquents"""
-        return random.sample(hot_global, min(10, len(hot_global)))
-    
-    def _generate_hot_recent_grid(self, hot_recent: List[int], hot_tendance: List[int]) -> List[int]:
-        """Génère une grille basée sur les tendances récentes"""
-        grid = []
-        # 6 numéros récents + 4 tendances
-        grid.extend(random.sample(hot_recent, min(6, len(hot_recent))))
-        available_tendance = [n for n in hot_tendance if n not in grid]
-        grid.extend(random.sample(available_tendance, min(4, len(available_tendance))))
-        return grid
-    
-    def _generate_cold_retard_grid(self, cold_retard: List[int]) -> List[int]:
-        """Génère une grille basée sur les numéros en retard"""
-        # Stratégie: les numéros en retard ont plus de chances de sortir
-        return random.sample(cold_retard, min(10, len(cold_retard)))
-    
-    def _generate_tendance_grid(self, hot_tendances: List[int], hot_recent: List[int]) -> List[int]:
-        """Génère une grille basée sur les tendances positives"""
-        grid = []
-        # 7 tendances + 3 récents
-        grid.extend(random.sample(hot_tendances, min(7, len(hot_tendances))))
-        available_recent = [n for n in hot_recent if n not in grid]
-        grid.extend(random.sample(available_recent, min(3, len(available_recent))))
-        return grid
-    
-    def _generate_mixed_smart_grid(self, hot_global: List[int], hot_recent: List[int], 
-                                  cold_retard: List[int], hot_tendances: List[int]) -> List[int]:
-        """Génère un mix intelligent de tous les critères"""
-        grid = []
-        
-        # 3 numéros historiquement chauds
-        grid.extend(random.sample(hot_global, min(3, len(hot_global))))
-        
-        # 3 numéros récemment chauds (non déjà sélectionnés)
-        available_recent = [n for n in hot_recent if n not in grid]
-        grid.extend(random.sample(available_recent, min(3, len(available_recent))))
-        
-        # 2 numéros en retard
-        available_cold = [n for n in cold_retard if n not in grid]
-        grid.extend(random.sample(available_cold, min(2, len(available_cold))))
-        
-        # 2 numéros en tendance positive
-        available_tendance = [n for n in hot_tendances if n not in grid]
-        grid.extend(random.sample(available_tendance, min(2, len(available_tendance))))
-        
-        return grid
-    
-    def _generate_pairs_based_grid(self, top_pairs: List[Tuple[Tuple[int, int], int]]) -> List[int]:
-        """Génère une grille basée sur les paires fréquentes (ultra-rapide)"""
-        grid = []
-        used_numbers = set()
-        # Utiliser seulement les 10 paires les plus fréquentes pour accélérer
-        for (num1, num2), freq in top_pairs[:10]:
-            if len(grid) >= 8:
-                break
-            if num1 not in used_numbers and num2 not in used_numbers:
-                grid.extend([num1, num2])
-                used_numbers.update([num1, num2])
-        # Compléter la grille avec des numéros non utilisés
-        candidates = [n for n in range(1, 71) if n not in used_numbers]
-        grid += random.sample(candidates, 10 - len(grid))
-        return grid
-    
-    def _generate_balanced_zones_grid(self) -> List[int]:
-        """Génère une grille équilibrée par zones"""
-        zones = {
-            "zone1": list(range(1, 18)),      # 1-17
-            "zone2": list(range(18, 36)),     # 18-35
-            "zone3": list(range(36, 53)),     # 36-52
-            "zone4": list(range(53, 71))      # 53-70
-        }
-        
-        # Répartition équilibrée: 2-3 numéros par zone
-        grid = []
-        grid.extend(random.sample(zones["zone1"], 2))
-        grid.extend(random.sample(zones["zone2"], 3))
-        grid.extend(random.sample(zones["zone3"], 3))
-        grid.extend(random.sample(zones["zone4"], 2))
-        
-        return grid
-    
-    def _generate_parite_optimized_grid(self, hot_global: List[int], hot_recent: List[int]) -> List[int]:
-        """Génère une grille optimisée pour la parité (éviter tout pair/tout impair)"""
-        # Statistiques montrent que <1% des grilles sont tout pair ou tout impair
-        grid = []
-        
-        # Pool de numéros chauds
-        hot_pool = list(set(hot_global + hot_recent))
-        
-        # Sélectionner 5-6 pairs et 4-5 impairs
-        pairs = [n for n in hot_pool if n % 2 == 0]
-        impairs = [n for n in hot_pool if n % 2 == 1]
-        
-        # Si pas assez dans le pool chaud, compléter
-        if len(pairs) < 6:
-            pairs.extend([n for n in range(2, 71, 2) if n not in pairs])
-        if len(impairs) < 5:
-            impairs.extend([n for n in range(1, 71, 2) if n not in impairs])
-        
-        # Sélection équilibrée
-        grid.extend(random.sample(pairs, min(5, len(pairs))))
-        grid.extend(random.sample(impairs, min(5, len(impairs))))
-        
-        return grid
-    
-    def calculate_grid_score(self, grid: List[int]) -> float:
-        """
-        Calcule un score de qualité pour une grille Keno
-        
-        Args:
-            grid: Liste des numéros de la grille
-            
-        Returns:
-            float: Score de qualité
-        """
-        if not self.stats:
-            return 0.0
-        
-        score = 0.0
-        
-        # Score basé sur les fréquences normalisées
-        total_freq = sum(self.stats.frequences.values())
-        for num in grid:
-            freq_score = self.stats.frequences[num] / total_freq
-            score += freq_score
-        
-        # Bonus pour la répartition par zones
-        zones = {
-            "zone1_17": sum(1 for n in grid if 1 <= n <= 17),
-            "zone18_35": sum(1 for n in grid if 18 <= n <= 35), 
-            "zone36_52": sum(1 for n in grid if 36 <= n <= 52),
-            "zone53_70": sum(1 for n in grid if 53 <= n <= 70)
-        }
-        
-        # Pénalité pour déséquilibre extrême des zones
-        zone_counts = list(zones.values())
-        if max(zone_counts) <= 4 and min(zone_counts) >= 1:  # Répartition équilibrée
-            score += 0.1
-        
-        # Bonus pour les paires fréquentes
-        for i in range(len(grid)):
-            for j in range(i + 1, len(grid)):
-                pair = tuple(sorted([grid[i], grid[j]]))
-                if pair in self.stats.paires_freq:
-                    pair_freq = self.stats.paires_freq[pair]
-                    score += pair_freq / 1000  # Normalisation
-        
-        # Score de dispersion (éviter les numéros trop proches)
-        dispersion_score = 0
-        sorted_grid = sorted(grid)
-        for i in range(len(sorted_grid) - 1):
-            if sorted_grid[i + 1] - sorted_grid[i] > 2:
-                dispersion_score += 0.05
-        score += dispersion_score
-
-        # Ajout du score trio fréquent
-        trio_score = 0
-        if hasattr(self.stats, 'trios_freq'):
-            for trio, freq in self.stats.trios_freq.items():
-                if any(n in trio for n in grid) and freq > 20:
-                    trio_score += freq / 500
-        score += trio_score
-        
-        return score
-    
-    def generate_optimized_grids(self, num_grids: int = 100) -> List[Tuple[List[int], float]]:
-        """
-        Génère des grilles optimisées en combinant ML et analyse fréquentielle
-        
-        Args:
-            num_grids: Nombre de grilles à générer
-            
-        Returns:
-            List[Tuple[List[int], float]]: Liste des grilles avec leurs scores
-        """
-        self._log(f"🎯 Génération de {num_grids} grilles Keno optimisées...")
-        
-        all_grids = []
-        
-        # Répartition selon les poids adaptatifs
-        ml_count = int(num_grids * self.adaptive_weights['ml_weight'])
-        freq_count = num_grids - ml_count
-        
-        self._log(f"   🤖 Poids adaptatifs: ML={self.adaptive_weights['ml_weight']:.1%}, Freq={self.adaptive_weights['freq_weight']:.1%}")
-        
-        # Génération ML
-        if ml_count > 0 and self.ml_models:
-            ml_grids = self.predict_numbers_ml(ml_count)
-            all_grids.extend(ml_grids)
-        
-        # Génération basée sur les fréquences
-        if freq_count > 0:
-            freq_grids = self.generate_frequency_based_grids(freq_count)
-            all_grids.extend(freq_grids)
-        
-        # Calcul des scores et tri
-        scored_grids = []
-        for grid in all_grids:
-            if len(grid) == 10:  # Validation
-                score = self.calculate_grid_score(grid)
-                scored_grids.append((grid, score))
-        
-        # Tri par score décroissant
-        scored_grids.sort(key=lambda x: x[1], reverse=True)
-        
-        # Suppression des doublons
-        unique_grids = []
-        seen = set()
-        for grid, score in scored_grids:
-            grid_tuple = tuple(sorted(grid))
-            if grid_tuple not in seen:
-                unique_grids.append((grid, score))
-                seen.add(grid_tuple)
-        
-        self._log(f"✅ {len(unique_grids)} grilles uniques générées")
-        return unique_grids[:num_grids]
-    
-    def save_results(self, grids_with_scores: List[Tuple[List[int], float]], 
-                    filename: str = None) -> str:
-        """
-        Sauvegarde les résultats dans un fichier CSV
-        
-        Args:
-            grids_with_scores: Liste des grilles avec scores
-            filename: Nom du fichier (optionnel)
-            
-        Returns:
-            str: Chemin du fichier sauvegardé
-        """
-        if not filename:
-            # Utilisation d'un nom fixe qui remplace le fichier précédent
-            filename = "grilles_keno.csv"
-        
-        filepath = self.output_dir / filename
-        
-        # Préparation des données
-        data_rows = []
-        for grid, score in grids_with_scores:
-            row = {}
-            for i, num in enumerate(grid, 1):
-                row[f'numero_{i}'] = num
-            row['score'] = score
-            data_rows.append(row)
-        
-        # Sauvegarde
-        df_results = pd.DataFrame(data_rows)
-        df_results.to_csv(filepath, index=False)
-        
-        self._log(f"💾 Résultats sauvegardés: {filepath}")
-        return str(filepath)
-    
-    def generate_report(self, grids_with_scores: List[Tuple[List[int], float]]) -> str:
-        """
-        Génère un rapport d'analyse détaillé
-        
-        Args:
-            grids_with_scores: Grilles avec leurs scores
-            
-        Returns:
-            str: Contenu du rapport
-        """
-        if not grids_with_scores:
-            return "Aucune grille générée."
-        
-        report = []
-        report.append("# 🎲 RAPPORT D'ANALYSE KENO")
-        report.append("=" * 50)
-        report.append(f"📅 **Date**: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-        report.append(f"📊 **Grilles générées**: {len(grids_with_scores)}")
-        report.append("")
-        
-        # Top 5 des grilles
-        report.append("## 🏆 TOP 5 DES GRILLES RECOMMANDÉES")
-        report.append("")
-        for i, (grid, score) in enumerate(grids_with_scores[:5], 1):
-            nums_str = " - ".join(f"{n:2d}" for n in grid)
-            report.append(f"**{i}.** [{nums_str}] | Score: {score:.4f}")
-        report.append("")
-        
-        # Statistiques
-        scores = [score for _, score in grids_with_scores]
-        report.append("## 📈 STATISTIQUES")
-        report.append("")
-        report.append(f"- **Score moyen**: {np.mean(scores):.4f}")
-        report.append(f"- **Score médian**: {np.median(scores):.4f}")
-        report.append(f"- **Meilleur score**: {max(scores):.4f}")
-        report.append(f"- **Score minimum**: {min(scores):.4f}")
-        report.append("")
-        
-        # Analyse des numéros les plus sélectionnés
-        all_numbers = []
-        for grid, _ in grids_with_scores:
-            all_numbers.extend(grid)
-        
-        num_counts = {}
-        for num in all_numbers:
-            num_counts[num] = num_counts.get(num, 0) + 1
-        
-        top_numbers = sorted(num_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-        
-        report.append("## 🔥 NUMÉROS LES PLUS SÉLECTIONNÉS")
-        report.append("")
-        for num, count in top_numbers:
-            percentage = (count / len(grids_with_scores)) * 100
-            report.append(f"- **{num:2d}**: {count} fois ({percentage:.1f}%)")
-        report.append("")
-        
-        # Stratégie adaptative
-        report.append("## 🤖 STRATÉGIE ADAPTATIVE")
-        report.append("")
-        report.append(f"- **Poids ML**: {self.adaptive_weights['ml_weight']:.1%}")
-        report.append(f"- **Poids Fréquence**: {self.adaptive_weights['freq_weight']:.1%}")
-        report.append("")
-        
-        return "\n".join(report)
-    
-    def get_top30_ml_predictions(self) -> List[Tuple[int, float]]:
-        """
-        Obtient le TOP 30 des numéros selon les prédictions ML
-        
-        Returns:
-            List[Tuple[int, float]]: Liste des (numéro, probabilité) triée par probabilité décroissante
-        """
-        if 'multilabel' not in self.ml_models:
-            self._log("❌ Modèle ML multi-label non disponible", "ERROR")
-            return []
-        
-        try:
-            self._log("🤖 Calcul du TOP 30 selon les prédictions ML...")
-            
-            model = self.ml_models['multilabel']
-            
-            # Initialisation de feature_cols
-            feature_cols = ['day_sin', 'day_cos', 'month_sin', 'month_cos']
-            
-            # Préparation des features pour la prédiction
-            current_date = pd.Timestamp.now()
-            df_predict = pd.DataFrame({
-                'date_de_tirage': [current_date],
-                **{f'boule{i}': [0] for i in range(1, 21)}  # Valeurs dummy
-            })
-            
-            # Ajout des features temporelles
-            df_features = self.add_cyclic_features(df_predict)
-            
-            # Features d'historique (utiliser les derniers tirages disponibles)
-            lag_features = {}
-            
-            if self.stats and self.stats.derniers_tirages:
-                for lag in range(1, 6):
-                    for ball_num in range(1, 21):
-                        col_name = f'lag{lag}_boule{ball_num}'
-                        # Utiliser les derniers tirages pour construire l'historique
-                        if lag <= len(self.stats.derniers_tirages):
-                            last_draw = self.stats.derniers_tirages[-(lag)]
-                            if ball_num <= len(last_draw):
-                                lag_features[col_name] = last_draw[ball_num - 1] if ball_num <= len(last_draw) else 0
-                            else:
-                                lag_features[col_name] = 0
-                        else:
-                            lag_features[col_name] = 0
-                        feature_cols.append(col_name)
-            else:
-                # Valeurs par défaut si pas d'historique
-                for lag in range(1, 6):
-                    for ball_num in range(1, 21):
-                        col_name = f'lag{lag}_boule{ball_num}'
-                        lag_features[col_name] = 0
-                        feature_cols.append(col_name)
-            
-            # Ajout des features d'historique en une fois pour éviter la fragmentation
-            lag_df = pd.DataFrame(lag_features, index=df_features.index)
-            
-            # Features de zones (moyennes historiques)
-            zone_features = {}
+            # Ajout des features statistiques directes
             if self.stats:
-                total_draws = len(self.stats.derniers_tirages) if self.stats.derniers_tirages else 1
-                zone_features['zone1_count'] = self.stats.zones_freq.get("zone1_17", 0) / total_draws
-                zone_features['zone2_count'] = self.stats.zones_freq.get("zone18_35", 0) / total_draws 
-                zone_features['zone3_count'] = self.stats.zones_freq.get("zone36_52", 0) / total_draws
-                zone_features['zone4_count'] = self.stats.zones_freq.get("zone53_70", 0) / total_draws
-            else:
-                zone_features['zone1_count'] = 5  # Valeurs moyennes
-                zone_features['zone2_count'] = 5
-                zone_features['zone3_count'] = 5
-                zone_features['zone4_count'] = 5
-            
-            # Création du DataFrame pour les zones
-            zone_df = pd.DataFrame([zone_features], index=df_features.index)
-            
-            # Concaténation de toutes les nouvelles features en une seule fois
-            df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
-            feature_cols.extend(['zone1_count', 'zone2_count', 'zone3_count', 'zone4_count'])
-            # Ajout des colonnes zoneX_freq manquantes
-            df_features = self._ensure_zone_freq_columns(df_features)
-            feature_cols.extend(['zone1_freq', 'zone2_freq', 'zone3_freq', 'zone4_freq'])
-            
-            # Préparation des features pour la prédiction
+                stats_data = {
+                    f'freq_recent_{num}': self.stats.frequences_recentes.get(num, 0)
+                    for num in range(1, 71)
+                }
+                stats_data.update({
+                    f'retard_{num}': self.stats.retards.get(num, 0)
+                    for num in range(1, 71)
+                })
+                stats_data.update({
+                    f'tendance_{num}': self.stats.tendances_50.get(num, 1.0)
+                    for num in range(1, 71)
+                })
+                stats_df = pd.DataFrame([stats_data], index=df_features.index)
+                df_features = pd.concat([df_features, stats_df], axis=1)
+
+            # Utilise la liste de features de l'entraînement
+            feature_cols = self.metadata.get('feature_names', [])
             X_pred = df_features[feature_cols].fillna(0)
-            
+
+            # Normalisation des features
+            scaler = StandardScaler()
+            X_pred_scaled = scaler.fit_transform(X_pred)
+
             # Prédiction des probabilités pour tous les numéros
-            probabilities = model.predict_proba(X_pred)
-            
-            # Extraction des probabilités pour la classe positive (numéro tiré)
+            probabilities = model.predict_proba(X_pred_scaled)
+
             number_probs = []
             for i in range(min(KENO_PARAMS['total_numbers'], len(probabilities))):
-                num = i + 1  # Numéros de 1 à 70
-                if len(probabilities[i][0]) > 1:  # Vérifier qu'on a bien les 2 classes
-                    prob = probabilities[i][0][1]  # Probabilité de la classe positive
+                num = i + 1
+                if len(probabilities[i][0]) > 1:
+                    prob = probabilities[i][0][1]
                 else:
-                    prob = 0.5  # Valeur par défaut
+                    prob = 0.5
                 number_probs.append((num, prob))
-            
-            # Tri par probabilité décroissante et sélection du TOP 30
+
             number_probs.sort(key=lambda x: x[1], reverse=True)
             top30 = number_probs[:30]
-            
-            self._log(f"✅ TOP 30 ML calculé - Probabilité moyenne: {np.mean([prob for _, prob in top30]):.4f}")
+
+            self._log(f"✅ TOP 30 ML amélioré calculé - Probabilité moyenne: {np.mean([prob for _, prob in top30]):.4f}")
             return top30
-            
+
         except Exception as e:
             self._log(f"❌ Erreur lors du calcul TOP 30 ML: {e}", "ERROR")
             import traceback
             self._log(f"Détails: {traceback.format_exc()}")
             return []
-            
-    def save_top30_ml_csv(self, filename: str = None) -> str:
-        """
-        Sauvegarde le TOP 30 des numéros ML dans un fichier CSV dédié
-        
-        Args:
-            filename: Nom du fichier (optionnel)
-            
-        Returns:
-            str: Chemin du fichier sauvegardé
-        """
-        if not filename:
-            filename = "keno_top30_ml.csv"
-        
-        filepath = self.output_dir / filename
-        
-        # Obtenir le TOP 30 ML
-        top30_ml = self.get_top30_ml_predictions()
-        
-        if not top30_ml:
-            self._log("❌ Impossible de générer le TOP 30 ML", "ERROR")
-            return ""
-        
-        # Préparation des données enrichies
-        top30_data = []
-        for rang, (numero, probabilite) in enumerate(top30_ml, 1):
-            # Informations statistiques supplémentaires
-            freq_globale = self.stats.frequences.get(numero, 0) if self.stats else 0
-            freq_recente = self.stats.frequences_recentes.get(numero, 0) if self.stats else 0
-            retard = self.stats.retards.get(numero, 0) if self.stats else 0
-            
-            # Zone géographique
-            if 1 <= numero <= 17:
-                zone = "1-17"
-            elif 18 <= numero <= 35:
-                zone = "18-35"
-            elif 36 <= numero <= 52:
-                zone = "36-52"
-            else:
-                zone = "53-70"
-            
-            # Tendance récente (si disponible)
-            tendance_50 = self.stats.tendances_50.get(numero, 1.0) if hasattr(self.stats, 'tendances_50') else 1.0
-            
-            # Nombre de paires fréquentes
-            nb_paires_freq = 0
-            if self.stats and hasattr(self.stats, 'paires_freq'):
-                for (n1, n2), freq in self.stats.paires_freq.items():
-                    if (n1 == numero or n2 == numero) and freq > 50:
-                        nb_paires_freq += 1
-            
-            top30_data.append({
-                'Rang': rang,
-                'Numero': numero,
-                'Probabilite_ML': round(probabilite, 6),
-                'Confiance': 'Très Haute' if probabilite > 0.8 else 'Haute' if probabilite > 0.6 else 'Moyenne' if probabilite >  0.4 else 'Faible',
-                'Freq_Globale': freq_globale,
-                'Freq_Recente_100': freq_recente,
-                'Retard_Actuel': retard,
-                'Tendance_50j': round(tendance_50, 3),
-                'Zone': zone,
-                'Parite': 'Pair' if numero % 2 == 0 else 'Impair',
-                'Nb_Paires_Freq': nb_paires_freq,
-                'Recommandation': '🔥 TRÈS FORT' if rang <= 5 else '⭐ FORT' if rang <= 15 else '✓ BON'
-            })
-        
-        # Sauvegarde en CSV
-        df_top30 = pd.DataFrame(top30_data)
-        df_top30.to_csv(filepath, index=False)
-        
-        # Statistiques pour le log
-        avg_prob = np.mean([data['Probabilite_ML'] for data in top30_data])
-        total_pairs = sum(1 for data in top30_data if data['Parite'] == 'Pair')
-        
-        self._log(f"💾 TOP 30 ML sauvegardé: {filepath}")
-        self._log(f"   🎯 Top 5: {', '.join(str(data['Numero']) for data in top30_data[:5])}")
-        self._log(f"   📊 Probabilité moyenne: {avg_prob:.4f}")
-        self._log(f"   ⚖️  Répartition pairs/impairs: {total_pairs}/{30-total_pairs}")
-        
-        return str(filepath)
-    
-    def simulate_top30_performance(self, top30: list) -> dict:
-        """
-        Simule la performance du TOP 30 sur les 100 derniers tirages
-        """
-        if not self.stats or not self.stats.derniers_tirages:
-            return {}
-        hits = []
-        for draw in self.stats.derniers_tirages:
-            count = sum(1 for n in draw if n in top30)
-            hits.append(count)
-        return {
-            'mean_hits': np.mean(hits),
-            'max_hits': np.max(hits),
-            'min_hits': np.min(hits),
-            'std_hits': np.std(hits)
-        }
 
-    def export_top30_advanced(self, filename: str = None) -> str:
-        """
-        Calcule et exporte le TOP 30 avancé dans un fichier CSV
-        """
-        if not filename:
-            filename = "top30_keno_advanced.csv"
-        top30 = self.get_top30_numbers_advanced()
-        perf = self.simulate_top30_performance(top30)
-        filepath = self.output_dir / (filename or "top30_keno_advanced.csv")
-        # Export détaillé avec scores et raisons
-        rows = []
-        for rang, num in enumerate(top30, 1):
-            freq = self.stats.frequences.get(num, 0)
-            freq_recent = self.stats.frequences_recentes.get(num, 0)
-            retard = self.stats.retards.get(num, 0)
-            tendance = self.stats.tendances_50.get(num, 1.0)
-            pair_bonus = sum([self.stats.paires_freq.get(tuple(sorted([num, other])), 0) for other in range(1, 71) if other != num])
-            trio_bonus = sum([self.stats.trios_freq.get(tuple(sorted([num, other1, other2]),), 0)
-                              for other1 in range(1, 71) for other2 in range(other1+1, 71)
-                              if other1 != num and other2 != num])
-            ml_score = self.ml_scores[num] if hasattr(self, 'ml_scores') and self.ml_scores and num in self.ml_scores else None
-            rows.append({
-                'Rang': rang,
-                'Numero': num,
-                'Freq_Globale': freq,
-                'Freq_Recente_100': freq_recent,
-                'Retard_Actuel': retard,
-                'Tendance_50j': round(tendance, 3),
-                'Score_ML': round(ml_score, 4) if ml_score else '',
-                'Bonus_Paires': pair_bonus,
-                'Bonus_Trios': trio_bonus,
-                'Recommandation': '🔥 TRÈS FORT' if rang <= 5 else '⭐ FORT' if rang <= 15 else '✓ BON'
-            })
-        df = pd.DataFrame(rows)
-        df.to_csv(filepath, index=False)
-        self._log(f"✅ TOP 30 avancé exporté dans {filepath}")
-        self._log(f"   📊 Performance simulée sur 100 tirages : {perf}")
-        return str(filepath)
-
-    def run_full_pipeline(self, num_grids: int = 40, profile: str = "balanced"):
-        """
-        Pipeline complet : chargement, analyse, training ML, export TOP 30 avancé, génération grilles
-        """
-        if not self.load_data():
-            self._log("Chargement des données impossible.", "ERROR")
-            return
-        self.stats = self.analyze_patterns()
-        # Entraînement du modèle ML à chaque run
-        self.train_xgboost_models(retrain=True)
-        self.export_top30_advanced()
-        grids = self.generate_optimized_grids(num_grids)
-        self.save_results(grids)
-        self._log("Pipeline complet terminé.")
-    
     def get_top30_numbers_advanced(self) -> list:
         """
         Sélectionne les 30 meilleurs numéros selon un score composite avancé
@@ -1810,13 +1079,177 @@ class KenoGeneratorAdvanced:
         top30 = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:30]
         return [num for num, score in top30]
         
+    def run_full_pipeline(self, num_grids: int = 40, profile: str = "balanced"):
+        """
+        Pipeline complet : chargement des données, analyse, entraînement ML, génération des grilles.
+        """
+        self._log("🚀 Démarrage du pipeline complet Keno...")
+        if not self.load_data():
+            self._log("❌ Chargement des données impossible.", "ERROR")
+            return
+        self.stats = self.analyze_patterns()
+        self.train_xgboost_models(retrain=False)
+        self.load_ml_models()
+        self._log("✅ Pipeline complet terminé.")
+
+    def generate_optimized_grids(self, num_grids: int = 40) -> list:
+        """
+        Génère des grilles optimisées en privilégiant le TOP 30 ML.
+        """
+        self._log(f"🎯 Génération de {num_grids} grilles Keno optimisées (TOP 30 ML privilégié)...")
+        top30_ml = [num for num, _ in self.predict_numbers_ml()]
+        if not top30_ml or len(top30_ml) < 10:
+            self._log("❌ TOP 30 ML indisponible, génération aléatoire.", "ERROR")
+            # Fallback : génération aléatoire
+            return [sorted(random.sample(range(1, 71), 10)) for _ in range(num_grids)]
+        grids = []
+        for _ in range(num_grids):
+            grid = sorted(random.sample(top30_ml, 10))
+            grids.append(grid)
+        self._log(f"✅ {len(grids)} grilles générées à partir du TOP 30 ML")
+        return grids
+
+    def save_results(self, grids: list):
+        """Sauvegarde les grilles générées dans un fichier CSV avec colonnes classiques"""
+        output_path = self.output_dir / "grilles_keno.csv"
+        columns = [f"numero_{i}" for i in range(1, 11)]
+        df = pd.DataFrame(grids, columns=columns)
+        df.to_csv(output_path, index=False)
+        self._log(f"💾 Grilles sauvegardées dans {output_path}")
+
+    def save_top30_ml_csv(self):
+        """Sauvegarde le TOP 30 ML dans un fichier CSV"""
+        top30_ml = [num for num, _ in self.predict_numbers_ml()]
+        output_path = self.output_dir / "top30_ml.csv"
+        df = pd.DataFrame(top30_ml, columns=["Numéro"])
+        df.to_csv(output_path, index=False)
+        self._log(f"💾 TOP 30 ML sauvegardé dans {output_path}")
+
+    def generate_report(self, grids: list) -> str:
+        """
+        Génère un rapport détaillé sur les grilles produites.
+        """
+        report = "# Rapport détaillé des grilles Keno\n\n"
+        report += f"Nombre de grilles générées : {len(grids)}\n\n"
+        report += "## Grilles\n"
+        for idx, grid in enumerate(grids, 1):
+            report += f"- Grille {idx}: {grid}\n"
+        report += "\n"
+        # Statistiques sur la diversité des numéros
+        all_numbers = [num for grid in grids for num in grid]
+        unique_numbers = set(all_numbers)
+        report += f"Nombre total de numéros uniques utilisés : {len(unique_numbers)}\n"
+        report += f"Liste des numéros uniques : {sorted(unique_numbers)}\n"
+        return report
+
+    def update_and_retrain(self):
+        """
+        Recharge les données, analyse, et réentraîne le modèle ML sur tous les tirages.
+        """
+        self._log("🔄 Mise à jour des données et réentraînement du modèle ML...")
+        self.load_data()
+        self.stats = self.analyze_patterns()
+        self.train_xgboost_models(retrain=True)
+        self.load_ml_models()
+        self._log("✅ Modèle ML réentraîné avec les nouveaux tirages.")
+
+    def evaluate_grids_with_model(self, grids: list) -> list:
+        """
+        Évalue chaque grille générée avec le modèle ML et retourne les scores/probabilités.
+        """
+        if 'multilabel' not in self.ml_models:
+            self._log("❌ Modèle ML non disponible pour l'évaluation.", "ERROR")
+            return []
+        model = self.ml_models['multilabel']
+        scores = []
+        for grid in grids:
+            current_date = pd.Timestamp.now()
+            df = pd.DataFrame({
+                'date_de_tirage': [current_date],
+                **{f'boule{i}': [grid[i-1] if i <= len(grid) else 0] for i in range(1, 21)}
+            })
+
+            # Ajout des features temporelles
+            df_features = self.add_cyclic_features(df)
+
+            # Reconstruction des features d'historique
+            lag_features = {}
+            if self.stats and self.stats.derniers_tirages:
+                for lag in range(1, 6):
+                    for ball_num in range(1, 21):
+                        col_name = f'lag{lag}_boule{ball_num}'
+                        if lag <= len(self.stats.derniers_tirages):
+                            last_draw = self.stats.derniers_tirages[-(lag)]
+                            lag_features[col_name] = last_draw[ball_num - 1] if ball_num <= len(last_draw) else 0
+                        else:
+                            lag_features[col_name] = 0
+                lag_df = pd.DataFrame(lag_features, index=df_features.index)
+            else:
+                lag_df = pd.DataFrame({f'lag{lag}_boule{ball_num}': [0] for lag in range(1, 6) for ball_num in range(1, 21)}, index=df_features.index)
+
+            # Features de zones
+            zone_features = {}
+            if self.stats:
+                total_draws = len(self.stats.derniers_tirages) if self.stats.derniers_tirages else 1
+                zone_features['zone1_count'] = self.stats.zones_freq.get("zone1_17", 0) / total_draws
+                zone_features['zone2_count'] = self.stats.zones_freq.get("zone18_35", 0) / total_draws 
+                zone_features['zone3_count'] = self.stats.zones_freq.get("zone36_52", 0) / total_draws
+                zone_features['zone4_count'] = self.stats.zones_freq.get("zone53_70", 0) / total_draws
+            else:
+                zone_features['zone1_count'] = 5
+                zone_features['zone2_count'] = 5
+                zone_features['zone3_count'] = 5
+                zone_features['zone4_count'] = 5
+            zone_df = pd.DataFrame([zone_features], index=df_features.index)
+
+            # Ajout des colonnes zoneX_freq manquantes
+            df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
+            df_features = self._ensure_zone_freq_columns(df_features)
+
+            # Ajout des features statistiques directes
+            if self.stats:
+                stats_data = {
+                    f'freq_recent_{num}': self.stats.frequences_recentes.get(num, 0)
+                    for num in range(1, 71)
+                }
+                stats_data.update({
+                    f'retard_{num}': self.stats.retards.get(num, 0)
+                    for num in range(1, 71)
+                })
+                stats_data.update({
+                    f'tendance_{num}': self.stats.tendances_50.get(num, 1.0)
+                    for num in range(1, 71)
+                })
+                stats_df = pd.DataFrame([stats_data], index=df_features.index)
+                df_features = pd.concat([df_features, stats_df], axis=1)
+
+            # Utilise la liste de features de l'entraînement
+            feature_cols = self.metadata.get('feature_names', [])
+            X = df_features[feature_cols].fillna(0)
+
+            # Prédit la probabilité pour chaque numéro de la grille
+            probas = model.predict_proba(X)
+            grid_score = np.mean([probas[i][0][1] for i in range(len(grid))])
+            scores.append((grid, grid_score))
+        return scores
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Générateur avancé de grilles Keno")
+    parser = argparse.ArgumentParser(
+        description="Générateur avancé de grilles Keno\n"
+                    "Profils d'entraînement ML disponibles :\n"
+                    "  quick         - Ultra-rapide (faible précision)\n"
+                    "  balanced      - Équilibré (par défaut)\n"
+                    "  comprehensive - Complet (plus précis, plus lent)\n"
+                    "  intensive     - Intensif (max précision, très lent)"
+    )
     parser.add_argument("--grids", type=int, default=40, help="Nombre de grilles à générer")
-    parser.add_argument("--profile", type=str, default="balanced", help="Profil d'entraînement ML")
+    parser.add_argument("--profile", type=str, default="balanced",
+                        help="Profil d'entraînement ML (quick, balanced, comprehensive, intensive)")
     parser.add_argument("--max-jobs", type=int, default=1, help="Nombre maximal de cœurs pour le training ML (1=mono, -1=auto)")
     parser.add_argument("--report", action="store_true", help="Générer un rapport détaillé des grilles")
     parser.add_argument("--save-top30-ml", action="store_true", help="Exporter le TOP 30 ML en CSV")
+    parser.add_argument("--update-retrain", action="store_true", help="Recharge les données et réentraîne le modèle ML")
+    parser.add_argument("--test-grids", action="store_true", help="Teste les grilles générées avec le modèle ML")
     args = parser.parse_args()
     # Patch le paramètre n_jobs dans get_training_params
     def patched_get_training_params(profile: str) -> dict:
@@ -1843,3 +1276,13 @@ if args.report:
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(report)
     print(f"💾 Rapport détaillé sauvegardé : {report_path}")
+
+# Mise à jour et réentraînement du modèle ML
+if args.update_retrain:
+    generator.update_and_retrain()
+
+# Test des grilles générées avec le modèle ML
+if args.test_grids:
+    grid_scores = generator.evaluate_grids_with_model(grids)
+    for idx, (grid, score) in enumerate(grid_scores, 1):
+        print(f"Grille {idx}: {grid} | Score ML moyen: {score:.4f}")

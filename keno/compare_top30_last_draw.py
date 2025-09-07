@@ -2,15 +2,17 @@ import pandas as pd
 from pathlib import Path
 
 # Chemins des fichiers
-top30ml_path = Path("keno_output/top30_keno_advanced.csv")
+top30ml_path = Path("keno_output/top30_ml.csv")
 consolidated_path = Path("keno/keno_data/keno_consolidated.csv")
 
 # Chargement du TOP 30 ML
 df_top30 = pd.read_csv(top30ml_path)
-if 'Numero' in df_top30.columns:
-    top30_nums = set(df_top30['Numero'])
+if 'Numéro' in df_top30.columns:
+    top30_nums = set(df_top30['Numéro'])
 elif 'numero' in df_top30.columns:
     top30_nums = set(df_top30['numero'])
+elif 'Numero' in df_top30.columns:
+    top30_nums = set(df_top30['Numero'])
 else:
     raise ValueError("Colonne 'Numero' ou 'numero' non trouvée dans le TOP 30 ML.")
 

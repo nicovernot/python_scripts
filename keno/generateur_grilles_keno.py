@@ -24,7 +24,7 @@ import math
 
 # ----------------------------- Utilities -----------------------------
 
-def charger_top30(path="keno_output/keno_top30_ml.csv"):
+def charger_top30(path="keno_output/top30_ml.csv"):
     df = pd.read_csv(path)
     col = 'Numero' if 'Numero' in df.columns else ('numero' if 'numero' in df.columns else df.columns[0])
     return list(df[col].head(30).astype(int))
@@ -380,7 +380,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--grilles', type=int, default=10)
     parser.add_argument('--taille', type=int, default=8, choices=range(6,11))
-    parser.add_argument('--top30', type=str, default='keno_output/keno_top30_ml.csv')
+    parser.add_argument('--top30', type=str, default='keno_output/top30_ml.csv')
     parser.add_argument('--mode', type=str, choices=['greedy','ilp'], default='greedy')
     parser.add_argument('--max-univers', type=int, dest='max_univers', default=1000)
     parser.add_argument('--top-paires', type=int, default=30)
