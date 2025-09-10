@@ -1158,44 +1158,62 @@ def main(argv: List[str] = None):
         gen._log("▶ Entraînement ML demandé...")
         gen.train_ml_models(force_retrain=args.train)
 
-    # Génération de N grilles ML (diversifiées)
-    grids_ml = []
-    for i in range(args.n):
-        grid = gen.generate_grid(selection_size=args.size, strategy=args.strategy)
-        grids_ml.append(grid)
-        print(f"Grille ML #{i+1}: {grid}")
-
-    # Résumé
-    summary = gen.summary()
-    print("\nRésumé:")
-    print(f"- Tirages analysés: {summary['n_draws']}")
-    print(f"- Top10 (ML scores normalisés): {summary['top10_ml']}")
-    print(f"- Généré {len(grids_ml)} grille(s) ML avec stratégie '{args.strategy}'")
-
-    # Export CSV + Markdown des grilles ML
-    gen.export_grids(grids_ml, summary, filename_prefix="keno_grids_ml")
-
-    # Génération et export des grilles optimisées (max coverage)
+    # Génération du TOP 30 ML
     top30_ml = [num for num, _ in gen.get_top_n(30)]
-    grids_optim = generate_max_coverage_grids(top30_ml, n_grids=args.n, grid_size=args.size)
-    export_grids_csv(grids_optim, output_path="keno_output/grilles_keno_optim.csv")
+
+    # Génération des grilles ML optimisées avec pulp et statistiques
+    grids_ml = generate_best_ml_grids(top30_ml, n_grids=max(10, args.n), grid_size=args.size, stats=gen.stats)
+
+    # Sélection des grilles avec meilleure couverture (diversité maximale)
+    # Ici, on garde les N grilles les plus différentes
+    final_grids_ml = []
+    covered = set()
+    for grid in grids_ml:
+        if not set(grid).issubset(covered):
+            final_grids_ml.append(grid)
+            covered.update(grid)
+        if len(final_grids_ml) >= args.n:
+            break
+    # Si pas assez de diversité, complète avec les premières grilles
+    while len(final_grids_ml) < args.n and grids_ml:
+        for grid in grids_ml:
+            if grid not in final_grids_ml:
+                final_grids_ml.append(grid)
+            if len(final_grids_ml) >= args.n:
+                break
+
+    # Affichage et export
+    for i, grid in enumerate(final_grids_ml, 1):
+        print(f"Grille ML optimisée #{i}: {grid}")
+
+    summary = gen.summary()
+    gen.export_grids(final_grids_ml, summary, filename_prefix="keno_grids_ml")
+
+    # Export du TOP 30 ML
     export_top30_csv(top30_ml)
 
-    print(f"\nGrilles optimisées (max coverage) exportées dans keno_output/grilles_keno_optim.csv")
+    print(f"\nGrilles ML optimisées exportées dans keno_output/keno_grids_ml.csv")
 
-def generate_max_coverage_grids(top30_ml, n_grids=3, grid_size=10):
+def generate_best_ml_grids(top30_ml, n_grids=10, grid_size=10, stats=None):
     """
-    Génère n_grids grilles couvrant au maximum le TOP 30 ML.
-    Chaque grille contient grid_size numéros, et on maximise la couverture globale.
-    On impose que chaque grille soit différente des précédentes.
+    Génère n_grids grilles à partir du TOP 30 ML en maximisant la couverture et la diversité,
+    pondérées par les statistiques (fréquence, retard, etc.).
     """
     grids = []
     used_combinations = set()
+    # Pondération par score composite si stats disponibles
+    weights = {num: 1.0 for num in top30_ml}
+    if stats:
+        freq = stats.frequences_recentes if stats.frequences_recentes else stats.frequences
+        max_freq = max(freq.values()) if freq else 1
+        for num in top30_ml:
+            weights[num] = freq.get(num, 1) / max_freq
+
     for grid_idx in range(n_grids):
-        prob = pulp.LpProblem(f"KenoMaxCoverage_{grid_idx}", pulp.LpMaximize)
+        prob = pulp.LpProblem(f"KenoMLGrid_{grid_idx}", pulp.LpMaximize)
         x = {n: pulp.LpVariable(f"x_{grid_idx}_{n}", cat="Binary") for n in top30_ml}
-        # Objectif : maximiser la somme des numéros (ou autre critère)
-        prob += pulp.lpSum([x[n] for n in top30_ml])
+        # Objectif : maximiser la somme pondérée des numéros
+        prob += pulp.lpSum([weights[n] * x[n] for n in top30_ml])
         # Contraintes : exactement grid_size numéros par grille
         prob += pulp.lpSum([x[n] for n in top30_ml]) == grid_size
         # Contraintes pour éviter les doublons
@@ -1203,7 +1221,6 @@ def generate_max_coverage_grids(top30_ml, n_grids=3, grid_size=10):
             prob += pulp.lpSum([x[n] for n in prev_grid]) <= grid_size - 1
         prob.solve()
         grid = tuple(sorted([n for n in top30_ml if pulp.value(x[n]) == 1]))
-        # Si la grille existe déjà, on arrête
         if grid in used_combinations:
             break
         grids.append(list(grid))

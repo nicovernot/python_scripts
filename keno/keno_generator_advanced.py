@@ -85,7 +85,7 @@ KENO_PARAMS = {
     'total_numbers': 70,        # Numéros de 1 à 70
     'numbers_per_draw': 20,     # 20 numéros tirés par tirage
     'player_selection': 10,     # Le joueur sélectionne typiquement 10 numéros
-    'min_selection': 2,         # Minimum de numéros sélectionnables
+    'min_selection': 7,         # Minimum de numéros sélectionnables (modifié)
     'max_selection': 10,        # Maximum de numéros sélectionnables
 }
 
@@ -200,7 +200,7 @@ class KenoStats:
 class KenoGeneratorAdvanced:
     """Générateur avancé de grilles Keno avec ML et analyse statistique"""
     
-    def __init__(self, data_path: str = None, silent: bool = False, training_profile: str = "balanced"):
+    def __init__(self, data_path: str = None, silent: bool = False, training_profile: str = "balanced", grid_size: int = 10):
         """
         Initialise le générateur Keno
         
@@ -208,12 +208,19 @@ class KenoGeneratorAdvanced:
             data_path: Chemin vers les données historiques
             silent: Mode silencieux pour réduire les sorties
             training_profile: Profil d'entraînement ('quick', 'balanced', 'comprehensive', 'intensive')
+            grid_size: Taille des grilles (7 à 10 numéros)
         """
         self.silent = silent
         self.data_path = data_path or str(DATA_DIR / "keno_202010.parquet")
         self.models_dir = MODELS_DIR
         self.output_dir = OUTPUT_DIR
         self.training_profile = training_profile
+        
+        # Validation de la taille de grille
+        if not (7 <= grid_size <= 10):
+            self._log(f"⚠️  Taille de grille invalide ({grid_size}). Utilisation de 10 par défaut.", "ERROR")
+            grid_size = 10
+        self.grid_size = grid_size
         
         # Créer les répertoires nécessaires
         self.models_dir.mkdir(exist_ok=True)
@@ -234,8 +241,8 @@ class KenoGeneratorAdvanced:
             'last_update': datetime.now()
         }
         
-        self._log("🎲 Générateur Keno Avancé v2.0 initialisé")
-        
+        self._log(f"🎲 Générateur Keno Avancé v2.0 initialisé (grilles de {self.grid_size} numéros)")
+
     def _log(self, message: str, level: str = "INFO"):
         """Système de logging configuré"""
         if not self.silent or level == "ERROR":
@@ -739,6 +746,34 @@ class KenoGeneratorAdvanced:
                     zone_values = [0] * len(df_features)
                 df_features[zone_name] = zone_values
                 feature_cols.append(zone_name)
+
+            # AJOUT CRUCIAL: Features statistiques étendues (manquantes à l'entraînement)
+            if self.stats:
+                # Features fréquentielles pour chaque numéro (1-70)
+                stats_data = {
+                    f'freq_recent_{num}': [self.stats.frequences_recentes.get(num, 0)] * len(df_features)
+                    for num in range(1, 71)
+                }
+                stats_data.update({
+                    f'retard_{num}': [self.stats.retards.get(num, 0)] * len(df_features)
+                    for num in range(1, 71)
+                })
+                stats_data.update({
+                    f'tendance_{num}': [self.stats.tendances_50.get(num, 1.0)] * len(df_features)
+                    for num in range(1, 71)
+                })
+                
+                # Ajouter toutes ces features au DataFrame
+                for feature_name, feature_values in stats_data.items():
+                    df_features[feature_name] = feature_values
+                    feature_cols.append(feature_name)
+            else:
+                # Créer des valeurs par défaut pour toutes les features statistiques
+                for num in range(1, 71):
+                    df_features[f'freq_recent_{num}'] = [0] * len(df_features)
+                    df_features[f'retard_{num}'] = [0] * len(df_features)
+                    df_features[f'tendance_{num}'] = [1.0] * len(df_features)
+                    feature_cols.extend([f'freq_recent_{num}', f'retard_{num}', f'tendance_{num}'])
             
             X = df_features[feature_cols].fillna(0)
             
@@ -894,7 +929,6 @@ class KenoGeneratorAdvanced:
             return []
         
         try:
-            predictions = []
             model = self.ml_models['multilabel']
             
             # Préparation des features pour la prédiction
@@ -904,65 +938,45 @@ class KenoGeneratorAdvanced:
                 **{f'boule{i}': [0] for i in range(1, 21)}  # Valeurs dummy
             })
             
-            # Ajout des features temporelles
+            # Ajout des features temporelles ET enrichies (comme à l'entraînement)
             df_features = self.add_cyclic_features(df_predict)
+            df_features = self.enrich_features(df_features)
             
-            # Reconstruction des mêmes features que lors de l'entraînement (optimisé)
-            feature_cols = ['day_sin', 'day_cos', 'month_sin', 'month_cos']
-            
-            # Features d'historique (utiliser les derniers tirages disponibles)
+            # Features d'historique
             lag_features = {}
-            
             if self.stats and self.stats.derniers_tirages:
                 for lag in range(1, 6):
                     for ball_num in range(1, 21):
                         col_name = f'lag{lag}_boule{ball_num}'
-                        # Utiliser les derniers tirages pour construire l'historique
                         if lag <= len(self.stats.derniers_tirages):
                             last_draw = self.stats.derniers_tirages[-(lag)]
-                            if ball_num <= len(last_draw):
-                                lag_features[col_name] = last_draw[ball_num - 1] if ball_num <= len(last_draw) else 0
-                            else:
-                                lag_features[col_name] = 0
+                            lag_features[col_name] = last_draw[ball_num - 1] if ball_num <= len(last_draw) else 0
                         else:
                             lag_features[col_name] = 0
-                        feature_cols.append(col_name)
+                lag_df = pd.DataFrame([lag_features], index=df_features.index)
             else:
                 # Valeurs par défaut si pas d'historique
-                for lag in range(1, 6):
-                    for ball_num in range(1, 21):
-                        col_name = f'lag{lag}_boule{ball_num}'
-                        lag_features[col_name] = 0
-                        feature_cols.append(col_name)
+                lag_features = {f'lag{lag}_boule{ball_num}': 0 for lag in range(1, 6) for ball_num in range(1, 21)}
+                lag_df = pd.DataFrame([lag_features], index=df_features.index)
+
+            df_features = pd.concat([df_features, lag_df], axis=1)
+
+            # Features de fréquence par zone
+            zone_features = {
+                'zone1_count': [0],
+                'zone2_count': [0],
+                'zone3_count': [0],
+                'zone4_count': [0],
+                'zone1_freq': [0],
+                'zone2_freq': [0],
+                'zone3_freq': [0],
+                'zone4_freq': [0]
+            }
             
-            # Ajout des features d'historique en une fois pour éviter la fragmentation
-            lag_df = pd.DataFrame(lag_features, index=df_features.index)
-            
-            # Features de zones (moyennes historiques)
-            zone_features = {}
-            if self.stats:
-                total_draws = len(self.stats.derniers_tirages) if self.stats.derniers_tirages else 1
-                zone_features['zone1_count'] = self.stats.zones_freq.get("zone1_17", 0) / total_draws
-                zone_features['zone2_count'] = self.stats.zones_freq.get("zone18_35", 0) / total_draws 
-                zone_features['zone3_count'] = self.stats.zones_freq.get("zone36_52", 0) / total_draws
-                zone_features['zone4_count'] = self.stats.zones_freq.get("zone53_70", 0) / total_draws
-            else:
-                zone_features['zone1_count'] = 5  # Valeurs moyennes
-                zone_features['zone2_count'] = 5
-                zone_features['zone3_count'] = 5
-                zone_features['zone4_count'] = 5
-            
-            # Création du DataFrame pour les zones
-            zone_df = pd.DataFrame([zone_features], index=df_features.index)
-            
-            # Concaténation de toutes les nouvelles features en une seule fois
-            df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
-            feature_cols.extend(['zone1_count', 'zone2_count', 'zone3_count', 'zone4_count'])
-            # Ajout des colonnes zoneX_freq manquantes
-            df_features = self._ensure_zone_freq_columns(df_features)
-            feature_cols.extend(['zone1_freq', 'zone2_freq', 'zone3_freq', 'zone4_freq'])
-            
-            # Ajout des features statistiques directes
+            for zone_name, zone_values in zone_features.items():
+                df_features[zone_name] = zone_values
+
+            # AJOUT CRUCIAL: Features statistiques étendues pour TOUS les numéros (1-70)
             if self.stats:
                 stats_data = {
                     f'freq_recent_{num}': self.stats.frequences_recentes.get(num, 0)
@@ -978,12 +992,37 @@ class KenoGeneratorAdvanced:
                 })
                 stats_df = pd.DataFrame([stats_data], index=df_features.index)
                 df_features = pd.concat([df_features, stats_df], axis=1)
+            else:
+                # Créer des valeurs par défaut pour toutes les features statistiques
+                stats_data = {}
+                for num in range(1, 71):
+                    stats_data[f'freq_recent_{num}'] = 0
+                    stats_data[f'retard_{num}'] = 0
+                    stats_data[f'tendance_{num}'] = 1.0
+                stats_df = pd.DataFrame([stats_data], index=df_features.index)
+                df_features = pd.concat([df_features, stats_df], axis=1)
 
-            # Utilise la liste de features de l'entraînement
+            # Utiliser la liste de features de l'entraînement
             feature_cols = self.metadata.get('feature_names', [])
-            X_pred = df_features[feature_cols].fillna(0)
+
+            # CORRECTION DÉFINITIVE: Garantir exactement les mêmes features
+            for c in feature_cols:
+                if c not in df_features.columns:
+                    df_features[c] = 0.0
+
+            # Supprimer les colonnes en trop et réordonner exactement comme à l'entraînement
+            df_features = df_features.loc[:, feature_cols]
+
+            X_pred = df_features.fillna(0)
+            X_pred = X_pred.select_dtypes(include=[np.number])
+
+            # Vérification du nombre de features
+            if X_pred.shape[1] != len(feature_cols):
+                self._log(f"⚠️  Mismatch: {X_pred.shape[1]} features vs {len(feature_cols)} attendues", "ERROR")
+                return []
 
             # Normalisation des features
+            from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
             X_pred_scaled = scaler.fit_transform(X_pred)
 
@@ -1002,7 +1041,7 @@ class KenoGeneratorAdvanced:
             number_probs.sort(key=lambda x: x[1], reverse=True)
             top30 = number_probs[:30]
 
-            self._log(f"✅ TOP 30 ML amélioré calculé - Probabilité moyenne: {np.mean([prob for _, prob in top30]):.4f}")
+            self._log(f"✅ TOP 30 ML calculé - Probabilité moyenne: {np.mean([prob for _, prob in top30]):.4f}")
             return top30
 
         except Exception as e:
@@ -1096,26 +1135,26 @@ class KenoGeneratorAdvanced:
         """
         Génère des grilles optimisées en privilégiant le TOP 30 ML.
         """
-        self._log(f"🎯 Génération de {num_grids} grilles Keno optimisées (TOP 30 ML privilégié)...")
+        self._log(f"🎯 Génération de {num_grids} grilles Keno optimisées (TOP 30 ML privilégié, {self.grid_size} numéros/grille)...")
         top30_ml = [num for num, _ in self.predict_numbers_ml()]
-        if not top30_ml or len(top30_ml) < 10:
+        if not top30_ml or len(top30_ml) < self.grid_size:
             self._log("❌ TOP 30 ML indisponible, génération aléatoire.", "ERROR")
             # Fallback : génération aléatoire
-            return [sorted(random.sample(range(1, 71), 10)) for _ in range(num_grids)]
+            return [sorted(random.sample(range(1, 71), self.grid_size)) for _ in range(num_grids)]
         grids = []
         for _ in range(num_grids):
-            grid = sorted(random.sample(top30_ml, 10))
+            grid = sorted(random.sample(top30_ml, self.grid_size))
             grids.append(grid)
-        self._log(f"✅ {len(grids)} grilles générées à partir du TOP 30 ML")
+        self._log(f"✅ {len(grids)} grilles de {self.grid_size} numéros générées à partir du TOP 30 ML")
         return grids
 
     def save_results(self, grids: list):
-        """Sauvegarde les grilles générées dans un fichier CSV avec colonnes classiques"""
+        """Sauvegarde les grilles générées dans un fichier CSV avec colonnes adaptées à la taille"""
         output_path = self.output_dir / "grilles_keno.csv"
-        columns = [f"numero_{i}" for i in range(1, 11)]
+        columns = [f"numero_{i}" for i in range(1, self.grid_size + 1)]
         df = pd.DataFrame(grids, columns=columns)
         df.to_csv(output_path, index=False)
-        self._log(f"💾 Grilles sauvegardées dans {output_path}")
+        self._log(f"💾 Grilles de {self.grid_size} numéros sauvegardées dans {output_path}")
 
     def save_top30_ml_csv(self):
         """Sauvegarde le TOP 30 ML dans un fichier CSV"""
@@ -1164,15 +1203,21 @@ class KenoGeneratorAdvanced:
         scores = []
         for grid in grids:
             current_date = pd.Timestamp.now()
-            df = pd.DataFrame({
-                'date_de_tirage': [current_date],
-                **{f'boule{i}': [grid[i-1] if i <= len(grid) else 0] for i in range(1, 21)}
-            })
+            # Adapter le DataFrame aux grilles de taille variable
+            df_data = {'date_de_tirage': [current_date]}
+            for i in range(1, 21):
+                if i <= len(grid):
+                    df_data[f'boule{i}'] = [grid[i-1]]
+                else:
+                    df_data[f'boule{i}'] = [0]  # Padding avec des zéros
+            
+            df = pd.DataFrame(df_data)
 
-            # Ajout des features temporelles
+            # Ajout des features temporelles ET enrichies (comme à l'entraînement)
             df_features = self.add_cyclic_features(df)
+            df_features = self.enrich_features(df_features)
 
-            # Reconstruction des features d'historique
+            # Reconstruction des features d'historique - EXACTEMENT comme à l'entraînement
             lag_features = {}
             if self.stats and self.stats.derniers_tirages:
                 for lag in range(1, 6):
@@ -1183,30 +1228,44 @@ class KenoGeneratorAdvanced:
                             lag_features[col_name] = last_draw[ball_num - 1] if ball_num <= len(last_draw) else 0
                         else:
                             lag_features[col_name] = 0
-                lag_df = pd.DataFrame(lag_features, index=df_features.index)
+                lag_df = pd.DataFrame([lag_features], index=df_features.index)
             else:
-                lag_df = pd.DataFrame({f'lag{lag}_boule{ball_num}': [0] for lag in range(1, 6) for ball_num in range(1, 21)}, index=df_features.index)
+                # Valeurs par défaut si pas d'historique
+                lag_features = {f'lag{lag}_boule{ball_num}': 0 for lag in range(1, 6) for ball_num in range(1, 21)}
+                lag_df = pd.DataFrame([lag_features], index=df_features.index)
 
-            # Features de zones
-            zone_features = {}
-            if self.stats:
-                total_draws = len(self.stats.derniers_tirages) if self.stats.derniers_tirages else 1
-                zone_features['zone1_count'] = self.stats.zones_freq.get("zone1_17", 0) / total_draws
-                zone_features['zone2_count'] = self.stats.zones_freq.get("zone18_35", 0) / total_draws 
-                zone_features['zone3_count'] = self.stats.zones_freq.get("zone36_52", 0) / total_draws
-                zone_features['zone4_count'] = self.stats.zones_freq.get("zone53_70", 0) / total_draws
-            else:
-                zone_features['zone1_count'] = 5
-                zone_features['zone2_count'] = 5
-                zone_features['zone3_count'] = 5
-                zone_features['zone4_count'] = 5
-            zone_df = pd.DataFrame([zone_features], index=df_features.index)
+            df_features = pd.concat([df_features, lag_df], axis=1)
 
-            # Ajout des colonnes zoneX_freq manquantes
-            df_features = pd.concat([df_features, lag_df, zone_df], axis=1)
-            df_features = self._ensure_zone_freq_columns(df_features)
+            # Features de fréquence par zone - EXACTEMENT comme à l'entraînement
+            zone_features = {
+                'zone1_count': [],
+                'zone2_count': [],
+                'zone3_count': [],
+                'zone4_count': [],
+                'zone1_freq': [],
+                'zone2_freq': [],
+                'zone3_freq': [],
+                'zone4_freq': []
+            }
+            
+            for idx, row in df_features.iterrows():
+                draw_numbers = [int(row[f'boule{i}']) for i in range(1, 21) if row[f'boule{i}'] > 0]
+                zone_features['zone1_count'].append(sum(1 for n in draw_numbers if 1 <= n <= 17))
+                zone_features['zone2_count'].append(sum(1 for n in draw_numbers if 18 <= n <= 35))
+                zone_features['zone3_count'].append(sum(1 for n in draw_numbers if 36 <= n <= 52))
+                zone_features['zone4_count'].append(sum(1 for n in draw_numbers if 53 <= n <= 70))
+                zone_features['zone1_freq'].append(0)
+                zone_features['zone2_freq'].append(0)
+                zone_features['zone3_freq'].append(0)
+                zone_features['zone4_freq'].append(0)
 
-            # Ajout des features statistiques directes
+            # Ajout des features de zones
+            for zone_name, zone_values in zone_features.items():
+                if len(zone_values) != len(df_features):
+                    zone_values = [0] * len(df_features)
+                df_features[zone_name] = zone_values
+
+            # AJOUT CRUCIAL: Features statistiques étendues comme à l'entraînement
             if self.stats:
                 stats_data = {
                     f'freq_recent_{num}': self.stats.frequences_recentes.get(num, 0)
@@ -1222,67 +1281,101 @@ class KenoGeneratorAdvanced:
                 })
                 stats_df = pd.DataFrame([stats_data], index=df_features.index)
                 df_features = pd.concat([df_features, stats_df], axis=1)
+            else:
+                # Créer des valeurs par défaut pour toutes les features statistiques
+                stats_data = {}
+                for num in range(1, 71):
+                    stats_data[f'freq_recent_{num}'] = 0
+                    stats_data[f'retard_{num}'] = 0
+                    stats_data[f'tendance_{num}'] = 1.0
+                stats_df = pd.DataFrame([stats_data], index=df_features.index)
+                df_features = pd.concat([df_features, stats_df], axis=1)
 
-            # Utilise la liste de features de l'entraînement
+            # Utiliser la liste de features de l'entraînement
             feature_cols = self.metadata.get('feature_names', [])
-            X = df_features[feature_cols].fillna(0)
 
-            # Prédit la probabilité pour chaque numéro de la grille
-            probas = model.predict_proba(X)
-            grid_score = np.mean([probas[i][0][1] for i in range(len(grid))])
+            # CORRECTION DÉFINITIVE: Ajouter toutes les colonnes manquantes avec 0.0
+            for c in feature_cols:
+                if c not in df_features.columns:
+                    df_features[c] = 0.0
+
+            # Supprimer les colonnes en trop et réordonner exactement comme à l'entraînement
+            df_features = df_features.loc[:, feature_cols]
+
+            # Vérification finale du nombre de features
+            if df_features.shape[1] != len(feature_cols):
+                self._log(f"⚠️  Mismatch: {df_features.shape[1]} features vs {len(feature_cols)} attendues", "ERROR")
+                scores.append((grid, 0.0))
+                continue
+
+            X_eval = df_features.fillna(0)
+            X_eval = X_eval.select_dtypes(include=[np.number])
+
+            # Normalisation des features
+            from sklearn.preprocessing import StandardScaler
+            scaler = StandardScaler()
+            X_eval_scaled = scaler.fit_transform(X_eval)
+
+            # Prédiction des probabilités pour tous les numéros
+            probabilities = model.predict_proba(X_eval_scaled)
+
+            # Calcul du score moyen de la grille
+            grid_score = 0.0
+            count = 0
+            for num in grid:
+                if 1 <= num <= KENO_PARAMS['total_numbers']:
+                    idx = num - 1  # Index 0-69 pour numéros 1-70
+                    if idx < len(probabilities):
+                        if len(probabilities[idx]) > 0 and len(probabilities[idx][0]) > 1:
+                            prob = probabilities[idx][0][1]
+                            grid_score += prob
+                            count += 1
+            
+            if count > 0:
+                grid_score /= count
+            
             scores.append((grid, grid_score))
+
         return scores
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Générateur avancé de grilles Keno\n"
-                    "Profils d'entraînement ML disponibles :\n"
-                    "  quick         - Ultra-rapide (faible précision)\n"
-                    "  balanced      - Équilibré (par défaut)\n"
-                    "  comprehensive - Complet (plus précis, plus lent)\n"
-                    "  intensive     - Intensif (max précision, très lent)"
-    )
-    parser.add_argument("--grids", type=int, default=40, help="Nombre de grilles à générer")
-    parser.add_argument("--profile", type=str, default="balanced",
-                        help="Profil d'entraînement ML (quick, balanced, comprehensive, intensive)")
-    parser.add_argument("--max-jobs", type=int, default=1, help="Nombre maximal de cœurs pour le training ML (1=mono, -1=auto)")
-    parser.add_argument("--report", action="store_true", help="Générer un rapport détaillé des grilles")
-    parser.add_argument("--save-top30-ml", action="store_true", help="Exporter le TOP 30 ML en CSV")
-    parser.add_argument("--update-retrain", action="store_true", help="Recharge les données et réentraîne le modèle ML")
-    parser.add_argument("--test-grids", action="store_true", help="Teste les grilles générées avec le modèle ML")
+    parser = argparse.ArgumentParser(description="Générateur avancé de grilles Keno")
+    parser.add_argument("--n", type=int, default=10, help="Nombre de grilles à générer")
+    parser.add_argument("--grids", type=int, help="Alias pour --n (nombre de grilles à générer)")
+    parser.add_argument("--size", type=int, default=10, choices=[7, 8, 9, 10], help="Taille des grilles (7 à 10 numéros)")
+    parser.add_argument("--profile", type=str, default="balanced", help="Profil d'entraînement ML (quick, balanced, comprehensive, intensive)")
+    parser.add_argument("--data", type=str, default=None, help="Chemin du fichier de données Keno")
+    parser.add_argument("--silent", action="store_true", help="Mode silencieux")
+    parser.add_argument("--retrain", action="store_true", help="Forcer le réentraînement du modèle ML")
+    parser.add_argument("--save-top30-ml", action="store_true", help="Sauvegarder le TOP 30 ML dans un CSV")
+    parser.add_argument("--test-grids", action="store_true", help="Évaluer les grilles générées avec le modèle ML")
     args = parser.parse_args()
-    # Patch le paramètre n_jobs dans get_training_params
-    def patched_get_training_params(profile: str) -> dict:
-        params = get_training_params(profile)
-        params['n_jobs'] = args.max_jobs
-        return params
-    KenoGeneratorAdvanced.get_training_params = staticmethod(patched_get_training_params)
-    generator = KenoGeneratorAdvanced(training_profile=args.profile)
-    generator.run_full_pipeline(num_grids=args.grids, profile=args.profile)
-    
-    grids = generator.generate_optimized_grids(num_grids=args.grids)
 
-# Sauvegarde des résultats
-generator.save_results(grids)
+    # Gestion de l'alias --grids
+    num_grids = args.grids if args.grids is not None else args.n
 
-# Option : exporter le TOP 30 ML
-if args.save_top30_ml:
-    generator.save_top30_ml_csv()
+    generator = KenoGeneratorAdvanced(
+        data_path=args.data,
+        silent=args.silent,
+        training_profile=args.profile,
+        grid_size=args.size
+    )
 
-# Option : générer le rapport détaillé
-if args.report:
-    report = generator.generate_report(grids)
-    report_path = generator.output_dir / "rapport_keno.md"
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write(report)
-    print(f"💾 Rapport détaillé sauvegardé : {report_path}")
+    if args.retrain:
+        generator.update_and_retrain()
+    else:
+        generator.run_full_pipeline(num_grids=num_grids, profile=args.profile)
 
-# Mise à jour et réentraînement du modèle ML
-if args.update_retrain:
-    generator.update_and_retrain()
+    grids = generator.generate_optimized_grids(num_grids=num_grids)
+    generator.save_results(grids)
 
-# Test des grilles générées avec le modèle ML
-if args.test_grids:
-    grid_scores = generator.evaluate_grids_with_model(grids)
-    for idx, (grid, score) in enumerate(grid_scores, 1):
-        print(f"Grille {idx}: {grid} | Score ML moyen: {score:.4f}")
+    if args.save_top30_ml:
+        generator.save_top30_ml_csv()
+
+    if args.test_grids:
+        grid_scores = generator.evaluate_grids_with_model(grids)
+        print("Scores des grilles générées :")
+        for i, score in enumerate(grid_scores, 1):
+            print(f"Grille {i}: {score}")
+
+    print(generator.generate_report(grids))
