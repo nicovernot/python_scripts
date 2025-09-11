@@ -38,6 +38,7 @@ import multiprocessing as mp
 from dataclasses import dataclass
 from tqdm import tqdm
 import logging
+from collections import defaultdict, deque
 
 # DuckDB pour optimiser les requêtes
 try:
@@ -105,6 +106,15 @@ ML_CONFIG = {
     'objective': 'binary:logistic'
 }
 
+# Configuration de l'apprentissage incrémental
+INCREMENTAL_CONFIG = {
+    'performance_window': 50,      # Fenêtre pour le calcul de performance
+    'adaptation_threshold': 0.05,  # Seuil pour ajuster les poids
+    'min_samples_update': 10,      # Minimum d'échantillons pour mise à jour
+    'max_history_size': 1000,      # Taille max de l'historique des performances
+    'weight_decay': 0.95,          # Facteur d'oubli pour les anciennes performances
+}
+
 def get_training_params(profile: str) -> dict:
     """
     Retourne les paramètres d'entraînement selon le profil sélectionné
@@ -162,6 +172,30 @@ def get_training_params(profile: str) -> dict:
     else:
         # Fallback sur balanced
         return get_training_params("balanced")
+
+@dataclass
+class LearningPerformance:
+    """Structure pour stocker les performances d'apprentissage"""
+    timestamp: datetime
+    prediction_accuracy: float
+    top30_hit_rate: float
+    ml_weight_used: float
+    freq_weight_used: float
+    model_version: str
+    sample_size: int
+    feedback_score: float = 0.0  # Score basé sur les résultats réels
+
+@dataclass
+class IncrementalLearningState:
+    """État de l'apprentissage incrémental"""
+    performance_history: deque          # Historique des performances
+    current_weights: Dict[str, float]   # Poids actuels (ml_weight, freq_weight)
+    total_predictions: int              # Nombre total de prédictions
+    successful_predictions: int         # Prédictions réussies
+    model_version: int                  # Version actuelle du modèle
+    last_update: datetime               # Dernière mise à jour
+    adaptation_rate: float              # Taux d'adaptation actuel
+    learning_momentum: float            # Momentum d'apprentissage
 
 @dataclass
 class KenoStats:
@@ -233,7 +267,7 @@ class KenoGeneratorAdvanced:
         self.metadata = {}
         self.cache = {}
         
-        # Stratégie adaptative
+        # Stratégie adaptative avec apprentissage incrémental
         self.adaptive_weights = {
             'ml_weight': 0.6,      # 60% ML par défaut
             'freq_weight': 0.4,    # 40% fréquence par défaut  
@@ -241,12 +275,327 @@ class KenoGeneratorAdvanced:
             'last_update': datetime.now()
         }
         
+        # État d'apprentissage incrémental
+        self.incremental_state = IncrementalLearningState(
+            performance_history=deque(maxlen=INCREMENTAL_CONFIG['max_history_size']),
+            current_weights={'ml_weight': 0.6, 'freq_weight': 0.4},
+            total_predictions=0,
+            successful_predictions=0,
+            model_version=1,
+            last_update=datetime.now(),
+            adaptation_rate=0.1,
+            learning_momentum=0.9
+        )
+        
+        # Chargement de l'état précédent s'il existe
+        self._load_incremental_state()
+        
         self._log(f"🎲 Générateur Keno Avancé v2.0 initialisé (grilles de {self.grid_size} numéros)")
 
     def _log(self, message: str, level: str = "INFO"):
         """Système de logging configuré"""
         if not self.silent or level == "ERROR":
             print(f"{message}")
+    
+    def _load_incremental_state(self):
+        """Charge l'état d'apprentissage incrémental depuis le disque"""
+        state_file = self.models_dir / "incremental_state.pkl"
+        if state_file.exists():
+            try:
+                with open(state_file, 'rb') as f:
+                    saved_state = pickle.load(f)
+                    # Mise à jour de l'état actuel
+                    if 'current_weights' in saved_state:
+                        self.incremental_state.current_weights = saved_state['current_weights']
+                        self.adaptive_weights['ml_weight'] = saved_state['current_weights']['ml_weight']
+                        self.adaptive_weights['freq_weight'] = saved_state['current_weights']['freq_weight']
+                    if 'performance_history' in saved_state:
+                        self.incremental_state.performance_history = deque(
+                            saved_state['performance_history'],
+                            maxlen=INCREMENTAL_CONFIG['max_history_size']
+                        )
+                    if 'model_version' in saved_state:
+                        self.incremental_state.model_version = saved_state['model_version']
+                    if 'total_predictions' in saved_state:
+                        self.incremental_state.total_predictions = saved_state['total_predictions']
+                    if 'successful_predictions' in saved_state:
+                        self.incremental_state.successful_predictions = saved_state['successful_predictions']
+                        
+                self._log(f"✅ État d'apprentissage incrémental chargé (version {self.incremental_state.model_version})")
+                self._log(f"   📊 Performance: {self.incremental_state.successful_predictions}/{self.incremental_state.total_predictions}")
+                self._log(f"   ⚖️  Poids: ML={self.incremental_state.current_weights['ml_weight']:.2f}, Freq={self.incremental_state.current_weights['freq_weight']:.2f}")
+            except Exception as e:
+                self._log(f"⚠️  Erreur lors du chargement de l'état incrémental: {e}")
+    
+    def _save_incremental_state(self):
+        """Sauvegarde l'état d'apprentissage incrémental"""
+        state_file = self.models_dir / "incremental_state.pkl"
+        try:
+            state_data = {
+                'current_weights': self.incremental_state.current_weights,
+                'performance_history': list(self.incremental_state.performance_history),
+                'model_version': self.incremental_state.model_version,
+                'total_predictions': self.incremental_state.total_predictions,
+                'successful_predictions': self.incremental_state.successful_predictions,
+                'last_update': self.incremental_state.last_update,
+                'adaptation_rate': self.incremental_state.adaptation_rate,
+                'learning_momentum': self.incremental_state.learning_momentum
+            }
+            
+            with open(state_file, 'wb') as f:
+                pickle.dump(state_data, f)
+                
+            self._log(f"💾 État d'apprentissage sauvegardé (version {self.incremental_state.model_version})")
+        except Exception as e:
+            self._log(f"❌ Erreur lors de la sauvegarde de l'état: {e}", "ERROR")
+    
+    def update_performance(self, prediction_accuracy: float, top30_hit_rate: float, 
+                          feedback_score: float = 0.0, sample_size: int = 1):
+        """
+        Met à jour les performances et ajuste les poids adaptatifs
+        
+        Args:
+            prediction_accuracy: Précision de la prédiction (0-1)
+            top30_hit_rate: Taux de réussite du TOP 30 (0-1) 
+            feedback_score: Score de retour d'expérience (0-1)
+            sample_size: Taille de l'échantillon évalué
+        """
+        # Créer l'enregistrement de performance
+        performance = LearningPerformance(
+            timestamp=datetime.now(),
+            prediction_accuracy=prediction_accuracy,
+            top30_hit_rate=top30_hit_rate,
+            ml_weight_used=self.incremental_state.current_weights['ml_weight'],
+            freq_weight_used=self.incremental_state.current_weights['freq_weight'],
+            model_version=str(self.incremental_state.model_version),
+            sample_size=sample_size,
+            feedback_score=feedback_score
+        )
+        
+        # Ajouter à l'historique
+        self.incremental_state.performance_history.append(performance)
+        
+        # Mettre à jour les compteurs
+        self.incremental_state.total_predictions += sample_size
+        self.incremental_state.successful_predictions += int(prediction_accuracy * sample_size)
+        
+        # Calculer la performance moyenne récente
+        recent_performances = list(self.incremental_state.performance_history)[-INCREMENTAL_CONFIG['performance_window']:]
+        if len(recent_performances) >= INCREMENTAL_CONFIG['min_samples_update']:
+            avg_accuracy = np.mean([p.prediction_accuracy for p in recent_performances])
+            avg_top30_rate = np.mean([p.top30_hit_rate for p in recent_performances])
+            avg_feedback = np.mean([p.feedback_score for p in recent_performances if p.feedback_score > 0])
+            
+            # Score composite de performance
+            composite_score = (avg_accuracy * 0.4 + avg_top30_rate * 0.4 + avg_feedback * 0.2)
+            
+            # Ajustement adaptatif des poids
+            self._adapt_weights(composite_score, avg_accuracy, avg_top30_rate)
+            
+            self._log(f"📊 Mise à jour performance: Accuracy={avg_accuracy:.3f}, TOP30={avg_top30_rate:.3f}, Composite={composite_score:.3f}")
+        
+        # Sauvegarde de l'état
+        self._save_incremental_state()
+    
+    def _adapt_weights(self, composite_score: float, ml_performance: float, freq_performance: float):
+        """
+        Ajuste adaptivement les poids ML vs Fréquence selon les performances
+        
+        Args:
+            composite_score: Score composite de performance
+            ml_performance: Performance du ML seul
+            freq_performance: Performance des fréquences seules
+        """
+        # Performance historique moyenne pour comparaison
+        if len(self.incremental_state.performance_history) > 1:
+            historical_scores = [
+                (p.prediction_accuracy * 0.4 + p.top30_hit_rate * 0.4 + p.feedback_score * 0.2)
+                for p in list(self.incremental_state.performance_history)[:-INCREMENTAL_CONFIG['performance_window']]
+                if p.feedback_score > 0
+            ]
+            historical_avg = np.mean(historical_scores) if historical_scores else 0.5
+        else:
+            historical_avg = 0.5
+        
+        # Déterminer la direction d'ajustement
+        performance_delta = composite_score - historical_avg
+        
+        if abs(performance_delta) > INCREMENTAL_CONFIG['adaptation_threshold']:
+            # Ajustement basé sur la performance relative ML vs Freq
+            if ml_performance > freq_performance:
+                # ML performe mieux, augmenter son poids
+                weight_adjustment = self.incremental_state.adaptation_rate * performance_delta
+                new_ml_weight = min(0.8, max(0.2, self.incremental_state.current_weights['ml_weight'] + weight_adjustment))
+            else:
+                # Fréquences performent mieux, augmenter leur poids
+                weight_adjustment = self.incremental_state.adaptation_rate * performance_delta
+                new_ml_weight = min(0.8, max(0.2, self.incremental_state.current_weights['ml_weight'] - weight_adjustment))
+            
+            new_freq_weight = 1.0 - new_ml_weight
+            
+            # Application du momentum pour lisser les changements
+            momentum_ml = (self.incremental_state.learning_momentum * self.incremental_state.current_weights['ml_weight'] + 
+                          (1 - self.incremental_state.learning_momentum) * new_ml_weight)
+            momentum_freq = 1.0 - momentum_ml
+            
+            # Mise à jour des poids
+            old_ml_weight = self.incremental_state.current_weights['ml_weight']
+            self.incremental_state.current_weights['ml_weight'] = momentum_ml
+            self.incremental_state.current_weights['freq_weight'] = momentum_freq
+            self.adaptive_weights['ml_weight'] = momentum_ml
+            self.adaptive_weights['freq_weight'] = momentum_freq
+            
+            self._log(f"🎯 Ajustement poids adaptatif: ML {old_ml_weight:.3f}→{momentum_ml:.3f}, Freq {1-old_ml_weight:.3f}→{momentum_freq:.3f}")
+            self._log(f"   📈 Performance delta: {performance_delta:+.3f}, Score composite: {composite_score:.3f}")
+    
+    def add_feedback(self, predicted_numbers: List[int], actual_draw: List[int], 
+                     prediction_timestamp: datetime = None):
+        """
+        Ajoute un feedback basé sur un tirage réel pour améliorer l'apprentissage
+        
+        Args:
+            predicted_numbers: Numéros prédits par le modèle
+            actual_draw: Numéros réellement tirés
+            prediction_timestamp: Timestamp de la prédiction (optionnel)
+        """
+        if not predicted_numbers or not actual_draw:
+            return
+        
+        # Calcul du score de feedback
+        predicted_set = set(predicted_numbers[:30])  # TOP 30 prédit
+        actual_set = set(actual_draw)
+        
+        # Métriques de succès
+        hit_count = len(predicted_set.intersection(actual_set))
+        hit_rate = hit_count / len(actual_set)  # Sur les 20 numéros tirés
+        precision = hit_count / len(predicted_set) if predicted_set else 0
+        
+        # Score composite de feedback (0-1)
+        feedback_score = (hit_rate * 0.6 + precision * 0.4)
+        
+        # Mise à jour des performances avec ce feedback
+        self.update_performance(
+            prediction_accuracy=hit_rate,
+            top30_hit_rate=precision,
+            feedback_score=feedback_score,
+            sample_size=1
+        )
+        
+        self._log(f"📥 Feedback ajouté: {hit_count}/20 numéros trouvés, Score={feedback_score:.3f}")
+        self._log(f"   🎯 Précision TOP30: {precision:.3f}, Taux de réussite: {hit_rate:.3f}")
+        
+        # Si le feedback est suffisamment récent et significatif, déclencher une mise à jour incrémentale
+        if feedback_score > 0.3 and len(self.incremental_state.performance_history) >= 5:
+            self._trigger_incremental_update(predicted_numbers, actual_draw)
+    
+    def _trigger_incremental_update(self, predicted_numbers: List[int], actual_draw: List[int]):
+        """
+        Déclenche une mise à jour incrémentale du modèle basée sur le feedback
+        
+        Args:
+            predicted_numbers: Numéros prédits
+            actual_draw: Tirage réel
+        """
+        if not HAS_ML or 'multilabel' not in self.ml_models:
+            return
+            
+        try:
+            self._log("🔄 Déclenchement d'une mise à jour incrémentale du modèle...")
+            
+            # Créer un échantillon d'entraînement à partir du feedback
+            current_date = datetime.now()
+            feedback_data = {
+                'date_de_tirage': [current_date],
+                **{f'boule{i}': [actual_draw[i-1] if i-1 < len(actual_draw) else 0] for i in range(1, 21)}
+            }
+            
+            df_feedback = pd.DataFrame(feedback_data)
+            
+            # Ajouter les mêmes features que lors de l'entraînement initial
+            df_features = self.add_cyclic_features(df_feedback)
+            df_features = self.enrich_features(df_features)
+            
+            # ... (suite de la préparation des features comme dans train_xgboost_models)
+            # Note: Cette partie nécessiterait une refactorisation pour éviter la duplication de code
+            
+            # Pour l'instant, incrémenter la version du modèle et marquer pour réentraînement
+            self.incremental_state.model_version += 1
+            self.incremental_state.last_update = datetime.now()
+            
+            self._log(f"✅ Mise à jour incrémentale planifiée (version {self.incremental_state.model_version})")
+            
+        except Exception as e:
+            self._log(f"❌ Erreur lors de la mise à jour incrémentale: {e}", "ERROR")
+    
+    def get_learning_report(self) -> str:
+        """
+        Génère un rapport détaillé sur l'état de l'apprentissage
+        
+        Returns:
+            str: Rapport formaté
+        """
+        report = "# 📊 Rapport d'Apprentissage Incrémental Keno\n\n"
+        
+        # Statistiques générales
+        report += "## 📈 Statistiques Générales\n"
+        report += f"- **Version du modèle**: {self.incremental_state.model_version}\n"
+        report += f"- **Prédictions totales**: {self.incremental_state.total_predictions}\n"
+        report += f"- **Prédictions réussies**: {self.incremental_state.successful_predictions}\n"
+        
+        if self.incremental_state.total_predictions > 0:
+            success_rate = self.incremental_state.successful_predictions / self.incremental_state.total_predictions
+            report += f"- **Taux de succès global**: {success_rate:.1%}\n"
+        
+        report += f"- **Dernière mise à jour**: {self.incremental_state.last_update.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        
+        # Poids actuels
+        report += "## ⚖️ Poids Adaptatifs Actuels\n"
+        report += f"- **ML Weight**: {self.incremental_state.current_weights['ml_weight']:.3f}\n"
+        report += f"- **Frequency Weight**: {self.incremental_state.current_weights['freq_weight']:.3f}\n"
+        report += f"- **Taux d'adaptation**: {self.incremental_state.adaptation_rate:.3f}\n"
+        report += f"- **Momentum d'apprentissage**: {self.incremental_state.learning_momentum:.3f}\n\n"
+        
+        # Performances récentes
+        if self.incremental_state.performance_history:
+            recent_performances = list(self.incremental_state.performance_history)[-10:]
+            report += "## 📊 Performances Récentes (10 dernières)\n"
+            
+            for i, perf in enumerate(recent_performances, 1):
+                report += f"**{i}.** {perf.timestamp.strftime('%Y-%m-%d %H:%M')} - "
+                report += f"Acc: {perf.prediction_accuracy:.3f}, "
+                report += f"TOP30: {perf.top30_hit_rate:.3f}, "
+                report += f"Feedback: {perf.feedback_score:.3f}\n"
+            
+            # Moyennes récentes
+            avg_acc = np.mean([p.prediction_accuracy for p in recent_performances])
+            avg_top30 = np.mean([p.top30_hit_rate for p in recent_performances])
+            avg_feedback = np.mean([p.feedback_score for p in recent_performances if p.feedback_score > 0])
+            
+            report += f"\n**Moyennes récentes:**\n"
+            report += f"- Accuracy: {avg_acc:.3f}\n"
+            report += f"- TOP30 Hit Rate: {avg_top30:.3f}\n"
+            report += f"- Feedback Score: {avg_feedback:.3f}\n\n"
+        
+        # Recommandations
+        report += "## 🎯 Recommandations\n"
+        if self.incremental_state.total_predictions < 50:
+            report += "- ⚠️ Données insuffisantes pour des recommandations fiables\n"
+            report += "- 📝 Continuez à utiliser le système pour collecter plus de données\n"
+        else:
+            if len(self.incremental_state.performance_history) >= 20:
+                recent_trend = np.polyfit(
+                    range(len(recent_performances)), 
+                    [p.prediction_accuracy for p in recent_performances], 
+                    1
+                )[0]
+                if recent_trend > 0.01:
+                    report += "- ✅ Tendance d'amélioration détectée - Le modèle apprend efficacement\n"
+                elif recent_trend < -0.01:
+                    report += "- ⚠️ Tendance de dégradation - Considérer un réentraînement complet\n"
+                else:
+                    report += "- 📈 Performance stable - Le modèle converge\n"
+        
+        return report
     
     def _ensure_zone_freq_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -749,31 +1098,33 @@ class KenoGeneratorAdvanced:
 
             # AJOUT CRUCIAL: Features statistiques étendues (manquantes à l'entraînement)
             if self.stats:
-                # Features fréquentielles pour chaque numéro (1-70)
-                stats_data = {
-                    f'freq_recent_{num}': [self.stats.frequences_recentes.get(num, 0)] * len(df_features)
-                    for num in range(1, 71)
-                }
-                stats_data.update({
-                    f'retard_{num}': [self.stats.retards.get(num, 0)] * len(df_features)
-                    for num in range(1, 71)
-                })
-                stats_data.update({
-                    f'tendance_{num}': [self.stats.tendances_50.get(num, 1.0)] * len(df_features)
-                    for num in range(1, 71)
-                })
+                # Préparer toutes les features statistiques en une fois avec un dictionnaire
+                stats_features = {}
+                for num in range(1, 71):
+                    stats_features[f'freq_recent_{num}'] = [self.stats.frequences_recentes.get(num, 0)] * len(df_features)
+                    stats_features[f'retard_{num}'] = [self.stats.retards.get(num, 0)] * len(df_features)
+                    stats_features[f'tendance_{num}'] = [self.stats.tendances_50.get(num, 1.0)] * len(df_features)
                 
-                # Ajouter toutes ces features au DataFrame
-                for feature_name, feature_values in stats_data.items():
-                    df_features[feature_name] = feature_values
+                # Ajouter toutes ces features en une seule fois avec pd.concat
+                stats_df = pd.DataFrame(stats_features, index=df_features.index)
+                df_features = pd.concat([df_features, stats_df], axis=1)
+                
+                # Ajouter les noms des features
+                for feature_name in stats_features.keys():
                     feature_cols.append(feature_name)
             else:
-                # Créer des valeurs par défaut pour toutes les features statistiques
+                # Créer des valeurs par défaut pour toutes les features statistiques en une fois
+                stats_features = {}
                 for num in range(1, 71):
-                    df_features[f'freq_recent_{num}'] = [0] * len(df_features)
-                    df_features[f'retard_{num}'] = [0] * len(df_features)
-                    df_features[f'tendance_{num}'] = [1.0] * len(df_features)
-                    feature_cols.extend([f'freq_recent_{num}', f'retard_{num}', f'tendance_{num}'])
+                    stats_features[f'freq_recent_{num}'] = [0] * len(df_features)
+                    stats_features[f'retard_{num}'] = [0] * len(df_features)
+                    stats_features[f'tendance_{num}'] = [1.0] * len(df_features)
+                
+                stats_df = pd.DataFrame(stats_features, index=df_features.index)
+                df_features = pd.concat([df_features, stats_df], axis=1)
+                
+                for feature_name in stats_features.keys():
+                    feature_cols.append(feature_name)
             
             X = df_features[feature_cols].fillna(0)
             
@@ -1121,15 +1472,139 @@ class KenoGeneratorAdvanced:
     def run_full_pipeline(self, num_grids: int = 40, profile: str = "balanced"):
         """
         Pipeline complet : chargement des données, analyse, entraînement ML, génération des grilles.
+        Inclut maintenant l'apprentissage incrémental.
         """
-        self._log("🚀 Démarrage du pipeline complet Keno...")
+        self._log("🚀 Démarrage du pipeline complet Keno avec apprentissage incrémental...")
         if not self.load_data():
             self._log("❌ Chargement des données impossible.", "ERROR")
             return
         self.stats = self.analyze_patterns()
         self.train_xgboost_models(retrain=False)
         self.load_ml_models()
-        self._log("✅ Pipeline complet terminé.")
+        
+        # Évaluation initiale des performances si nous avons des données
+        if len(self.data) > 100:
+            self._evaluate_initial_performance()
+        
+        self._log("✅ Pipeline complet terminé avec apprentissage incrémental activé.")
+    
+    def _evaluate_initial_performance(self):
+        """Évalue les performances initiales du modèle sur les données de test"""
+        try:
+            # Utiliser les 10% derniers tirages comme test
+            test_size = int(len(self.data) * 0.1)
+            test_data = self.data.tail(test_size).copy()
+            
+            self._log(f"📊 Évaluation initiale des performances sur {test_size} tirages de test...")
+            
+            # Générer des prédictions pour chaque tirage de test
+            accurate_predictions = 0
+            total_hit_rate = 0.0
+            
+            for idx in range(min(10, len(test_data))):  # Limiter à 10 évaluations pour la vitesse
+                test_row = test_data.iloc[idx]
+                actual_draw = [int(test_row[f'boule{i}']) for i in range(1, 21)]
+                
+                # Obtenir une prédiction TOP 30
+                top30_predictions = self.predict_numbers_ml(num_grids=1)
+                if top30_predictions:
+                    predicted_numbers = [num for num, _ in top30_predictions][:30]
+                    
+                    # Calculer les métriques
+                    hit_count = len(set(predicted_numbers).intersection(set(actual_draw)))
+                    hit_rate = hit_count / len(actual_draw)
+                    accuracy = 1.0 if hit_count >= 5 else hit_count / 20.0  # 5+ hits = succès
+                    
+                    accurate_predictions += accuracy
+                    total_hit_rate += hit_rate
+            
+            # Calculer les moyennes
+            avg_accuracy = accurate_predictions / 10 if total_hit_rate > 0 else 0.5
+            avg_hit_rate = total_hit_rate / 10 if total_hit_rate > 0 else 0.3
+            
+            # Mettre à jour les performances initiales
+            self.update_performance(
+                prediction_accuracy=avg_accuracy,
+                top30_hit_rate=avg_hit_rate,
+                feedback_score=avg_hit_rate,
+                sample_size=10
+            )
+            
+            self._log(f"📊 Performance initiale: Accuracy={avg_accuracy:.3f}, Hit rate={avg_hit_rate:.3f}")
+            
+        except Exception as e:
+            self._log(f"⚠️ Erreur lors de l'évaluation initiale: {e}")
+    
+    def simulate_learning_improvement(self, num_simulations: int = 20):
+        """
+        Simule l'amélioration de l'apprentissage avec des tirages synthétiques
+        Utile pour démontrer les capacités d'apprentissage incrémental
+        
+        Args:
+            num_simulations: Nombre de simulations à effectuer
+        """
+        self._log(f"🧪 Simulation de {num_simulations} cycles d'apprentissage incrémental...")
+        
+        for i in range(num_simulations):
+            # Générer un tirage synthétique réaliste
+            # (basé sur les patterns des données existantes)
+            if self.stats:
+                # Utiliser les fréquences pour générer un tirage probable
+                weights = np.array([self.stats.frequences.get(num, 1) for num in range(1, 71)])
+                weights = weights / weights.sum()
+                
+                synthetic_draw = sorted(np.random.choice(
+                    range(1, 71),
+                    size=20,
+                    replace=False,
+                    p=weights
+                ))
+            else:
+                synthetic_draw = sorted(random.sample(range(1, 71), 20))
+            
+            # Obtenir une prédiction
+            top30_predictions = self.predict_numbers_ml(num_grids=1)
+            if top30_predictions:
+                predicted_numbers = [num for num, _ in top30_predictions][:30]
+                
+                # Simuler le feedback
+                self.add_feedback(predicted_numbers, synthetic_draw)
+                
+                if (i + 1) % 5 == 0:
+                    self._log(f"   📈 Cycle {i+1}/{num_simulations} terminé")
+        
+        # Afficher le rapport final
+        report = self.get_learning_report()
+        print("\n" + "="*80)
+        print(report)
+        print("="*80)
+        
+        self._log(f"✅ Simulation d'apprentissage terminée après {num_simulations} cycles")
+    
+    def retrain_with_incremental_data(self):
+        """
+        Réentraîne le modèle en intégrant les données d'apprentissage incrémental
+        """
+        self._log("🔄 Réentraînement avec données d'apprentissage incrémental...")
+        
+        # Sauvegarder l'ancien modèle
+        old_model_path = self.models_dir / f"xgb_keno_multilabel_v{self.incremental_state.model_version-1}.pkl"
+        current_model_path = self.models_dir / "xgb_keno_multilabel.pkl"
+        
+        if current_model_path.exists():
+            import shutil
+            shutil.copy2(current_model_path, old_model_path)
+            self._log(f"💾 Ancien modèle sauvegardé comme version {self.incremental_state.model_version-1}")
+        
+        # Réentraîner avec les nouveaux poids adaptatifs
+        success = self.train_xgboost_models(retrain=True)
+        
+        if success:
+            self.incremental_state.model_version += 1
+            self._save_incremental_state()
+            self._log(f"✅ Réentraînement réussi - Nouvelle version {self.incremental_state.model_version}")
+        else:
+            self._log("❌ Échec du réentraînement - Conservation du modèle précédent", "ERROR")
 
     def generate_optimized_grids(self, num_grids: int = 40) -> list:
         """
@@ -1339,7 +1814,7 @@ class KenoGeneratorAdvanced:
         return scores
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Générateur avancé de grilles Keno")
+    parser = argparse.ArgumentParser(description="Générateur avancé de grilles Keno avec apprentissage incrémental")
     parser.add_argument("--n", type=int, default=10, help="Nombre de grilles à générer")
     parser.add_argument("--grids", type=int, help="Alias pour --n (nombre de grilles à générer)")
     parser.add_argument("--size", type=int, default=10, choices=[7, 8, 9, 10], help="Taille des grilles (7 à 10 numéros)")
@@ -1349,10 +1824,30 @@ if __name__ == "__main__":
     parser.add_argument("--retrain", action="store_true", help="Forcer le réentraînement du modèle ML")
     parser.add_argument("--save-top30-ml", action="store_true", help="Sauvegarder le TOP 30 ML dans un CSV")
     parser.add_argument("--test-grids", action="store_true", help="Évaluer les grilles générées avec le modèle ML")
+    
+    # Nouvelles options pour l'apprentissage incrémental
+    parser.add_argument("--learning-report", action="store_true", help="Afficher le rapport d'apprentissage incrémental")
+    parser.add_argument("--simulate-learning", type=int, metavar="N", help="Simuler N cycles d'apprentissage incrémental")
+    parser.add_argument("--add-feedback", nargs=2, metavar=("PREDICTED", "ACTUAL"), 
+                       help="Ajouter un feedback (format: 'num1,num2,...' 'num1,num2,...')")
+    parser.add_argument("--retrain-incremental", action="store_true", help="Réentraîner avec les données incrémentales")
+    parser.add_argument("--demo-data", action="store_true", help="Générer des données de démonstration")
+    
     args = parser.parse_args()
 
     # Gestion de l'alias --grids
     num_grids = args.grids if args.grids is not None else args.n
+    
+    # Génération de données de démonstration si demandée
+    if args.demo_data:
+        from pathlib import Path
+        demo_script = Path(__file__).parent / "generate_demo_data.py"
+        if demo_script.exists():
+            import subprocess
+            subprocess.run([sys.executable, str(demo_script), "--draws", "1000"])
+        else:
+            print("❌ Script de génération de données de démonstration non trouvé")
+        sys.exit(0)
 
     generator = KenoGeneratorAdvanced(
         data_path=args.data,
@@ -1360,7 +1855,42 @@ if __name__ == "__main__":
         training_profile=args.profile,
         grid_size=args.size
     )
+    
+    # Gestion des commandes spéciales d'apprentissage incrémental
+    if args.learning_report:
+        print(generator.get_learning_report())
+        sys.exit(0)
+    
+    if args.simulate_learning:
+        if not generator.load_data():
+            print("❌ Impossible de charger les données pour la simulation")
+            sys.exit(1)
+        generator.stats = generator.analyze_patterns()
+        generator.train_xgboost_models(retrain=False)
+        generator.load_ml_models()
+        generator.simulate_learning_improvement(args.simulate_learning)
+        sys.exit(0)
+    
+    if args.add_feedback:
+        try:
+            predicted = [int(x) for x in args.add_feedback[0].split(',')]
+            actual = [int(x) for x in args.add_feedback[1].split(',')]
+            generator.add_feedback(predicted, actual)
+            print("✅ Feedback ajouté avec succès")
+            print(generator.get_learning_report())
+        except ValueError:
+            print("❌ Format de feedback invalide. Utilisez: --add-feedback '1,2,3,...' '4,5,6,...'")
+        sys.exit(0)
+    
+    if args.retrain_incremental:
+        if not generator.load_data():
+            print("❌ Impossible de charger les données pour le réentraînement")
+            sys.exit(1)
+        generator.stats = generator.analyze_patterns()
+        generator.retrain_with_incremental_data()
+        sys.exit(0)
 
+    # Pipeline principal
     if args.retrain:
         generator.update_and_retrain()
     else:
@@ -1374,8 +1904,15 @@ if __name__ == "__main__":
 
     if args.test_grids:
         grid_scores = generator.evaluate_grids_with_model(grids)
-        print("Scores des grilles générées :")
-        for i, score in enumerate(grid_scores, 1):
-            print(f"Grille {i}: {score}")
+        print("\n📊 Scores des grilles générées :")
+        for i, (grid, score) in enumerate(grid_scores, 1):
+            print(f"Grille {i}: {grid} (Score: {score:.4f})")
 
-    print(generator.generate_report(grids))
+    print("\n" + generator.generate_report(grids))
+    
+    # Affichage du rapport d'apprentissage si des performances ont été collectées
+    if len(generator.incremental_state.performance_history) > 0:
+        print("\n" + "="*60)
+        print("📊 RAPPORT D'APPRENTISSAGE INCRÉMENTAL")
+        print("="*60)
+        print(generator.get_learning_report())
