@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Générateur Loto / EuroMillion</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Orbitron', monospace;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Particules de fond animées */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at 20% 80%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
+                  radial-gradient(circle at 80% 20%, rgba(255, 215, 0, 0.1) 0%, transparent 50%);
+      animation: drift 20s ease-in-out infinite alternate;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    @keyframes drift {
+      0% { transform: rotate(0deg) scale(1); }
+      100% { transform: rotate(360deg) scale(1.1); }
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 3rem;
+      font-weight: 900;
+      background: linear-gradient(45deg, #ffd700, #ff6b6b, #4ecdc4, #45b7d1);
+      background-size: 400% 400%;
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: gradientShift 3s ease-in-out infinite, glow 2s ease-in-out infinite alternate;
+      text-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+      margin: 20px 0;
+      position: relative;
+    }
+
+    @keyframes gradientShift {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    @keyframes glow {
+      from { filter: drop-shadow(0 0 20px rgba(255, 215, 0, 0.7)); }
+      to { filter: drop-shadow(0 0 30px rgba(255, 100, 100, 0.9)); }
+    }
+
+    .controls {
+      margin: 30px 0;
+      text-align: center;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .input-group {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    label {
+      color: white;
+      font-weight: bold;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      font-size: 1.1rem;
+    }
+
+    input {
+      padding: 12px 15px;
+      width: 80px;
+      text-align: center;
+      border: none;
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(10px);
+      color: white;
+      font-size: 1.2rem;
+      font-weight: bold;
+      transition: all 0.3s ease;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    }
+
+    input:focus {
+      outline: none;
+      transform: scale(1.05);
+      background: rgba(255, 255, 255, 0.25);
+      box-shadow: 0 0 25px rgba(255, 215, 0, 0.6);
+    }
+
+    .generate-btn {
+      padding: 15px 30px;
+      font-size: 1.3rem;
+      font-weight: bold;
+      border: none;
+      border-radius: 25px;
+      background: linear-gradient(45deg, #ff6b6b, #ffd700, #4ecdc4);
+      background-size: 300% 300%;
+      color: white;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      position: relative;
+      overflow: hidden;
+      animation: btnGradient 3s ease-in-out infinite;
+    }
+
+    @keyframes btnGradient {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    .generate-btn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+      transition: left 0.5s;
+    }
+
+    .generate-btn:hover {
+      transform: translateY(-3px) scale(1.05);
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+    }
+
+    .generate-btn:hover::before {
+      left: 100%;
+    }
+
+    .game-selector {
+      margin: 20px 0;
+      text-align: center;
+    }
+
+    .game-btn {
+      padding: 10px 20px;
+      margin: 0 10px;
+      border: none;
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .game-btn.active {
+      background: linear-gradient(45deg, #ffd700, #ff6b6b);
+      box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+    }
+
+    .grilles {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 30px;
+      margin: 40px 0;
+      padding: 0 20px;
+    }
+
+    .grille {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(15px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 20px;
+      padding: 25px;
+      text-align: center;
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+      transition: all 0.4s ease;
+      position: relative;
+      overflow: hidden;
+      animation: slideIn 0.6s ease-out;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(50px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .grille::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: conic-gradient(from 0deg, transparent, rgba(255, 215, 0, 0.1), transparent);
+      animation: rotate 4s linear infinite;
+      pointer-events: none;
+    }
+
+    @keyframes rotate {
+      100% { transform: rotate(360deg); }
+    }
+
+    .grille:hover {
+      transform: translateY(-10px) scale(1.02);
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+    }
+
+    .grille-title {
+      color: #ffd700;
+      font-size: 1.2rem;
+      font-weight: bold;
+      margin-bottom: 15px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .boule {
+      display: inline-block;
+      margin: 8px;
+      width: 50px;
+      height: 50px;
+      line-height: 50px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      font-weight: bold;
+      font-size: 1.1rem;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3), inset 0 2px 4px rgba(255, 255, 255, 0.2);
+      transition: all 0.3s ease;
+      position: relative;
+      animation: bounceIn 0.6s ease-out;
+    }
+
+    @keyframes bounceIn {
+      0% {
+        opacity: 0;
+        transform: scale(0.3) rotate(180deg);
+      }
+      50% {
+        transform: scale(1.1) rotate(90deg);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1) rotate(0deg);
+      }
+    }
+
+    .boule::before {
+      content: '';
+      position: absolute;
+      top: 15%;
+      left: 20%;
+      width: 30%;
+      height: 30%;
+      border-radius: 50%;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.6), transparent);
+    }
+
+    .boule:hover {
+      transform: scale(1.2) rotate(10deg);
+      box-shadow: 0 12px 25px rgba(0, 0, 0, 0.4);
+    }
+
+    .reco {
+      background: linear-gradient(135deg, #ffd700, #ff6b6b);
+      animation: pulse 2s ease-in-out infinite, sparkle 3s linear infinite;
+      box-shadow: 0 0 25px rgba(255, 215, 0, 0.7), 0 8px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+    }
+
+    @keyframes sparkle {
+      0%, 100% { box-shadow: 0 0 25px rgba(255, 215, 0, 0.7), 0 8px 20px rgba(0, 0, 0, 0.3); }
+      50% { box-shadow: 0 0 40px rgba(255, 100, 100, 0.9), 0 8px 20px rgba(0, 0, 0, 0.3); }
+    }
+
+    .debug, .validation {
+      margin: 20px;
+      padding: 20px;
+      border-radius: 15px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.3s ease;
+    }
+
+    .debug {
+      background: rgba(0, 0, 0, 0.4);
+      color: #00ff88;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem;
+      max-height: 250px;
+      overflow-y: auto;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+    }
+
+    .validation {
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      font-size: 1rem;
+    }
+
+    .validation .ok {
+      color: #00ff88;
+      font-weight: bold;
+      text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+    }
+
+    .validation .fail {
+      color: #ff6b6b;
+      font-weight: bold;
+      text-shadow: 0 0 10px rgba(255, 107, 107, 0.5);
+    }
+
+    /* Scrollbar personnalisée */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: linear-gradient(45deg, #667eea, #764ba2);
+      border-radius: 10px;
+    }
+
+    /* Animation d'entrée pour les nouvelles grilles */
+    .grille.new {
+      animation: newGridAnimation 0.8s ease-out;
+    }
+
+    @keyframes newGridAnimation {
+      0% {
+        opacity: 0;
+        transform: rotateY(90deg) scale(0.5);
+      }
+      50% {
+        opacity: 0.7;
+        transform: rotateY(45deg) scale(0.8);
+      }
+      100% {
+        opacity: 1;
+        transform: rotateY(0deg) scale(1);
+      }
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+      h1 {
+        font-size: 2rem;
+      }
+      
+      .controls {
+        flex-direction: column;
+        gap: 15px;
+      }
+      
+      .grilles {
+        grid-template-columns: 1fr;
+        gap: 20px;
+      }
+      
+      .boule {
+        width: 45px;
+        height: 45px;
+        line-height: 45px;
+        margin: 5px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 id="page-title">✨ Générateur Magique ✨</h1>
+
+    <div class="game-selector">
+      <button class="game-btn active" id="grille-loto" onclick="selectGame('loto')">🎱 Loto</button>
+      <button class="game-btn" id="grille-euromillion" onclick="selectGame('euromillion')">🌟 EuroMillion</button>
+    </div>
+
+    <div class="controls">
+      <div class="input-group">
+        <label>🎯 Numéro conseillé 1 :</label>
+        <input type="number" id="sug-1" min="1" max="49">
+      </div>
+      <div class="input-group">
+        <label>🎯 Numéro conseillé 2 :</label>
+        <input type="number" id="sug-2" min="1" max="49">
+      </div>
+      <button class="generate-btn" onclick="genererGrilles()">🎲 Générer 4 grilles magiques</button>
+    </div>
+
+    <div class="grilles" id="grilles"></div>
+
+    <div class="debug" id="debug"></div>
+    <div class="validation" id="validation"></div>
+  </div>
+
+<script>
+// Configuration des jeux
+const jeux = {
+  loto: {
+    name: "Loto",
+    min: 1, max: 49,
+    tranches: [
+      [1, 16],   // Tranche 1
+      [17, 33],  // Tranche 2  
+      [34, 49]   // Tranche 3
+    ],
+    patterns: [
+      ['P', 'P', 'I'],  // Grille 1: 2 pairs + 1 impair
+      ['P', 'I', 'P'],  // Grille 2: pair-impair-pair
+      ['I', 'P', 'P'],  // Grille 3: impair-pair-pair
+      ['I', 'I', 'P']   // Grille 4: 2 impairs + 1 pair
+    ]
+  },
+  euromillion: {
+    name: "EuroMillion", 
+    min: 1, max: 50,
+    tranches: [
+      [1, 17],   // Tranche 1
+      [18, 33],  // Tranche 2
+      [34, 50]   // Tranche 3
+    ],
+    patterns: [
+      ['P', 'P', 'I'],  // Grille 1: 2 pairs + 1 impair
+      ['P', 'I', 'P'],  // Grille 2: pair-impair-pair
+      ['I', 'P', 'P'],  // Grille 3: impair-pair-pair
+      ['I', 'I', 'P']   // Grille 4: 2 impairs + 1 pair
+    ]
+  }
+};
+
+let currentGame = 'loto';
+
+function randInt(min, max) { 
+  return Math.floor(Math.random() * (max - min + 1)) + min; 
+}
+
+function getUnitDigit(num) {
+  return num % 10;
+}
+
+function selectGame(gameType) {
+  currentGame = gameType;
+  
+  // Mettre à jour les boutons
+  document.querySelectorAll('.game-btn').forEach(btn => btn.classList.remove('active'));
+  document.getElementById(`grille-${gameType}`).classList.add('active');
+  
+  // Mettre à jour le titre
+  const title = gameType === 'loto' ? '✨ Générateur Loto Magique ✨' : '✨ Générateur EuroMillion Magique ✨';
+  document.getElementById('page-title').textContent = title;
+  
+  // Mettre à jour les limites des inputs
+  const maxValue = jeux[gameType].max;
+  document.getElementById('sug-1').max = maxValue;
+  document.getElementById('sug-2').max = maxValue;
+  
+  // Vider les grilles existantes
+  document.getElementById('grilles').innerHTML = '';
+  document.getElementById('debug').innerHTML = `🎮 Jeu: ${jeux[gameType].name}<br>Prêt à générer des grilles ! ✨`;
+}
+
+function detectGame() {
+  if (document.getElementById('grille-euromillion').classList.contains('active')) {
+    return 'euromillion';
+  }
+  return 'loto';
+}
+
+function findNumberInTranche(tranche, parity, used, usedUnits, attempts = 500) {
+  for (let i = 0; i < attempts; i++) {
+    const num = randInt(tranche[0], tranche[1]);
+    if (used.has(num)) continue;
+    
+    const unit = getUnitDigit(num);
+    if (usedUnits.has(unit)) continue;
+    
+    if (parity === 'P' && num % 2 === 0) return num;
+    if (parity === 'I' && num % 2 === 1) return num;
+  }
+  return null;
+}
+
+function generateGridWithPattern(gameType, pattern, recommendations = []) {
+  const game = jeux[gameType];
+  const used = new Set();
+  const usedUnits = new Set();
+  const numbers = [];
+  
+  // Ajouter les recommandations valides
+  const validRecommendations = recommendations.filter(n => 
+    n >= game.min && n <= game.max
+  ).slice(0, 2); // Maximum 2 recommandations
+  
+  validRecommendations.forEach(n => {
+    numbers.push(n);
+    used.add(n);
+    usedUnits.add(getUnitDigit(n));
+  });
+  
+  // Générer un nombre par tranche selon le pattern
+  for (let trancheIndex = 0; trancheIndex < 3; trancheIndex++) {
+    if (numbers.length >= 5) break;
+    
+    const tranche = game.tranches[trancheIndex];
+    const parity = pattern[trancheIndex];
+    
+    const num = findNumberInTranche(tranche, parity, used, usedUnits);
+    if (num !== null) {
+      numbers.push(num);
+      used.add(num);
+      usedUnits.add(getUnitDigit(num));
+    }
+  }
+  
+  // Compléter jusqu'à 5 numéros si nécessaire
+  while (numbers.length < 5) {
+    for (let trancheIndex = 0; trancheIndex < 3 && numbers.length < 5; trancheIndex++) {
+      const tranche = game.tranches[trancheIndex];
+      
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const num = randInt(tranche[0], tranche[1]);
+        if (used.has(num)) continue;
+        
+        const unit = getUnitDigit(num);
+        if (usedUnits.has(unit)) continue;
+        
+        numbers.push(num);
+        used.add(num);
+        usedUnits.add(unit);
+        break;
+      }
+    }
+    
+    // Si on n'arrive toujours pas à compléter, accepter les doublons d'unités
+    if (numbers.length < 5) {
+      for (let num = game.min; num <= game.max && numbers.length < 5; num++) {
+        if (!used.has(num)) {
+          numbers.push(num);
+          used.add(num);
+        }
+      }
+    }
+  }
+  
+  numbers.sort((a, b) => a - b);
+  return numbers.slice(0, 5);
+}
+
+function generateEtoiles() {
+  const etoiles = [];
+  while (etoiles.length < 2) {
+    const etoile = randInt(1, 12);
+    if (!etoiles.includes(etoile)) {
+      etoiles.push(etoile);
+    }
+  }
+  return etoiles.sort((a, b) => a - b);
+}
+
+function genererGrilles() {
+  const gameType = detectGame();
+  const game = jeux[gameType];
+  const recommendations = [
+    parseInt(document.getElementById('sug-1').value) || 0,
+    parseInt(document.getElementById('sug-2').value) || 0
+  ].filter(n => n > 0);
+  
+  const grillesDiv = document.getElementById('grilles');
+  grillesDiv.innerHTML = '';
+  
+  const debugDiv = document.getElementById('debug');
+  debugDiv.innerHTML = `<strong>🎮 Mode: ${game.name}</strong><br>`;
+  debugDiv.innerHTML += `🎯 Recommandations: ${recommendations.join(', ') || 'Aucune'}<br><br>`;
+  
+  // Générer 4 grilles avec les patterns
+  for (let i = 0; i < 4; i++) {
+    const pattern = game.patterns[i];
+    const numbers = generateGridWithPattern(gameType, pattern, recommendations);
+    
+    // Vérifier la répartition dans les tranches
+    const trancheDistrib = game.tranches.map(tranche => 
+      numbers.filter(n => n >= tranche[0] && n <= tranche[1]).length
+    );
+    
+    if (gameType === 'euromillion') {
+      const etoiles = generateEtoiles();
+      displayEuroMillionGrid(i + 1, numbers, etoiles, recommendations, pattern);
+      debugDiv.innerHTML += `Grille ${i + 1}: [${numbers.join(', ')}] + ⭐[${etoiles.join(', ')}] - Pattern: ${pattern.join('')} - Tranches: [${trancheDistrib.join(', ')}]<br>`;
+    } else {
+      displayLotoGrid(i + 1, numbers, recommendations, pattern);
+      debugDiv.innerHTML += `Grille ${i + 1}: [${numbers.join(', ')}] - Pattern: ${pattern.join('')} - Tranches: [${trancheDistrib.join(', ')}]<br>`;
+    }
+    
+    // Vérifier les unités
+    const units = numbers.map(n => getUnitDigit(n));
+    const uniqueUnits = new Set(units).size;
+    debugDiv.innerHTML += `   Unités: [${units.join(', ')}] - Uniques: ${uniqueUnits}/5<br><br>`;
+  }
+  
+  validateGrids(gameType);
+}
+
+function displayLotoGrid(number, numbers, recommendations, pattern) {
+  const grillesDiv = document.getElementById('grilles');
+  const gridDiv = document.createElement('div');
+  gridDiv.className = 'grille new';
+  
+  let html = `<div class="grille-title">🎱 Grille Loto ${number} - ${pattern.join('')}</div>`;
+  
+  numbers.forEach(num => {
+    const isRecommended = recommendations.includes(num);
+    html += `<span class="boule ${isRecommended ? 'reco' : ''}">${num}</span>`;
+  });
+  
+  gridDiv.innerHTML = html;
+  grillesDiv.appendChild(gridDiv);
+}
+
+function displayEuroMillionGrid(number, numbers, etoiles, recommendations, pattern) {
+  const grillesDiv = document.getElementById('grilles');
+  const gridDiv = document.createElement('div');
+  gridDiv.className = 'grille new';
+  
+  let html = `<div class="grille-title">🌟 Grille EuroMillion ${number} - ${pattern.join('')}</div>`;
+  
+  // Numéros principaux
+  numbers.forEach(num => {
+    const isRecommended = recommendations.includes(num);
+    html += `<span class="boule ${isRecommended ? 'reco' : ''}">${num}</span>`;
+  });
+  
+  html += `<div style="margin: 15px 0; color: #ffd700; font-weight: bold;">⭐ Étoiles ⭐</div>`;
+  
+  // Étoiles
+  etoiles.forEach(etoile => {
+    html += `<span class="boule" style="background: linear-gradient(135deg, #ffd700, #ff8c00);">${etoile}</span>`;
+  });
+  
+  gridDiv.innerHTML = html;
+  grillesDiv.appendChild(gridDiv);
+}
+
+function validateGrids(gameType) {
+  const validationDiv = document.getElementById('validation');
+  const grids = document.querySelectorAll('.grille');
+  const game = jeux[gameType];
+  
+  let html = '<strong>🔍 Validation des grilles :</strong><br><br>';
+  
+  grids.forEach((grid, index) => {
+    const boules = Array.from(grid.querySelectorAll('.boule')).map(b => parseInt(b.textContent)).filter(n => !isNaN(n));
+    const mainNumbers = gameType === 'euromillion' ? boules.slice(0, 5) : boules;
+    
+    // Vérifications de base
+    const hasNoDuplicates = new Set(mainNumbers).size === mainNumbers.length;
+    const allInRange = mainNumbers.every(n => n >= game.min && n <= game.max);
+    const correctCount = mainNumbers.length === 5;
+    
+    // Vérifier parité
+    const pairs = mainNumbers.filter(n => n % 2 === 0).length;
+    const impairs = mainNumbers.filter(n => n % 2 === 1).length;
+    const hasParityBalance = pairs > 0 && impairs > 0;
+    
+    // Vérifier répartition dans les tranches (au moins un par tranche)
+    const trancheDistrib = game.tranches.map(tranche => 
+      mainNumbers.filter(n => n >= tranche[0] && n <= tranche[1]).length
+    );
+    const hasGoodDistribution = trancheDistrib.every(count => count > 0);
+    
+    // Vérifier les chiffres des unités (éviter les doublons)
+    const units = mainNumbers.map(n => getUnitDigit(n));
+    const uniqueUnits = new Set(units).size;
+    const hasUniqueUnits = uniqueUnits === mainNumbers.length;
+    
+    html += `Grille ${index + 1}: `;
+    const isValid = hasNoDuplicates && allInRange && correctCount && hasParityBalance && hasGoodDistribution;
+    html += isValid ? '<span class="ok">✅ Valide</span>' : '<span class="fail">❌ Erreur</span>';
+    
+    if (!hasParityBalance) html += ' <span class="fail">(Parité)</span>';
+    if (!hasGoodDistribution) html += ' <span class="fail">(Distribution)</span>';
+    if (!hasUniqueUnits) html += ` <span class="fail">(Unités: ${uniqueUnits}/5)</span>`;
+    
+    html += `<br>`;
+  });
+  
+  validationDiv.innerHTML = html;
+}
+
+// Initialisation
+window.onload = function() {
+  selectGame('loto');
+};
+</script>
+
+</body>
+</html>
