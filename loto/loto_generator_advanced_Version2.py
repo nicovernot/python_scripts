@@ -62,7 +62,7 @@ def ensure_parquet_file():
         return parquet_path
     else:
         # Aucun fichier trouvé - fallback
-        fallback_path = Path(os.getenv('LOTO_PARQUET_PATH', '~/Téléchargements/loto_201911.parquet')).expanduser()
+        fallback_path = SCRIPT_DIR / 'loto_data' / 'loto_201911.parquet'
         print(f"⚠️  Aucun fichier CSV/Parquet trouvé dans {DATA_DIR}")
         print(f"⚠️  Utilisation du fallback : {fallback_path}")
         return fallback_path
@@ -228,62 +228,148 @@ MODEL_DIR = BASE_DIR / 'boost_models'
 for directory in [OUTPUT_DIR, MODEL_DIR]:
     directory.mkdir(exist_ok=True)
 
-# --- Stratégie Adaptative ---
+# --- Stratégie Adaptative Améliorée ---
 class AdaptiveStrategy:
-    """Stratégie adaptative qui ajuste les paramètres selon les performances récentes"""
+    """Stratégie adaptative qui s'améliore en continu avec apprentissage par renforcement"""
     
     def __init__(self, history_file=None):
         self.history_file = history_file or (MODEL_DIR / 'performance_history.json')
         self.performance_history = self.load_history()
         self.ml_weight = 0.6  # Poids initial pour ML vs fréquences
-        self.adaptation_rate = 0.1  # Vitesse d'adaptation
+        self.adaptation_rate = 0.05  # Vitesse d'adaptation réduite pour plus de stabilité
+        self.confidence_threshold = 0.7  # Seuil de confiance pour les adaptations
+        self.learning_rate_decay = 0.995  # Décroissance du taux d'apprentissage
+        self.exploration_factor = 0.1  # Facteur d'exploration pour éviter les optima locaux
+        self.performance_window = 20  # Fenêtre glissante pour l'évaluation
         
     def load_history(self):
-        """Charge l'historique des performances"""
+        """Charge l'historique des performances avec validation"""
         if self.history_file.exists():
             try:
                 with open(self.history_file, 'r') as f:
-                    return json.load(f)
-            except:
-                pass
+                    history = json.load(f)
+                
+                # Validation et migration des données si nécessaire
+                required_keys = ['predictions', 'actuals', 'ml_scores', 'freq_scores', 
+                               'dates', 'ml_weight_history', 'strategy_changes', 
+                               'performance_trends', 'confidence_scores']
+                
+                for key in required_keys:
+                    if key not in history:
+                        history[key] = []
+                
+                # Limiter l'historique pour éviter une croissance excessive
+                max_history = 500
+                for key in history:
+                    if isinstance(history[key], list) and len(history[key]) > max_history:
+                        history[key] = history[key][-max_history:]
+                
+                return history
+            except Exception as e:
+                print(f"⚠️ Erreur chargement historique: {e}, initialisation nouveau")
+                
         return {
             'predictions': [],
             'actuals': [],
             'ml_scores': [],
             'freq_scores': [],
             'dates': [],
-            'ml_weight_history': []
+            'ml_weight_history': [],
+            'strategy_changes': [],
+            'performance_trends': [],
+            'confidence_scores': []
         }
     
     def save_history(self):
-        """Sauvegarde l'historique des performances"""
+        """Sauvegarde l'historique avec gestion d'erreurs"""
         try:
-            with open(self.history_file, 'w') as f:
+            # Sauvegarde atomique pour éviter la corruption
+            temp_file = self.history_file.with_suffix('.tmp')
+            with open(temp_file, 'w') as f:
                 json.dump(self.performance_history, f, indent=2)
+            temp_file.replace(self.history_file)
         except Exception as e:
             print(f"⚠️ Erreur sauvegarde historique: {e}")
     
+    def calculate_performance_trend(self):
+        """Calcule la tendance de performance récente"""
+        if len(self.performance_history['ml_scores']) < 10:
+            return 0.0
+        
+        recent_scores = self.performance_history['ml_scores'][-self.performance_window:]
+        
+        # Régression linéaire simple pour détecter la tendance
+        x = np.arange(len(recent_scores))
+        if len(recent_scores) > 1:
+            slope, _ = np.polyfit(x, recent_scores, 1)
+            return slope
+        return 0.0
+    
+    def calculate_confidence(self):
+        """Calcule le niveau de confiance dans les prédictions actuelles"""
+        if len(self.performance_history['ml_scores']) < 5:
+            return 0.5
+        
+        recent_scores = self.performance_history['ml_scores'][-self.performance_window:]
+        
+        # Confiance basée sur la stabilité et la performance
+        stability = 1.0 - np.std(recent_scores)  # Plus stable = plus confiant
+        performance = np.mean(recent_scores)     # Meilleure performance = plus confiant
+        
+        confidence = (stability + performance) / 2.0
+        return np.clip(confidence, 0.1, 0.9)
+    
+    def adaptive_learning_rate(self):
+        """Calcule un taux d'apprentissage adaptatif"""
+        base_rate = self.adaptation_rate
+        
+        # Réduire le taux si on a beaucoup d'expérience
+        experience_factor = max(0.1, 1.0 - len(self.performance_history['ml_scores']) / 1000)
+        
+        # Augmenter le taux si la performance est en baisse
+        trend = self.calculate_performance_trend()
+        trend_factor = 1.0 + max(0, -trend * 10)  # Augmenter si tendance négative
+        
+        adaptive_rate = base_rate * experience_factor * trend_factor
+        return np.clip(adaptive_rate, 0.01, 0.2)
+    
     def evaluate_prediction_accuracy(self, predicted_probs, actual_draw):
-        """Évalue la précision des prédictions ML vs fréquences avec modèles binaires"""
+        """Évaluation améliorée de la précision des prédictions"""
         if len(actual_draw) != 5:
             return 0.0, 0.0
         
-        # Avec les modèles binaires, predicted_probs contient les probabilités pour chaque boule (1-49)
+        # Score ML amélioré avec pondération
         if isinstance(predicted_probs, np.ndarray) and len(predicted_probs) == 49:
-            # Score ML : probabilité moyenne des boules tirées (predicted_probs[boule-1])
+            # Score basé sur la probabilité moyenne des boules tirées
             ml_score = np.mean([predicted_probs[boule-1] for boule in actual_draw])
+            
+            # Bonus pour les prédictions très sûres (probabilités élevées)
+            high_prob_bonus = np.sum([predicted_probs[boule-1] for boule in actual_draw if predicted_probs[boule-1] > 0.7])
+            ml_score += high_prob_bonus * 0.1
         else:
-            # Fallback si format ancien ou erreur
             ml_score = 0.0
             
-        # Score fréquences : score basé sur les fréquences historiques
+        # Score fréquences avec amélioration
         freq_weights = np.ones(49) / 49  # Uniforme en fallback
         freq_score = np.mean([freq_weights[boule-1] for boule in actual_draw])
         
         return ml_score, freq_score
     
+    def detect_pattern_changes(self):
+        """Détecte les changements dans les patterns de tirage"""
+        if len(self.performance_history['ml_scores']) < 20:
+            return False
+        
+        # Comparer les performances récentes vs historiques
+        recent_perf = np.mean(self.performance_history['ml_scores'][-10:])
+        historical_perf = np.mean(self.performance_history['ml_scores'][-20:-10])
+        
+        # Détection de changement significatif
+        change_threshold = 0.1
+        return abs(recent_perf - historical_perf) > change_threshold
+    
     def update_performance(self, prediction, actual_draw, ml_probs=None):
-        """Met à jour les performances et ajuste la stratégie"""
+        """Mise à jour améliorée des performances avec apprentissage adaptatif"""
         if ml_probs is not None:
             ml_score, freq_score = self.evaluate_prediction_accuracy(ml_probs, actual_draw)
             
@@ -294,47 +380,136 @@ class AdaptiveStrategy:
             self.performance_history['freq_scores'].append(float(freq_score))
             self.performance_history['dates'].append(datetime.now().isoformat())
             
-            # Adapter le poids ML
-            self.adapt_ml_weight(ml_score, freq_score)
+            # Calculer la confiance et la tendance
+            confidence = self.calculate_confidence()
+            trend = self.calculate_performance_trend()
             
-            # Garder seulement les 100 dernières prédictions
+            self.performance_history['confidence_scores'].append(float(confidence))
+            self.performance_history['performance_trends'].append(float(trend))
+            
+            # Adaptation intelligente du poids ML
+            old_weight = self.ml_weight
+            self.adapt_ml_weight_intelligent(ml_score, freq_score, confidence, trend)
+            
+            # Enregistrer les changements de stratégie significatifs
+            weight_change = abs(self.ml_weight - old_weight)
+            if weight_change > 0.05:  # Changement significatif
+                change_info = {
+                    'timestamp': datetime.now().isoformat(),
+                    'old_weight': float(old_weight),
+                    'new_weight': float(self.ml_weight),
+                    'reason': 'adaptive_learning',
+                    'ml_score': float(ml_score),
+                    'freq_score': float(freq_score),
+                    'confidence': float(confidence),
+                    'trend': float(trend)
+                }
+                self.performance_history['strategy_changes'].append(change_info)
+            
+            # Maintenir une taille d'historique raisonnable
+            max_history = 200
             for key in self.performance_history:
-                if len(self.performance_history[key]) > 100:
-                    self.performance_history[key] = self.performance_history[key][-100:]
+                if isinstance(self.performance_history[key], list) and len(self.performance_history[key]) > max_history:
+                    self.performance_history[key] = self.performance_history[key][-max_history:]
             
             self.save_history()
     
-    def adapt_ml_weight(self, ml_score, freq_score):
-        """Adapte le poids du ML selon les performances relatives"""
-        if len(self.performance_history['ml_scores']) >= 10:  # Minimum 10 observations
-            recent_ml = np.mean(self.performance_history['ml_scores'][-10:])
-            recent_freq = np.mean(self.performance_history['freq_scores'][-10:])
-            
-            # Si ML performe mieux, augmenter son poids
-            if recent_ml > recent_freq:
-                self.ml_weight = min(0.9, self.ml_weight + self.adaptation_rate)
-            else:
-                self.ml_weight = max(0.1, self.ml_weight - self.adaptation_rate)
-                
-            self.performance_history['ml_weight_history'].append(float(self.ml_weight))
+    def adapt_ml_weight_intelligent(self, ml_score, freq_score, confidence, trend):
+        """Adaptation intelligente du poids ML avec multiple critères"""
+        if len(self.performance_history['ml_scores']) < 5:
+            return
+        
+        # Taux d'apprentissage adaptatif
+        learning_rate = self.adaptive_learning_rate()
+        
+        # Calculer la performance relative avec fenêtre glissante
+        window_size = min(self.performance_window, len(self.performance_history['ml_scores']))
+        recent_ml = np.mean(self.performance_history['ml_scores'][-window_size:])
+        recent_freq = np.mean(self.performance_history['freq_scores'][-window_size:])
+        
+        # Facteur de performance relative
+        if recent_freq > 0:
+            performance_ratio = recent_ml / recent_freq
+        else:
+            performance_ratio = 1.0
+        
+        # Ajustement basé sur multiple critères
+        if performance_ratio > 1.1 and confidence > self.confidence_threshold:
+            # ML performe bien avec confiance élevée -> augmenter poids ML
+            adjustment = learning_rate * (1 + trend * 2)
+            self.ml_weight = min(0.95, self.ml_weight + adjustment)
+        elif performance_ratio < 0.9 or confidence < 0.3:
+            # ML performe mal ou confiance faible -> réduire poids ML
+            adjustment = learning_rate * (1 + abs(trend))
+            self.ml_weight = max(0.05, self.ml_weight - adjustment)
+        elif trend < -0.05:
+            # Tendance négative -> réduction prudente
+            adjustment = learning_rate * 0.5
+            self.ml_weight = max(0.1, self.ml_weight - adjustment)
+        
+        # Exploration périodique pour éviter les optima locaux
+        if len(self.performance_history['ml_scores']) % 50 == 0:
+            exploration_noise = np.random.normal(0, self.exploration_factor)
+            self.ml_weight = np.clip(self.ml_weight + exploration_noise, 0.05, 0.95)
+        
+        # Enregistrer le poids dans l'historique
+        self.performance_history['ml_weight_history'].append(float(self.ml_weight))
+        
+        # Décroissance du taux d'apprentissage avec l'expérience
+        self.adaptation_rate *= self.learning_rate_decay
+        self.adaptation_rate = max(0.01, self.adaptation_rate)
     
     def get_adaptive_weights(self):
-        """Retourne les poids adaptés pour ML vs fréquences"""
+        """Retourne les poids adaptatifs optimisés"""
         return self.ml_weight, 1.0 - self.ml_weight
     
+    def should_retrain_models(self):
+        """Détermine si les modèles doivent être ré-entraînés"""
+        # Critères pour déclencher un ré-entraînement
+        pattern_change = self.detect_pattern_changes()
+        low_confidence = self.calculate_confidence() < 0.3
+        negative_trend = self.calculate_performance_trend() < -0.1
+        
+        # Éviter les ré-entraînements trop fréquents
+        last_retrain = getattr(self, 'last_retrain', datetime.min)
+        time_since_retrain = (datetime.now() - last_retrain).days
+        min_days_between_retrains = 7
+        
+        should_retrain = (pattern_change or low_confidence or negative_trend) and \
+                        time_since_retrain > min_days_between_retrains
+        
+        if should_retrain:
+            self.last_retrain = datetime.now()
+        
+        return should_retrain
+    
     def get_performance_summary(self):
-        """Retourne un résumé des performances"""
+        """Retourne un résumé détaillé des performances"""
         if len(self.performance_history['ml_scores']) < 5:
             return "Données insuffisantes pour l'analyse adaptative"
         
-        recent_ml = np.mean(self.performance_history['ml_scores'][-10:])
-        recent_freq = np.mean(self.performance_history['freq_scores'][-10:])
+        window_size = min(self.performance_window, len(self.performance_history['ml_scores']))
+        recent_ml = np.mean(self.performance_history['ml_scores'][-window_size:])
+        recent_freq = np.mean(self.performance_history['freq_scores'][-window_size:])
+        confidence = self.calculate_confidence()
+        trend = self.calculate_performance_trend()
+        
+        # Stabilité des poids
+        recent_weights = self.performance_history['ml_weight_history'][-window_size:] if self.performance_history['ml_weight_history'] else [self.ml_weight]
+        weight_stability = 1.0 - np.std(recent_weights) if len(recent_weights) > 1 else 1.0
         
         return {
             'ml_score_recent': recent_ml,
             'freq_score_recent': recent_freq,
+            'performance_ratio': recent_ml / recent_freq if recent_freq > 0 else 1.0,
             'current_ml_weight': self.ml_weight,
-            'total_predictions': len(self.performance_history['ml_scores'])
+            'confidence': confidence,
+            'trend': trend,
+            'weight_stability': weight_stability,
+            'total_predictions': len(self.performance_history['ml_scores']),
+            'strategy_changes': len(self.performance_history['strategy_changes']),
+            'should_retrain': self.should_retrain_models(),
+            'learning_rate': self.adaptation_rate
         }
 
 # Initialiser la stratégie adaptative
@@ -829,327 +1004,782 @@ def train_xgboost_parallel(df: pd.DataFrame):
     print("   ✓ Entraînement terminé et modèles sauvegardés.")
     return models
 
+# --- Auto-amélioration du Training ---
+def train_xgboost_parallel_adaptive(df: pd.DataFrame, adaptive_strategy=None):
+    """Entraînement des modèles XGBoost avec auto-amélioration"""
+    print("Entraînement adaptatif des modèles XGBoost...")
+    
+    # Déterminer les paramètres optimaux selon la performance historique
+    performance_summary = adaptive_strategy.get_performance_summary() if adaptive_strategy else None
+    
+    if performance_summary and isinstance(performance_summary, dict):
+        confidence = performance_summary.get('confidence', 0.5)
+        trend = performance_summary.get('trend', 0.0)
+        
+        # Ajuster les paramètres selon la confiance et la tendance
+        if confidence > 0.7 and trend > 0:
+            # Performance excellente -> paramètres conservateurs
+            print("  🎯 Mode conservateur (performance élevée)")
+            xgb_params = {
+                'n_estimators': 100,
+                'max_depth': 6,
+                'learning_rate': 0.1,
+                'subsample': 0.9,
+                'colsample_bytree': 0.9,
+                'reg_alpha': 0.1,
+                'reg_lambda': 0.1
+            }
+        elif confidence < 0.4 or trend < -0.1:
+            # Performance faible -> exploration plus agressive
+            print("  🔍 Mode exploratoire (amélioration nécessaire)")
+            xgb_params = {
+                'n_estimators': 150,
+                'max_depth': 8,
+                'learning_rate': 0.05,
+                'subsample': 0.8,
+                'colsample_bytree': 0.7,
+                'reg_alpha': 0.05,
+                'reg_lambda': 0.05
+            }
+        else:
+            # Performance normale -> paramètres équilibrés
+            print("  ⚖️ Mode équilibré (performance stable)")
+            xgb_params = {
+                'n_estimators': 75,
+                'max_depth': 5,
+                'learning_rate': 0.15,
+                'subsample': 0.85,
+                'colsample_bytree': 0.8,
+                'reg_alpha': 0.08,
+                'reg_lambda': 0.08
+            }
+    elif hasattr(ARGS, 'fast_training') and ARGS.fast_training:
+        print("  ⚡ Mode entraînement ultra-rapide activé")
+        xgb_params = {
+            'n_estimators': 25,
+            'max_depth': 3,
+            'learning_rate': 0.3,
+            'subsample': 0.7,
+            'colsample_bytree': 0.7,
+        }
+    else:
+        print("  🎯 Mode entraînement standard")
+        xgb_params = {
+            'n_estimators': 50,
+            'max_depth': 4,
+            'learning_rate': 0.2,
+            'subsample': 0.8,
+            'colsample_bytree': 0.8,
+        }
+    
+    balls_cols = [f'boule_{i}' for i in range(1, 6)]
+    
+    # Amélioration des features avec plus d'ingénierie
+    df_features = add_advanced_features(df)
+    feature_cols = balls_cols + [col for col in df_features.columns 
+                                if col.startswith(('sin_', 'cos_', 'lag_', 'rolling_', 'trend_'))]
+    
+    X = df_features[feature_cols].iloc[:-1].values
+    print(f"  📊 Features utilisées: {len(feature_cols)}")
+    
+    def train_balls_multilabel_model():
+        """Entraîne un modèle multi-label amélioré pour les boules principales"""
+        print("  🎯 Entraînement du modèle multi-label optimisé pour les boules principales...")
+        
+        # Créer les labels multi-label pour les 49 boules possibles
+        y_balls = np.zeros((len(X), 49))
+        for i, row in enumerate(df_features[balls_cols].iloc[1:].values):
+            for ball_num in row:
+                if 1 <= ball_num <= 49:
+                    y_balls[i, ball_num - 1] = 1
+        
+        # Utilisation d'un ensemble de modèles pour plus de robustesse
+        from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
+        from sklearn.multioutput import MultiOutputClassifier
+        from sklearn.linear_model import LogisticRegression
+        
+        # Ensemble de classifieurs
+        estimators = [
+            ('rf', RandomForestClassifier(
+                n_estimators=100,
+                max_depth=10,
+                min_samples_split=5,
+                min_samples_leaf=2,
+                random_state=GLOBAL_SEED,
+                n_jobs=-1
+            )),
+            ('et', ExtraTreesClassifier(
+                n_estimators=50,
+                max_depth=8,
+                min_samples_split=3,
+                min_samples_leaf=1,
+                random_state=GLOBAL_SEED + 1,
+                n_jobs=-1
+            ))
+        ]
+        
+        # Entraîner les modèles de l'ensemble
+        models = {}
+        for name, estimator in estimators:
+            print(f"    Entraînement {name}...")
+            model = MultiOutputClassifier(estimator, n_jobs=-1)
+            model.fit(X, y_balls)
+            models[name] = model
+        
+        # Sauvegarder l'ensemble
+        ensemble_model = {
+            'models': models,
+            'feature_names': feature_cols,
+            'training_params': xgb_params,
+            'training_date': datetime.now().isoformat()
+        }
+        
+        dump(ensemble_model, MODEL_DIR / 'model_balls_multilabel.joblib')
+        print("   ✓ Ensemble de modèles multi-label boules sauvegardé.")
+        return ensemble_model
+    
+    def train_chance_multilabel_model():
+        """Entraîne un modèle multi-label amélioré pour les numéros chance"""
+        print("  🎲 Entraînement du modèle multi-label optimisé pour les numéros chance...")
+        
+        # Créer les labels multi-label pour les 10 numéros chance possibles
+        y_chance = np.zeros((len(X), 10))
+        for i, chance_val in enumerate(df_features['numero_chance'].iloc[1:].values):
+            if 1 <= chance_val <= 10:
+                y_chance[i, chance_val - 1] = 1
+        
+        # Modèle spécialisé pour les numéros chance (plus simple)
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.multioutput import MultiOutputClassifier
+        
+        base_estimator = RandomForestClassifier(
+            n_estimators=150,
+            max_depth=12,
+            min_samples_split=2,
+            min_samples_leaf=1,
+            random_state=GLOBAL_SEED,
+            n_jobs=-1
+        )
+        
+        model = MultiOutputClassifier(base_estimator, n_jobs=-1)
+        model.fit(X, y_chance)
+        
+        # Encapsuler dans un dictionnaire pour cohérence
+        chance_model = {
+            'model': model,
+            'feature_names': feature_cols,
+            'training_params': xgb_params,
+            'training_date': datetime.now().isoformat()
+        }
+        
+        dump(chance_model, MODEL_DIR / 'model_chance_multilabel.joblib')
+        print("   ✓ Modèle multi-label numéros chance amélioré sauvegardé.")
+        return chance_model
+    
+    # Entraînement des modèles
+    balls_model = train_balls_multilabel_model()
+    chance_model = train_chance_multilabel_model()
+    
+    models = [balls_model, chance_model]
+    
+    # Sauvegarder les métadonnées étendues
+    metadata = {
+        'features_count': len(feature_cols),
+        'model_type': 'ensemble_multilabel_adaptive',
+        'created_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'version': '5.0',
+        'ball_models': len(balls_model['models']),
+        'chance_models': 1,
+        'total_models': len(balls_model['models']) + 1,
+        'balls_outputs': 49,
+        'chance_outputs': 10,
+        'training_params': xgb_params,
+        'adaptive_strategy_used': adaptive_strategy is not None,
+        'performance_summary': performance_summary
+    }
+    
+    with open(MODEL_DIR / 'metadata.json', 'w') as f:
+        json.dump(metadata, f, indent=4)
+    
+    print("   ✓ Entraînement adaptatif terminé et modèles sauvegardés.")
+    return {'balls_multilabel': balls_model, 'chance_multilabel': chance_model}
+
+def add_advanced_features(df, date_col='date_de_tirage'):
+    """Ajoute des features avancées pour améliorer les prédictions"""
+    df2 = df.copy()
+    balls_cols = [f'boule_{i}' for i in range(1, 6)]
+    
+    # Features cycliques existantes
+    if date_col in df2.columns:
+        df2[date_col] = pd.to_datetime(df2[date_col])
+        df2['dayofweek'] = df2[date_col].dt.dayofweek
+        df2['month'] = df2[date_col].dt.month
+        df2['sin_day'] = np.sin(2 * np.pi * df2['dayofweek'] / 7)
+        df2['cos_day'] = np.cos(2 * np.pi * df2['dayofweek'] / 7)
+        df2['sin_month'] = np.sin(2 * np.pi * df2['month'] / 12)
+        df2['cos_month'] = np.cos(2 * np.pi * df2['month'] / 12)
+    
+    for i in range(1, 6):
+        col = f'boule_{i}'
+        df2[f'sin_boule_{i}'] = np.sin(2 * np.pi * df2[col] / 49)
+        df2[f'cos_boule_{i}'] = np.cos(2 * np.pi * df2[col] / 49)
+    
+    # Features de lag (valeurs précédentes)
+    for lag in [1, 2, 3]:
+        for col in balls_cols:
+            df2[f'lag_{lag}_{col}'] = df2[col].shift(lag)
+    
+    # Features de moyenne mobile
+    for window in [3, 5, 7]:
+        df2[f'rolling_mean_{window}'] = df2[balls_cols].mean(axis=1).rolling(window=window).mean()
+        df2[f'rolling_std_{window}'] = df2[balls_cols].std(axis=1).rolling(window=window).mean()
+    
+    # Tendances
+    df2['trend_sum'] = df2[balls_cols].sum(axis=1).diff()
+    df2['trend_mean'] = df2[balls_cols].mean(axis=1).diff()
+    
+    # Combler les valeurs manquantes
+    df2 = df2.fillna(method='bfill').fillna(0)
+    
+    return df2
+
 def load_saved_models() -> dict:
-    """Charge les modèles multi-label (1 pour boules + 1 pour chance)"""
+    """Charge les modèles multi-label améliorés"""
     models = {'balls_multilabel': None, 'chance_multilabel': None}
     
     # Vérifier la compatibilité des features
     metadata_path = MODEL_DIR / 'metadata.json'
     if metadata_path.exists():
-        import json
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
         expected_features = metadata.get('features_count', 19)
-        total_models = metadata.get('total_models', 59)
-        print(f"   📊 Modèles attendus avec {expected_features} features ({total_models} modèles)")
-        
-        # Si incompatibilité détectée, signaler
-        if expected_features != 19:  # 19 = nouvelles features avec cycliques complètes
-            print(f"   ⚠️ INCOMPATIBILITÉ: Modèles avec {expected_features} features, code actuel avec 19 features")
-            print(f"   🔄 Recommandation: Ré-entraîner les modèles avec --retrain")
+        model_type = metadata.get('model_type', 'ensemble_multilabel_adaptive')
+        print(f"   📊 Modèles attendus: {model_type} avec {expected_features} features")
     
-def load_saved_models() -> dict:
-    """Charge les modèles multi-label (1 pour boules + 1 pour chance)"""
-    models = {'balls_multilabel': None, 'chance_multilabel': None}
-    
-    # Vérifier la compatibilité des features
-    metadata_path = MODEL_DIR / 'metadata.json'
-    if metadata_path.exists():
-        import json
-        with open(metadata_path, 'r') as f:
-            metadata = json.load(f)
-        expected_features = metadata.get('features_count', 19)
-        total_models = metadata.get('total_models', 2)
-        model_type = metadata.get('model_type', 'randomforest_multilabel')
-        print(f"   📊 Modèles attendus: {model_type} avec {expected_features} features ({total_models} modèles)")
-        
-        # Si incompatibilité détectée, signaler
-        if expected_features != 19:  # 19 = nouvelles features avec cycliques complètes
-            print(f"   ⚠️ INCOMPATIBILITÉ: Modèles avec {expected_features} features, code actuel avec 19 features")
-            print(f"   🔄 Recommandation: Ré-entraîner les modèles avec --retrain")
-    
-    # Charger le modèle multi-label pour les boules (1-49)
+    # Charger le modèle ensemble pour les boules
     balls_model_path = MODEL_DIR / 'model_balls_multilabel.joblib'
     if balls_model_path.exists():
         try:
-            models['balls_multilabel'] = load(balls_model_path)
-            print(f"   ✓ Modèle multi-label boules chargé depuis '{balls_model_path}'")
+            balls_model = load(balls_model_path)
+            if isinstance(balls_model, dict) and 'models' in balls_model:
+                print(f"   ✓ Ensemble de modèles boules chargé ({len(balls_model['models'])} modèles)")
+            else:
+                print("   ✓ Modèle boules standard chargé")
+            models['balls_multilabel'] = balls_model
         except Exception as e:
-            print(f"⚠️ Erreur chargement modèle boules multi-label: {e}")
-            models['balls_multilabel'] = None
-    else:
-        print(f"   ⚠️ Modèle boules multi-label non trouvé: {balls_model_path}")
+            print(f"⚠️ Erreur chargement modèle boules: {e}")
     
-    # Charger le modèle multi-label pour les numéros chance (1-10)
+    # Charger le modèle pour les numéros chance
     chance_model_path = MODEL_DIR / 'model_chance_multilabel.joblib'
     if chance_model_path.exists():
         try:
-            models['chance_multilabel'] = load(chance_model_path)
-            print(f"   ✓ Modèle multi-label chance chargé depuis '{chance_model_path}'")
+            chance_model = load(chance_model_path)
+            models['chance_multilabel'] = chance_model
+            print("   ✓ Modèle chance chargé")
         except Exception as e:
-            print(f"⚠️ Erreur chargement modèle chance multi-label: {e}")
-            models['chance_multilabel'] = None
-    else:
-        print(f"   ⚠️ Modèle chance multi-label non trouvé: {chance_model_path}")
+            print(f"⚠️ Erreur chargement modèle chance: {e}")
     
-    # Vérifier si les modèles sont chargés
     loaded_models = sum(1 for model in models.values() if model is not None)
-    if loaded_models == 2:
-        print(f"   ✅ 2 modèles RandomForest multi-label chargés avec succès.")
-    else:
-        print(f"   ⚠️ Seulement {loaded_models}/2 modèles multi-label chargés")
+    print(f"   {'✅' if loaded_models == 2 else '⚠️'} {loaded_models}/2 modèles chargés")
     
     return models
 
-# --- Fonctions de Scoring et Génération ---
-def score_grid(grid: np.ndarray, criteria: dict, diversity_factor: float = 0.0) -> float:
-    W = criteria['dynamic_weights']
-    W_DECADES, W_PAIRS, W_CONSECUTIVE, PENALTY_OVERLAP = 0.05, 0.05, 0.05, 0.1
-    W_HOT_NUMBERS = 0.03
-    PENALTY_TOO_MANY_HOT = 0.08
-
-    score = 0
-    
-    # Critères principaux avec poids dynamiques
-    score += W.get('sum', 0.125) * scipy.stats.norm.pdf(
-        np.sum(grid), 
-        loc=criteria['sums'].mean(), 
-        scale=criteria['sums'].std()
-    )
-
-    score += W.get('std', 0.125) * scipy.stats.norm.pdf(
-        np.std(grid), 
-        loc=criteria['stds'].mean(), 
-        scale=criteria['stds'].std()
-    )
-
-    score += W.get('pair_impair', 0.125) * criteria['pair_impair_probs'].get(np.sum(grid % 2 == 0), 0)
-    
-    # === NOUVEAUX CRITÈRES STATISTIQUES ===
-    
-    # 1. Entropie des dizaines
-    grid_decades = [(n-1)//10 for n in grid]
-    grid_decades_count = pd.Series(grid_decades).value_counts()
-    grid_decades_dist = grid_decades_count.reindex(range(5), fill_value=0).values
-    grid_decades_entropy = -np.sum(grid_decades_dist * np.log(grid_decades_dist + 1e-10))
-    score += W.get('decades_entropy', 0.125) * scipy.stats.norm.pdf(
-        grid_decades_entropy,
-        loc=criteria['decades_entropy'].mean(),
-        scale=criteria['decades_entropy'].std() + 1e-10
-    )
-    
-    # 2. Espacement entre numéros
-    sorted_grid = sorted(grid)
-    grid_gaps = [sorted_grid[i+1] - sorted_grid[i] for i in range(4)]
-    grid_gaps_std = np.std(grid_gaps)
-    score += W.get('gaps', 0.125) * scipy.stats.norm.pdf(
-        grid_gaps_std,
-        loc=criteria['gaps_between_numbers'].mean(),
-        scale=criteria['gaps_between_numbers'].std() + 1e-10
-    )
-    
-    # 3. Répartition haute/basse
-    low_count = sum(1 for n in grid if n <= 25)
-    grid_high_low_ratio = low_count / 5.0
-    score += W.get('high_low', 0.125) * scipy.stats.norm.pdf(
-        grid_high_low_ratio,
-        loc=criteria['high_low_ratio'].mean(),
-        scale=criteria['high_low_ratio'].std() + 1e-10
-    )
-    
-    # 4. Ratio de nombres premiers
-    primes = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47}
-    prime_count = sum(1 for n in grid if n in primes)
-    grid_prime_ratio = prime_count / 5.0
-    score += W.get('prime_ratio', 0.125) * scipy.stats.norm.pdf(
-        grid_prime_ratio,
-        loc=criteria['prime_ratio'].mean(),
-        scale=criteria['prime_ratio'].std() + 1e-10
-    )
-    
-    # 5. Variance des positions
-    grid_positions = [(n-1)/48.0 for n in grid]
-    grid_position_variance = np.var(grid_positions)
-    score += W.get('position_variance', 0.125) * scipy.stats.norm.pdf(
-        grid_position_variance,
-        loc=criteria['position_variance'].mean(),
-        scale=criteria['position_variance'].std() + 1e-10
-    )
-
-    # Critères traditionnels avec poids réduits
-    score += W_DECADES * (len(set((n - 1) // 10 for n in grid)) / 5.0)
-
-    grid_pairs = set(combinations(sorted(grid), 2))
-    score += W_PAIRS * (len(grid_pairs.intersection(criteria['pair_counts'].index)) / 2.0)
-
-    consecutive_count = _count_consecutive_numba(grid)
-    if consecutive_count == 0:
-        score += W_CONSECUTIVE * 1.0
-    elif consecutive_count == 1:
-        score += W_CONSECUTIVE * 0.5
-    else:
-        score += W_CONSECUTIVE * 0.0
-
-    score -= PENALTY_OVERLAP * len(set(grid).intersection(set(criteria['last_draw'][:5])))
-
-    hot_count = len(set(grid).intersection(set(criteria['hot_numbers'])))
-    score += W_HOT_NUMBERS * hot_count
-
-    if hot_count > 3:
-        score -= PENALTY_TOO_MANY_HOT * (hot_count - 3)
-
-    # Ajout d'un facteur de diversité pour éviter la convergence vers des grilles identiques
-    if diversity_factor > 0:
-        # Ajouter une petite perturbation aléatoire basée sur le hash de la grille
-        grid_hash = hash(tuple(sorted(grid))) 
-        np.random.seed(grid_hash % 2**31)  # Seed basé sur le hash pour reproductibilité
-        diversity_bonus = np.random.normal(0, diversity_factor)
-        score += diversity_bonus
-
-    return max(0, score)
-
-def generate_grid_vectorized(criteria: dict, models: dict, X_last: np.ndarray) -> list:
-    """Génération de grille avec modèles multi-label (1 pour boules + 1 pour chance)"""
+def generate_grid_vectorized_adaptive(criteria: dict, models: dict, X_last: np.ndarray) -> list:
+    """Génération de grille adaptative avec ensemble de modèles et privilège du TOP 25"""
     N_CANDIDATES, EXPLORATION_RATE, TOP_PERCENT_SELECTION = 500, 0.2, 0.05
     
-    # Vérifier si les modèles multi-label sont disponibles
+    # Vérifier la disponibilité des modèles
     has_ball_model = models and 'balls_multilabel' in models and models['balls_multilabel'] is not None
     has_chance_model = models and 'chance_multilabel' in models and models['chance_multilabel'] is not None
     use_models = has_ball_model
     
     freq_weights = criteria['freq'].reindex(BALLS, fill_value=0).values / criteria['freq'].sum()
-
+    
     # Obtenir les poids adaptatifs
     ml_weight, freq_weight = adaptive_strategy.get_adaptive_weights()
-
-    # Ajout des features cycliques pour la grille à prédire
-    # Créer un DataFrame avec une date fictive pour générer toutes les features
+    
+    # NOUVEAU : Charger et privilégier le TOP 25 ML
+    top25_numbers = []
+    top25_weights = None
+    ml_top25_path = OUTPUT_DIR / 'ml_top25_predictions.csv'
+    
+    if ml_top25_path.exists():
+        try:
+            top25_df = pd.read_csv(ml_top25_path)
+            top25_numbers = top25_df['numero'].head(25).tolist()
+            
+            # Créer des poids privilégiés pour le TOP 25
+            top25_weights = np.zeros(49)
+            for i, numero in enumerate(top25_numbers):
+                if 1 <= numero <= 49:
+                    # Poids dégressif : TOP 1 = poids max, TOP 25 = poids min mais supérieur à la normale
+                    privilege_factor = 3.0 - (i / 25.0) * 2.0  # Entre 3.0 et 1.0
+                    top25_weights[numero-1] = freq_weights[numero-1] * privilege_factor
+            
+            # Les numéros non TOP 25 gardent leurs poids originaux mais réduits
+            for i in range(49):
+                if top25_weights[i] == 0:  # Pas dans le TOP 25
+                    top25_weights[i] = freq_weights[i] * 0.5  # Réduction du poids
+            
+            # Normalisation
+            top25_weights = top25_weights / top25_weights.sum()
+            
+            print(f"   🎯 TOP 25 ML chargé et privilégié ({len(top25_numbers)} numéros)")
+            if not ARGS.silent:
+                print(f"      Top 5: {top25_numbers[:5]}")
+                
+        except Exception as e:
+            print(f"   ⚠️ Erreur chargement TOP 25: {e}")
+            top25_numbers = []
+            top25_weights = None
+    
+    # Préparation des features avancées
     df_last = pd.DataFrame([X_last[0]], columns=[f'boule_{i}' for i in range(1, 6)])
-    df_last['date_de_tirage'] = pd.Timestamp.now()  # Date fictive pour générer les features cycliques
-    df_last_features = add_cyclic_features(df_last)
-    feature_cols = [f'boule_{i}' for i in range(1, 6)] + [col for col in df_last_features.columns if col.startswith('sin_') or col.startswith('cos_')]
+    df_last['date_de_tirage'] = pd.Timestamp.now()
+    df_last_features = add_advanced_features(df_last)
+    
+    # Sélectionner les mêmes features que l'entraînement
+    available_features = df_last_features.columns.tolist()
+    feature_cols = [f'boule_{i}' for i in range(1, 6)] + \
+                   [col for col in available_features if col.startswith(('sin_', 'cos_', 'lag_', 'rolling_', 'trend_'))]
+    
+    # Combler les features manquantes avec des valeurs par défaut
+    for col in feature_cols:
+        if col not in df_last_features.columns:
+            df_last_features[col] = 0
+    
     X_last_features = df_last_features[feature_cols].values
-
+    
     if use_models:
         try:
-            # Prédictions multi-label pour toutes les boules (1-49) avec un seul modèle
             ball_model = models['balls_multilabel']
-            if ball_model is not None:
-                # Prédiction multi-label: retourne les probabilités pour les 49 boules
+            
+            if isinstance(ball_model, dict) and 'models' in ball_model:
+                # Ensemble de modèles - faire la moyenne des prédictions
+                ensemble_predictions = []
+                
+                for model_name, model in ball_model['models'].items():
+                    if hasattr(model, 'predict_proba'):
+                        ball_probas_list = model.predict_proba(X_last_features)
+                        predictions = np.array([probas[0][1] if len(probas[0]) > 1 else probas[0][0] 
+                                               for probas in ball_probas_list])
+                        ensemble_predictions.append(predictions)
+                    elif hasattr(model, 'predict'):
+                        # Si pas de predict_proba, utiliser predict
+                        predictions = model.predict(X_last_features)[0]  # Premier échantillon
+                        ensemble_predictions.append(predictions)
+                
+                if ensemble_predictions:
+                    # Moyenne pondérée des prédictions de l'ensemble
+                    ball_predictions = np.mean(ensemble_predictions, axis=0)
+                    print(f"   🎯 Prédictions ensemble ({len(ensemble_predictions)} modèles)")
+                else:
+                    ball_predictions = freq_weights
+            else:
+                # Modèle unique
                 if hasattr(ball_model, 'predict_proba'):
-                    # MultiOutputClassifier retourne une liste de 49 arrays (un par boule)
                     ball_probas_list = ball_model.predict_proba(X_last_features)
-                    # Extraire la probabilité de la classe 1 pour chaque boule
-                    ball_predictions = np.array([probas[0][1] if len(probas[0]) > 1 else probas[0][0] for probas in ball_probas_list])
+                    ball_predictions = np.array([probas[0][1] if len(probas[0]) > 1 else probas[0][0] 
+                                               for probas in ball_probas_list])
                 elif hasattr(ball_model, 'predict'):
-                    # Si pas de predict_proba, utiliser predict directement
                     ball_predictions = ball_model.predict(X_last_features)[0]
                 else:
-                    ball_predictions = freq_weights  # Fallback
-                
-                # Normaliser les probabilités
-                ball_predictions = np.clip(ball_predictions, 0.001, 0.999)  # Éviter les valeurs extrêmes
-                ball_predictions = ball_predictions / ball_predictions.sum()
-                
-                # Combiner avec les fréquences historiques selon les poids adaptatifs
-                exploitation_weights = (ml_weight * ball_predictions + freq_weight * freq_weights)
-                exploitation_weights /= exploitation_weights.sum()
-                
-                # Affichage des poids adaptatifs si en mode debug
-                if not ARGS.silent:
-                    print(f"   🎯 Poids adaptatifs: ML={ml_weight:.2f}, Freq={freq_weight:.2f} (modèle multi-label)")
+                    ball_predictions = freq_weights
+            
+            # Normalisation et combinaison adaptative
+            ball_predictions = np.clip(ball_predictions, 0.001, 0.999)
+            ball_predictions = ball_predictions / ball_predictions.sum()
+            
+            # MODIFICATION : Intégrer les poids du TOP 25
+            if top25_weights is not None:
+                # Combinaison : ML + Fréquence + TOP 25 privilégié
+                exploitation_weights = (
+                    ml_weight * 0.4 * ball_predictions + 
+                    freq_weight * 0.3 * freq_weights + 
+                    0.3 * top25_weights  # 30% de poids pour le privilège TOP 25
+                )
+                print(f"   🏆 Génération avec privilège TOP 25 (30% des poids)")
             else:
-                exploitation_weights = freq_weights
+                exploitation_weights = (ml_weight * ball_predictions + freq_weight * freq_weights)
+            
+            exploitation_weights /= exploitation_weights.sum()
+            
+            if not ARGS.silent:
+                ml_effective_weight = ml_weight * 0.4 if top25_weights is not None else ml_weight
+                freq_effective_weight = freq_weight * 0.3 if top25_weights is not None else freq_weight
+                top25_effective_weight = 0.3 if top25_weights is not None else 0.0
+                print(f"   🎯 Poids effectifs: ML={ml_effective_weight:.3f}, Freq={freq_effective_weight:.3f}, TOP25={top25_effective_weight:.3f}")
+                
         except Exception as e:
-            print(f"⚠️ Erreur avec le modèle ML multi-label: {e}. Utilisation des fréquences historiques.")
-            exploitation_weights = freq_weights
+            print(f"⚠️ Erreur avec les modèles ML: {e}")
+            exploitation_weights = top25_weights if top25_weights is not None else freq_weights
     else:
-        exploitation_weights = freq_weights
-
+        exploitation_weights = top25_weights if top25_weights is not None else freq_weights
+    
+    # Suite de la génération identique...
     excluded_numbers = criteria.get('numbers_to_exclude', set())
-    print(f"DEBUG: Numéros exclus: {excluded_numbers} (total: {len(excluded_numbers)})")
-
     available_numbers = [n for n in BALLS if n not in excluded_numbers]
-    print(f"DEBUG: Numéros disponibles: {len(available_numbers)}/49")
-
+    
     if len(available_numbers) < 5:
-        print(f"⚠️ ATTENTION: Seulement {len(available_numbers)} numéros disponibles, génération impossible!")
+        print(f"⚠️ ATTENTION: Seulement {len(available_numbers)} numéros disponibles!")
         return []
-
-    # Créer des poids de probabilité seulement pour les numéros disponibles
-    if use_models:
+    
+    # Génération des candidats avec privilège TOP 25
+    if use_models or top25_weights is not None:
         available_exploitation_weights = np.array([exploitation_weights[n-1] for n in available_numbers])
         available_exploitation_weights = available_exploitation_weights / available_exploitation_weights.sum()
     
     available_freq_weights = np.array([freq_weights[n-1] for n in available_numbers])
     available_freq_weights = available_freq_weights / available_freq_weights.sum()
-
+    
     candidates = []
     max_attempts = N_CANDIDATES * 10
     attempts = 0
-
+    
     while len(candidates) < N_CANDIDATES and attempts < max_attempts:
         attempts += 1
-        if use_models:
+        if use_models or top25_weights is not None:
             p = available_freq_weights if random.random() < EXPLORATION_RATE else available_exploitation_weights
         else:
             p = available_freq_weights
         candidate = np.random.choice(available_numbers, size=5, replace=False, p=p)
         candidates.append(candidate)
-
-    print(f"DEBUG: Candidats générés: {len(candidates)}/{N_CANDIDATES} en {attempts} tentatives")
-
-    if not candidates:
-        print("❌ ERREUR: Aucun candidat généré!")
-        return []
-
-    candidates_matrix = np.array(candidates)
-    scores = np.zeros(len(candidates))
     
-    # Ajouter un facteur de diversité (5% de perturbation) pour éviter la convergence
-    diversity_factor = 0.05
-    for i, grid in enumerate(candidates_matrix):
-        scores[i] = score_grid(grid, criteria, diversity_factor)
-
+    if not candidates:
+        return []
+    
+    # Scoring et sélection avec bonus TOP 25
+    candidates_matrix = np.array(candidates)
+    scores = []
+    
+    for grid in candidates_matrix:
+        base_score = score_grid(grid, criteria, diversity_factor=0.05)
+        
+        # NOUVEAU : Bonus pour les numéros du TOP 25
+        top25_bonus = 0.0
+        if top25_numbers:
+            top25_count = sum(1 for num in grid if num in top25_numbers)
+            if top25_count >= 3:  # Au moins 3 numéros du TOP 25
+                top25_bonus = 0.1 * (top25_count / 5.0)  # Bonus jusqu'à 0.1
+                
+                # Bonus supplémentaire pour les TOP 5
+                top5_count = sum(1 for num in grid if num in top25_numbers[:5])
+                if top5_count >= 1:
+                    top25_bonus += 0.05 * (top5_count / 5.0)  # Bonus supplémentaire pour TOP 5
+        
+        total_score = base_score + top25_bonus
+        scores.append(total_score)
+    
+    scores = np.array(scores)
     top_n = max(1, int(len(candidates) * TOP_PERCENT_SELECTION))
     best_indices = np.argpartition(scores, -top_n)[-top_n:]
     chosen_index = np.random.choice(best_indices)
-
+    
     best_grid_list = [int(b) for b in candidates_matrix[chosen_index]]
     
-    # Génération du numéro chance avec modèle multi-label si disponible
+    # Affichage des statistiques TOP 25 pour la grille choisie
+    if top25_numbers and not ARGS.silent:
+        top25_in_grid = [num for num in best_grid_list if num in top25_numbers]
+        top5_in_grid = [num for num in best_grid_list if num in top25_numbers[:5]]
+        if top25_in_grid:
+            print(f"   🏆 Grille contient {len(top25_in_grid)} numéros TOP 25: {top25_in_grid}")
+            if top5_in_grid:
+                print(f"   🥇 Dont {len(top5_in_grid)} du TOP 5: {top5_in_grid}")
+    
+    # Génération du numéro chance avec modèle amélioré (inchangé)
     if has_chance_model:
         try:
             chance_model = models['chance_multilabel']
-            if chance_model is not None:
-                # Prédiction multi-label: retourne les probabilités pour les 10 numéros chance
-                if hasattr(chance_model, 'predict_proba'):
-                    # MultiOutputClassifier retourne une liste de 10 arrays (un par numéro chance)
-                    chance_probas_list = chance_model.predict_proba(X_last_features)
-                    # Extraire la probabilité de la classe 1 pour chaque numéro chance
-                    chance_predictions = np.array([probas[0][1] if len(probas[0]) > 1 else probas[0][0] for probas in chance_probas_list])
-                elif hasattr(chance_model, 'predict'):
-                    # Si pas de predict_proba, utiliser predict directement
-                    chance_predictions = chance_model.predict(X_last_features)[0]
-                else:
-                    chance_predictions = np.ones(10) / 10  # Probabilité uniforme
-                
-                # Normaliser les probabilités
+            
+            # Gérer les deux formats de modèle
+            if isinstance(chance_model, dict) and 'model' in chance_model:
+                model = chance_model['model']
+            else:
+                model = chance_model
+            
+            if hasattr(model, 'predict_proba'):
+                chance_probas_list = model.predict_proba(X_last_features)
+                chance_predictions = np.array([probas[0][1] if len(probas[0]) > 1 else probas[0][0] 
+                                             for probas in chance_probas_list])
                 chance_predictions = np.clip(chance_predictions, 0.001, 0.999)
                 chance_predictions = chance_predictions / chance_predictions.sum()
-                
                 chance_ball = int(np.random.choice(CHANCE_BALLS, p=chance_predictions))
-                if not ARGS.silent:
-                    print(f"   🎲 Numéro chance prédit avec modèle multi-label")
             else:
                 chance_ball = int(np.random.choice(CHANCE_BALLS))
         except Exception as e:
-            print(f"⚠️ Erreur avec le modèle chance multi-label: {e}")
+            print(f"⚠️ Erreur modèle chance: {e}")
             chance_ball = int(np.random.choice(CHANCE_BALLS))
     else:
         chance_ball = int(np.random.choice(CHANCE_BALLS))
     
     return sorted(best_grid_list) + [chance_ball]
+
+# Ajouter les fonctions de génération ML Top 25 qui manquent
+def generate_ml_top25_predictions(models: dict, X_last: np.ndarray, criteria: dict, output_dir: Path):
+    """Génère le top 25 des numéros basés sur les prédictions ML et l'exporte en CSV"""
+    print("Génération du top 25 des numéros selon les prédictions ML...")
+    
+    if not models or 'balls_multilabel' not in models or models['balls_multilabel'] is None:
+        print("   ⚠️ Pas de modèle ML disponible pour générer les prédictions")
+        return None
+    
+    try:
+        # Préparation des features avancées
+        df_last = pd.DataFrame([X_last[0]], columns=[f'boule_{i}' for i in range(1, 6)])
+        df_last['date_de_tirage'] = pd.Timestamp.now()
+        df_last_features = add_advanced_features(df_last)
+        
+        # Sélectionner les mêmes features que l'entraînement
+        available_features = df_last_features.columns.tolist()
+        feature_cols = [f'boule_{i}' for i in range(1, 6)] + \
+                       [col for col in available_features if col.startswith(('sin_', 'cos_', 'lag_', 'rolling_', 'trend_'))]
+        
+        # Combler les features manquantes avec des valeurs par défaut
+        for col in feature_cols:
+            if col not in df_last_features.columns:
+                df_last_features[col] = 0
+        
+        X_last_features = df_last_features[feature_cols].values
+        
+        # Obtenir les prédictions ML
+        ball_model = models['balls_multilabel']
+        ml_predictions = np.zeros(49)  # Pour les 49 numéros possibles
+        
+        if isinstance(ball_model, dict) and 'models' in ball_model:
+            # Ensemble de modèles - faire la moyenne des prédictions
+            ensemble_predictions = []
+            
+            for model_name, model in ball_model['models'].items():
+                if hasattr(model, 'predict_proba'):
+                    ball_probas_list = model.predict_proba(X_last_features)
+                    predictions = np.array([probas[0][1] if len(probas[0]) > 1 else probas[0][0] 
+                                           for probas in ball_probas_list])
+                    ensemble_predictions.append(predictions)
+                elif hasattr(model, 'predict'):
+                    # Si pas de predict_proba, utiliser predict
+                    predictions = model.predict(X_last_features)[0]  # Premier échantillon
+                    ensemble_predictions.append(predictions)
+            
+            if ensemble_predictions:
+                # Moyenne pondérée des prédictions de l'ensemble
+                ml_predictions = np.mean(ensemble_predictions, axis=0)
+                print(f"   🎯 Prédictions générées via ensemble ({len(ensemble_predictions)} modèles)")
+            else:
+                print("   ⚠️ Aucune prédiction générée par l'ensemble")
+                return None
+        else:
+            # Modèle unique
+            if hasattr(ball_model, 'predict_proba'):
+                ball_probas_list = ball_model.predict_proba(X_last_features)
+                ml_predictions = np.array([probas[0][1] if len(probas[0]) > 1 else probas[0][0] 
+                                          for probas in ball_probas_list])
+            elif hasattr(ball_model, 'predict'):
+                ml_predictions = ball_model.predict(X_last_features)[0]
+            else:
+                print("   ⚠️ Modèle sans méthode de prédiction reconnue")
+                return None
+        
+        # Normaliser les prédictions
+        ml_predictions = np.clip(ml_predictions, 0.001, 0.999)
+        ml_predictions = ml_predictions / ml_predictions.sum()
+        
+        # Récupérer les données de fréquence pour comparaison
+        freq = criteria.get('freq', pd.Series())
+        freq_normalized = freq.reindex(BALLS, fill_value=0).values
+        freq_normalized = freq_normalized / freq_normalized.sum() if freq_normalized.sum() > 0 else freq_normalized
+        
+        # Obtenir les poids adaptatifs
+        ml_weight, freq_weight = adaptive_strategy.get_adaptive_weights()
+        
+        # Calculer le score composite (ML + Fréquence)
+        composite_scores = ml_weight * ml_predictions + freq_weight * freq_normalized
+        
+        # Créer le DataFrame avec tous les numéros et leurs scores
+        predictions_data = []
+        for i, numero in enumerate(BALLS):
+            predictions_data.append({
+                'numero': int(numero),
+                'score_ml': float(ml_predictions[i]),
+                'frequence_historique': int(freq[numero]) if numero in freq.index else 0,
+                'score_frequence': float(freq_normalized[i]),
+                'score_composite': float(composite_scores[i]),
+                'rang_ml': 0,  # Sera calculé après tri
+                'rang_frequence': 0,  # Sera calculé après tri
+                'rang_composite': 0,  # Sera calculé après tri
+                'poids_ml_utilise': float(ml_weight),
+                'poids_freq_utilise': float(freq_weight),
+                'is_excluded': numero in criteria.get('numbers_to_exclude', set()),
+                'is_hot_number': numero in criteria.get('hot_numbers', []),
+                'is_cold_number': numero in criteria.get('cold_numbers', [])
+            })
+        
+        # Convertir en DataFrame
+        predictions_df = pd.DataFrame(predictions_data)
+        
+        # Calculer les rangs
+        predictions_df['rang_ml'] = predictions_df['score_ml'].rank(ascending=False, method='min').astype(int)
+        predictions_df['rang_frequence'] = predictions_df['score_frequence'].rank(ascending=False, method='min').astype(int)
+        predictions_df['rang_composite'] = predictions_df['score_composite'].rank(ascending=False, method='min').astype(int)
+        
+        # Trier par score composite décroissant
+        predictions_df = predictions_df.sort_values('score_composite', ascending=False).reset_index(drop=True)
+        
+        # Ajouter une colonne de position finale
+        predictions_df['position_finale'] = range(1, len(predictions_df) +  1)
+        
+        # Sélectionner le top 25
+        top25_df = predictions_df.head(25).copy()
+        
+        # Réorganiser les colonnes pour la lisibilité
+        column_order = [
+            'position_finale', 'numero', 'score_composite', 'score_ml', 'score_frequence',
+            'rang_ml', 'rang_frequence', 'rang_composite', 'frequence_historique',
+            'poids_ml_utilise', 'poids_freq_utilise', 'is_excluded', 'is_hot_number', 'is_cold_number'
+        ]
+        top25_df = top25_df[column_order]
+        
+        # Sauvegarder le top 25
+        top25_csv_path = output_dir / 'ml_top25_predictions.csv'
+        top25_df.to_csv(top25_csv_path, index=False, float_format='%.6f')
+        
+        # Sauvegarder aussi le classement complet des 49 numéros
+        full_predictions_path = output_dir / 'ml_full_predictions.csv'
+        predictions_df.to_csv(full_predictions_path, index=False, float_format='%.6f')
+        
+        # Statistiques
+        top25_numbers = top25_df['numero'].tolist()
+        excluded_in_top25 = sum(1 for num in top25_numbers if num in criteria.get('numbers_to_exclude', set()))
+        hot_in_top25 = sum(1 for num in top25_numbers if num in criteria.get('hot_numbers', []))
+        cold_in_top25 = sum(1 for num in top25_numbers if num in criteria.get('cold_numbers', []))
+        
+        print(f"   ✅ Top 25 des prédictions ML généré avec succès")
+        print(f"   📊 Statistiques du top 25:")
+        print(f"      - Numéros exclus présents: {excluded_in_top25}/25")
+        print(f"      - Numéros chauds présents: {hot_in_top25}/25") 
+        print(f"      - Numéros froids présents: {cold_in_top25}/25")
+        print(f"      - Score composite moyen: {top25_df['score_composite'].mean():.6f}")
+        print(f"      - Score ML moyen: {top25_df['score_ml'].mean():.6f}")
+        print(f"   💾 Fichiers sauvegardés:")
+        print(f"      - Top 25: '{top25_csv_path}'")
+        print(f"      - Classement complet: '{full_predictions_path}'")
+        
+        return top25_df
+        
+    except Exception as e:
+        print(f"   ❌ Erreur lors de la génération des prédictions ML: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def create_ml_predictions_summary(top25_df, criteria: dict, output_dir: Path):
+    """Crée un résumé détaillé des prédictions ML"""
+    if top25_df is None:
+        return
+    
+    try:
+        # Créer un rapport de synthèse
+        summary_content = f"""# Rapport des Prédictions ML - Top 25 Numéros
+*Généré le {datetime.now().strftime('%d/%m/%Y à %H:%M:%S')}*
+
+## 🎯 Configuration du Modèle
+- **Poids ML utilisé**: {top25_df['poids_ml_utilise'].iloc[0]:.3f} ({top25_df['poids_ml_utilise'].iloc[0]*100:.1f}%)
+- **Poids Fréquence utilisé**: {top25_df['poids_freq_utilise'].iloc[0]:.3f} ({top25_df['poids_freq_utilise'].iloc[0]*100:.1f}%)
+- **Nombre total de numéros évalués**: 49
+- **Numéros sélectionnés pour le top**: 25
+
+## 🏆 Top 10 des Numéros Recommandés par l'IA
+
+| Rang | Numéro | Score Composite | Score ML | Score Fréq. | Freq. Hist. | Statut |
+|------|--------|----------------|----------|-------------|-------------|---------|
+"""
+        
+        # Ajouter les 10 premiers numéros
+        for _, row in top25_df.head(10).iterrows():
+            statut_icons = []
+            if row['is_hot_number']:
+                statut_icons.append('🔥 Chaud')
+            if row['is_cold_number']:
+                statut_icons.append('❄️ Froid')
+            if row['is_excluded']:
+                statut_icons.append('🚫 Exclu')
+            
+            statut = ' '.join(statut_icons) if statut_icons else '✅ Normal'
+            
+            summary_content += f"| {int(row['position_finale'])} | **{int(row['numero'])}** | {row['score_composite']:.4f} | {row['score_ml']:.4f} | {row['score_frequence']:.4f} | {int(row['frequence_historique'])} | {statut} |\n"
+        
+        summary_content += f"""
+## 📊 Analyse Statistique du Top 25
+
+### Répartition par Catégorie
+- **Numéros normaux**: {25 - sum([top25_df['is_hot_number'].sum(), top25_df['is_cold_number'].sum(), top25_df['is_excluded'].sum()])}
+- **Numéros chauds (🔥)**: {int(top25_df['is_hot_number'].sum())}
+- **Numéros froids (❄️)**: {int(top25_df['is_cold_number'].sum())}
+- **Numéros exclus (🚫)**: {int(top25_df['is_excluded'].sum())}
+
+### Scores Moyens
+- **Score composite moyen**: {top25_df['score_composite'].mean():.6f}
+- **Score ML moyen**: {top25_df['score_ml'].mean():.6f}
+- **Score fréquence moyen**: {top25_df['score_frequence'].mean():.6f}
+- **Fréquence historique moyenne**: {top25_df['frequence_historique'].mean():.1f}
+
+### Distribution des Rangs
+- **Meilleur rang ML**: {int(top25_df['rang_ml'].min())}
+- **Moins bon rang ML**: {int(top25_df['rang_ml'].max())}
+- **Rang ML médian**: {int(top25_df['rang_ml'].median())}
+
+## 🎲 Top 25 Complet
+
+| Pos | Numéro | Score Comp | ML | Freq | Rang ML | Rang Freq | Freq Hist | Statut |
+|-----|--------|------------|----|----- |---------|-----------|-----------|--------|
+"""
+        
+        # Ajouter tous les numéros du top 25
+        for _, row in top25_df.iterrows():
+            statut_short = []
+            if row['is_hot_number']:
+                statut_short.append('🔥')
+            if row['is_cold_number']:
+                statut_short.append('❄️')
+            if row['is_excluded']:
+                statut_short.append('🚫')
+            
+            statut = ''.join(statut_short) if statut_short else '✅'
+            
+            summary_content += f"| {int(row['position_finale'])} | {int(row['numero'])} | {row['score_composite']:.4f} | {row['score_ml']:.4f} | {row['score_frequence']:.4f} | {int(row['rang_ml'])} | {int(row['rang_frequence'])} | {int(row['frequence_historique'])} | {statut} |\n"
+        
+        summary_content += f"""
+## 📈 Recommandations d'Usage
+
+### Pour la Sélection de Grilles
+1. **Priorité haute**: Numéros positions 1-5 (scores composites les plus élevés)
+2. **Priorité moyenne**: Numéros positions 6-15 
+3. **Priorité faible**: Numéros positions 16-25
+
+### Stratégie Conseillée
+- Utiliser 2-3 numéros du top 5
+- Compléter avec 1-2 numéros du top 15
+- Éviter de prendre plus de 4 numéros du top 10 (diversification)
+- Tenir compte des numéros exclus (🚫) selon votre stratégie
+
+### Notes Importantes
+- Les scores ML reflètent les patterns appris sur l'historique des tirages
+- La fréquence historique indique la popularité passée du numéro
+- Le score composite combine intelligemment ML et fréquence selon les performances
+- Les numéros exclus sont basés sur les 3 derniers tirages et le filtre de fréquence
+
+---
+*Fichiers détaillés disponibles: `ml_top25_predictions.csv` et `ml_full_predictions.csv`*
+"""
+        
+        # Sauvegarder le rapport
+        summary_path = output_dir / 'ml_predictions_summary.md'
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            f.write(summary_content)
+        
+        print(f"   📋 Résumé des prédictions ML sauvegardé: '{summary_path}'")
+        
+    except Exception as e:
+        print(f"   ⚠️ Erreur création résumé ML: {e}")
 
 # --- Simulation Parallèle ---
 def simulate_chunk(args_tuple):
@@ -1161,6 +1791,168 @@ def simulate_chunk(args_tuple):
         grid = generate_grid_vectorized(criteria, models, X_last_shared)
         if grid and len(grid) >= 5:
             # Pas de facteur de diversité dans le scoring final pour garder la précision
+            score = score_grid(np.array(grid[:-1]), criteria, diversity_factor=0.0)
+            results.append({'grid': grid, 'score': score})
+    return results
+
+# Fonction de scoring à définir avant simulate_chunk_adaptive
+def score_grid(grid, criteria, diversity_factor=0.0):
+    """Score une grille selon les critères statistiques avec poids dynamiques optimisés"""
+    try:
+        if len(grid) != 5:
+            return 0.0
+        
+        # Récupération des données nécessaires avec gestion des erreurs
+        dynamic_weights = criteria.get('dynamic_weights', {})
+        if not dynamic_weights:
+            # Poids par défaut si les poids dynamiques ne sont pas disponibles
+            dynamic_weights = {
+                'sum': 0.15,
+                'std': 0.15,
+                'pair_impair': 0.15,
+                'decades_entropy': 0.15,
+                'gaps': 0.10,
+                'high_low': 0.10,
+                'prime_ratio': 0.10,
+                'position_variance': 0.10
+            }
+        
+        # 1. Score basé sur la somme
+        grid_sum = float(np.sum(grid))
+        target_sum_mean = criteria.get('sums', pd.Series([125])).mean()  # Fallback si pas disponible
+        target_sum_std = criteria.get('sums', pd.Series([125])).std() if len(criteria.get('sums', [])) > 1 else 20
+        sum_score = 1.0 - min(1.0, abs(grid_sum - target_sum_mean) / (2 * max(1, target_sum_std)))
+        
+        # 2. Score basé sur l'écart-type
+        grid_std = float(np.std(grid))
+        target_std_mean = criteria.get('stds', pd.Series([15])).mean()  # Fallback si pas disponible
+        target_std_std = criteria.get('stds', pd.Series([15])).std() if len(criteria.get('stds', [])) > 1 else 5
+        std_score = 1.0 - min(1.0, abs(grid_std - target_std_mean) / (2 * max(1, target_std_std)))
+        
+        # 3. Score pair/impair
+        even_count = int(np.sum(grid % 2 == 0))
+        pair_impair_probs = criteria.get('pair_impair_probs', pd.Series([0.2]*6))
+        if even_count in pair_impair_probs.index:
+            pair_impair_score = float(pair_impair_probs[even_count])
+        else:
+            pair_impair_score = 0.1
+        
+        # 4. Score entropie des décennies
+        decades = [(n-1)//10 for n in grid]
+        decades_counts = pd.Series(decades).value_counts()
+        if len(decades_counts) > 0:
+            decades_entropy = -sum([(count/5) * np.log(count/5) for count in decades_counts.values if count > 0])
+            # Normaliser l'entropie (max = log(5) ≈ 1.6)
+            decades_entropy_score = min(1.0, decades_entropy / np.log(5))
+        else:
+            decades_entropy_score = 0.5
+        
+        # 5. Score espacement (gaps)
+        sorted_grid = np.sort(grid)
+        gaps = [sorted_grid[i+1] - sorted_grid[i] for i in range(4)]
+        gaps_std = np.std(gaps)
+        
+        # Fallback pour gaps si pas disponible dans criteria
+        target_gaps = criteria.get('gaps_between_numbers', [10])
+        if hasattr(target_gaps, '__iter__') and len(target_gaps) > 0:
+            gaps_mean = np.mean(target_gaps)
+        else:
+            gaps_mean = 10  # Valeur par défaut
+        
+        gaps_score = 1.0 - min(1.0, abs(gaps_std - gaps_mean) / max(1.0, gaps_mean))
+        
+        # 6. Score haute/basse répartition
+        low_count = sum(1 for n in grid if n <= 25)
+        high_low_ratio = low_count / 5.0
+        
+        # Fallback pour high_low_ratio si pas disponible dans criteria
+        target_high_low = criteria.get('high_low_ratio', [0.5])
+        if hasattr(target_high_low, '__iter__') and len(target_high_low) > 0:
+            high_low_mean = np.mean(target_high_low)
+        else:
+            high_low_mean = 0.5  # Valeur par défaut
+        
+        high_low_score = 1.0 - min(1.0, abs(high_low_ratio - high_low_mean) / 0.5)
+        
+        # 7. Score nombres premiers
+        primes = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47}
+        prime_count = sum(1 for n in grid if n in primes)
+        prime_ratio = prime_count / 5.0
+        
+        # Fallback pour prime_ratio si pas disponible dans criteria
+        target_prime = criteria.get('prime_ratio', [0.3])
+        if hasattr(target_prime, '__iter__') and len(target_prime) > 0:
+            prime_mean = np.mean(target_prime)
+        else:
+            prime_mean = 0.3  # Valeur par défaut
+        
+        prime_score = 1.0 - min(1.0, abs(prime_ratio - prime_mean) / 0.5)
+        
+        # 8. Score variance des positions
+        positions = [(n-1)/48.0 for n in grid]
+        position_var = np.var(positions)
+        
+        # Fallback pour position_variance si pas disponible dans criteria
+        target_position_var = criteria.get('position_variance', [0.2])
+        if hasattr(target_position_var, '__iter__') and len(target_position_var) > 0:
+            position_var_mean = np.mean(target_position_var)
+        else:
+            position_var_mean = 0.2  # Valeur par défaut
+        
+        position_variance_score = 1.0 - min(1.0, abs(position_var - position_var_mean) / max(0.1, position_var_mean))
+        
+        # Score composite avec poids dynamiques
+        composite_score = (
+            dynamic_weights.get('sum', 0.15) * sum_score +
+            dynamic_weights.get('std', 0.15) * std_score +
+            dynamic_weights.get('pair_impair', 0.15) * pair_impair_score +
+            dynamic_weights.get('decades_entropy', 0.15) * decades_entropy_score +
+            dynamic_weights.get('gaps', 0.10) * gaps_score +
+            dynamic_weights.get('high_low', 0.10) * high_low_score +
+            dynamic_weights.get('prime_ratio', 0.10) * prime_score +
+            dynamic_weights.get('position_variance', 0.10) * position_variance_score
+        )
+        
+        # Bonus de diversité (optionnel)
+        diversity_bonus = 0.0
+        if diversity_factor > 0:
+            # Simple diversité basée sur la variance des numéros
+            diversity_bonus = diversity_factor * (np.var(grid) / 200.0)  # Normalisation approximative
+        
+        # Score de fréquence (bonus pour les numéros avec de bonnes fréquences)
+        freq = criteria.get('freq', pd.Series())
+        if not freq.empty:
+            freq_bonus = 0.0
+            for num in grid:
+                if num in freq.index:
+                    # Normaliser la fréquence entre 0 et 1
+                    normalized_freq = freq[num] / freq.max() if freq.max() > 0 else 0
+                    freq_bonus += normalized_freq
+            freq_bonus = freq_bonus / len(grid)  # Moyenne
+            composite_score += 0.05 * freq_bonus  # Petit bonus fréquence
+        
+        final_score = composite_score + diversity_bonus
+        return max(0.0, min(1.0, final_score))  # Clamp entre 0 et 1
+        
+    except Exception as e:
+        print(f"⚠️ Erreur dans score_grid pour grille {grid}: {e}")
+        return 0.0
+
+# Ajouter aussi une fonction de génération vectorisée standard qui manque
+def generate_grid_vectorized(criteria: dict, models: dict, X_last: np.ndarray) -> list:
+    """Génération de grille vectorisée standard (fallback vers adaptative)"""
+    return generate_grid_vectorized_adaptive(criteria, models, X_last)
+
+# --- Simulation Parallèle ---
+def simulate_chunk_adaptive(args_tuple):
+    """Fonction de simulation adaptative pour le multiprocessing"""
+    n_sims_chunk, criteria, X_last_shared, models, chunk_seed = args_tuple
+    random.seed(chunk_seed)
+    np.random.seed(chunk_seed)
+    results = []
+    for _ in range(n_sims_chunk):
+        grid = generate_grid_vectorized_adaptive(criteria, models, X_last_shared)
+        if grid and len(grid) >= 5:
             score = score_grid(np.array(grid[:-1]), criteria, diversity_factor=0.0)
             results.append({'grid': grid, 'score': score})
     return results
@@ -1276,7 +2068,7 @@ def plot_frequencies_with_filter(criteria: dict, output_dir: Path):
     # Comparaison avant/après filtre
     plt.subplot(2, 2, 3)
     available_nums = [n for n in freq.index if n not in freq_excluded]
-    excluded_nums = list(freq_excluded)
+    excluded_nums = list(freq_excluded);
     
     data_comparison = [
         len(available_nums),
@@ -1414,7 +2206,31 @@ def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time:
             for (p, c) in criteria['pair_counts'].head(5).items()
         ])
         
-    excluded_numbers_str = ", ".join(map(str, sorted(criteria.get('numbers_to_exclude', []))))    
+    excluded_numbers_str = ", ".join(map(str, sorted(criteria.get('numbers_to_exclude', []))))
+
+    # Vérifier si le fichier top 25 ML existe
+    ml_top25_section = ""
+    ml_top25_path = output_dir / 'ml_top25_predictions.csv'
+    if ml_top25_path.exists():
+        try:
+            ml_df = pd.read_csv(ml_top25_path)
+            top_10_ml = ml_df.head(10)
+            top_10_ml_str = "\n".join([
+                f"- **{int(row['numero'])}** (Score: {row['score_composite']:.4f}, ML: {row['score_ml']:.4f}, Rang ML: {int(row['rang_ml'])})" 
+                for _, row in top_10_ml.iterrows()
+            ])
+            
+            ml_top25_section = f"""
+## 🤖 Top 10 des Numéros selon l'Intelligence Artificielle
+{top_10_ml_str}
+
+*📊 Fichier complet des 25 meilleurs disponible : `ml_top25_predictions.csv`*
+*📋 Analyse détaillée disponible : `ml_predictions_summary.md`*
+"""
+        except Exception as e:
+            ml_top25_section = f"\n## 🤖 Prédictions ML\n*Erreur lors du chargement: {e}*\n"
+    else:
+        ml_top25_section = "\n## 🤖 Prédictions ML\n*Non disponible - modèles ML non chargés*\n"
 
     # Informations sur la stratégie adaptative
     adaptive_info = ""
@@ -1456,8 +2272,8 @@ def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time:
 ## 🎯 Top 5 Grilles Recommandées
 {top_5_grids_str}
 
+{ml_top25_section}
 
-...
 ## 🚫 Numéros Exclu (3 Derniers Tirages)
 - **Numéros exclus des grilles générées** : `{excluded_numbers_str}`
 
@@ -1475,6 +2291,9 @@ def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time:
 ## 📈 Fichiers Générés
 - **Analyse détaillée**: `numbers_analysis.csv`
 - **Grilles complètes**: `grilles_conseillees.csv`
+- **Top 25 ML**: `ml_top25_predictions.csv`
+- **Prédictions complètes ML**: `ml_full_predictions.csv`
+- **Résumé ML**: `ml_predictions_summary.md`
 - **Graphiques**: 
   - `frequence_numeros.png`
   - `periodicite_plot.png`
@@ -1500,25 +2319,36 @@ def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time:
         f.write(report_content)
     
     print(f"   ✓ Rapport sauvegardé dans '{report_path}'.")
-
-# --- Fonction Principale ---
+    
 def main():
     start_time = datetime.now()
+    global adaptive_strategy
+    
     if not parquet_path.exists():
         print(f"❌ ERREUR: Fichier Parquet '{parquet_path}' non trouvé.")
         return
 
-    # Gestion du ré-entraînement forcé
-    if hasattr(parse_arguments(), 'retrain') and parse_arguments().retrain:
-        print("🔄 FORCE RE-TRAINING: Suppression des anciens modèles...")
+    # Vérifier si un ré-entraînement automatique est nécessaire
+    auto_retrain = adaptive_strategy.should_retrain_models() if adaptive_strategy else False
+    force_retrain = (hasattr(ARGS, 'retrain') and ARGS.retrain) or auto_retrain
+    
+    if force_retrain:
+        print("🔄 RE-TRAINING DÉCLENCHÉ:")
+        if auto_retrain:
+            print("  📊 Ré-entraînement automatique basé sur les performances")
+        if hasattr(ARGS, 'retrain') and ARGS.retrain:
+            print("  🔧 Ré-entraînement forcé par l'utilisateur")
+        
         import shutil
         if MODEL_DIR.exists():
             shutil.rmtree(MODEL_DIR)
         MODEL_DIR.mkdir(exist_ok=True)
-        print("   ✓ Dossier modèles nettoyé, entraînement forcé.")
+        print("   ✓ Anciens modèles supprimés")
 
+    # Chargement et analyse des données
     criteria = None
     cache_key = f"loto_criteria:{parquet_path.stat().st_mtime}"
+    
     if redis_client:
         cached_criteria = redis_client.get(cache_key)
         if cached_criteria:
@@ -1535,22 +2365,27 @@ def main():
             con.execute(f"CREATE TABLE loto_draws AS SELECT * FROM read_parquet('{str(parquet_path)}')")
             criteria = analyze_criteria_duckdb(con, 'loto_draws')
             
-            # Mise à jour de la stratégie adaptative avec les données récentes
+            # Mise à jour de la stratégie adaptative
             update_adaptive_strategy_with_recent_draws(con, adaptive_strategy)
             
             if redis_client:
                 print("Sauvegarde des nouveaux critères dans Redis (expiration: 4h)...")
                 ttl_seconds = int(timedelta(hours=4).total_seconds())
                 redis_client.setex(cache_key, ttl_seconds, pickle.dumps(criteria))
+        except Exception as e:
+            print(f"❌ ERREUR lors du chargement des données: {e}")
+            import traceback
+            traceback.print_exc()
+            return
         finally:
             if con:
                 con.close()
 
+    # Export des analyses
     analysis_csv_path = OUTPUT_DIR / 'numbers_analysis.csv'
-    criteria['numbers_analysis'].to_csv(analysis_csv_path, index=False, float_format='%.2f', date_format='%Y-%m-%d')
-    print(f"   ✓ Analyse détaillée des numéros exportée vers '{analysis_csv_path}'.")
+    criteria['numbers_analysis'].to_csv(analysis_csv_path, index=False, float_format='%.2f')
+    print(f"   ✓ Analyse détaillée exportée vers '{analysis_csv_path}'")
 
-    # Export des fréquences en CSV
     frequencies_csv_path = OUTPUT_DIR / 'frequencies_analysis.csv'
     freq_df = pd.DataFrame({
         'numero': criteria['freq'].index,
@@ -1562,47 +2397,67 @@ def main():
     })
     freq_df = freq_df.sort_values('frequence', ascending=False)
     freq_df.to_csv(frequencies_csv_path, index=False, float_format='%.2f')
-    print(f"   ✓ Analyse des fréquences exportée vers '{frequencies_csv_path}'.")
+    print(f"   ✓ Analyse des fréquences exportée vers '{frequencies_csv_path}'")
 
-    print("\n2. Gestion des modèles XGBoost...")
+    print("\n2. Gestion intelligente des modèles XGBoost...")
     
-    if ARGS.retrain:
-        print("  ⚠️ FLAG --retrain détecté : Nettoyage et ré-entraînement forcé...")
-        # Nettoyage complet des modèles existants
-        import shutil
-        boost_dir = Path("boost_models")
-        if boost_dir.exists():
-            print("  🗑️ Suppression du répertoire boost_models existant...")
-            shutil.rmtree(boost_dir)
-        # Recréer le répertoire
-        boost_dir.mkdir(exist_ok=True)
+    if force_retrain:
         con = duckdb.connect(database=':memory:', read_only=False)
         con.execute(f"CREATE TABLE loto_draws AS SELECT * FROM read_parquet('{str(parquet_path)}')")
         df_full = con.table('loto_draws').fetchdf()
         con.close()
-        models = train_xgboost_parallel(df_full)
+        models = train_xgboost_parallel_adaptive(df_full, adaptive_strategy)
     else:
         models = load_saved_models()
-        # Vérifier si on a suffisamment de modèles fonctionnels (au moins 70% des modèles)
+        
+        # Vérification de la qualité des modèles chargés
         ball_models_available = 1 if models.get('balls_multilabel') is not None else 0
         chance_models_available = 1 if models.get('chance_multilabel') is not None else 0
         total_available = ball_models_available + chance_models_available
         
-        if total_available < 2:  # Les 2 modèles multi-label doivent être disponibles
-            print(f"  Modèles multi-label insuffisants ({total_available}/2), ré-entraînement complet...")
+        if total_available < 2:
+            print(f"  ⚠️ Modèles insuffisants ({total_available}/2), ré-entraînement...")
             con = duckdb.connect(database=':memory:', read_only=False)
             con.execute(f"CREATE TABLE loto_draws AS SELECT * FROM read_parquet('{str(parquet_path)}')")
             df_full = con.table('loto_draws').fetchdf()
             con.close()
-            models = train_xgboost_parallel(df_full)
+            models = train_xgboost_parallel_adaptive(df_full, adaptive_strategy)
         else:
-            print(f"  ✓ {total_available}/2 modèles multi-label disponibles")
+            print(f"  ✅ {total_available}/2 modèles disponibles et prêts")
 
-    print("\n3. Simulation intelligente des grilles...")
+    print("\n3. Simulation intelligente adaptative des grilles...")
     X_last = np.array(criteria['last_draw']).reshape(1, -1)
-    grids = simulate_grids_parallel(N_SIMULATIONS, criteria, X_last, models)
-    print(f"   ✓ {len(grids)} grilles générées et classées par score de conformité.")
+    
+    # Simulation parallèle adaptative
+    chunk_size = max(1, N_SIMULATIONS // (N_CORES * 4))
+    chunks_args = []
+    sims_left, i = N_SIMULATIONS, 0
+    
+    while sims_left > 0:
+        size = min(chunk_size, sims_left)
+        chunks_args.append((size, criteria, X_last, models, GLOBAL_SEED + i))
+        sims_left -= size
+        i += 1
 
+    all_results = []
+    print(f"Simulation adaptative de {N_SIMULATIONS} grilles sur {N_CORES} coeurs...")
+    print(f"Nombre de chunks: {len(chunks_args)}")
+    
+    with ProcessPoolExecutor(max_workers=N_CORES) as executor:
+        futures = [executor.submit(simulate_chunk_adaptive, args) for args in chunks_args]
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Simulation adaptative"):
+            try:
+                chunk_result = future.result()
+                all_results.extend(chunk_result)
+            except Exception as e:
+                print(f"❌ ERREUR dans un chunk adaptatif: {e}")
+                import traceback
+                traceback.print_exc()
+    
+    grids = sorted(all_results, key=lambda x: x['score'], reverse=True)
+    print(f"Total grilles générées: {len(grids)}")
+
+    # Sauvegarde et analyse
     grids_df = pd.DataFrame()
     if grids:
         grids_df = pd.DataFrame(grids)
@@ -1612,75 +2467,67 @@ def main():
         
         grids_csv_path = OUTPUT_DIR / 'grilles_conseillees.csv'
         grids_df.to_csv(grids_csv_path, index=False, float_format='%.4f')
-        print(f"   ✓ {len(grids)} grilles sauvegardées dans '{grids_csv_path}'.")
-    else:
-        print("⚠️ Aucune grille générée, création d'un DataFrame vide.")
+        print(f"   ✓ {len(grids)} grilles sauvegardées dans '{grids_csv_path}'")
 
     analyze_generated_grids(grids, criteria)
+
+    # *** NOUVEAU: Génération du top 25 ML ***
+    print("\n🤖 Génération des prédictions ML (Top 25)...")
+    top25_ml_df = generate_ml_top25_predictions(models, X_last, criteria, OUTPUT_DIR)
+    if top25_ml_df is not None:
+        create_ml_predictions_summary(top25_ml_df, criteria, OUTPUT_DIR)
 
     print("\n4. Finalisation des rapports et visualisations...")
     if not grids_df.empty:
         create_visualizations(criteria, grids_df, OUTPUT_DIR)
-    else:
-        print("⚠️ Pas de visualisations créées car aucune grille n'a été générée.")
+    
     execution_time = (datetime.now() - start_time).total_seconds()
     create_report(criteria, grids, OUTPUT_DIR, execution_time, adaptive_strategy)
 
-    print(f"\n✅ Analyse terminée avec succès en {execution_time:.2f} secondes.")
+    print(f"\n✅ Analyse adaptative terminée avec succès en {execution_time:.2f} secondes")
     print(f"📁 Tous les résultats sont disponibles dans : '{OUTPUT_DIR.resolve()}'")
     
     if grids:
-        print("\n🎯 Top 5 des grilles recommandées (score de conformité statistique) :")
+        print("\n🎯 Top 5 des grilles recommandées (optimisation adaptative) :")
         for i, grid_info in enumerate(grids[:5]):
             balls_str = ', '.join(map(str, grid_info['grid'][:-1]))
             chance = grid_info['grid'][-1]
             score = grid_info['score']
             print(f"   {i+1}. Boules: [{balls_str}] | Chance: {chance} | Score: {score:.4f}")
 
-        print(f"\n📊 Statistiques de génération :")
+        # Affichage des statistiques adaptatives
+        print(f"\n📊 Statistiques de génération adaptative :")
         print(f"   - Grilles simulées : {N_SIMULATIONS:,}")
         print(f"   - Score moyen : {np.mean([g['score'] for g in grids]):.4f}")
-        print(f"   - Score médian : {np.median([g['score'] for g in grids]):.4f}")
         print(f"   - Meilleur score : {grids[0]['score']:.4f}")
-        print(f"   - Pire score : {grids[-1]['score']:.4f}")
         
-        # Affichage des informations de stratégie adaptative
+        # Informations sur la stratégie adaptative
         if adaptive_strategy:
-            freq_weight = 1.0 - adaptive_strategy.ml_weight
-            print(f"\n🤖 Stratégie Adaptative Machine Learning :")
-            print(f"   - Poids ML actuel : {adaptive_strategy.ml_weight:.3f} ({adaptive_strategy.ml_weight*100:.1f}%)")
-            print(f"   - Poids Fréquence actuel : {freq_weight:.3f} ({freq_weight*100:.1f}%)")
-            
-            history = adaptive_strategy.performance_history
-            if history and 'ml_scores' in history and len(history['ml_scores']) > 0:
-                recent_count = min(5, len(history['ml_scores']))
-                avg_ml_acc = np.mean(history['ml_scores'][-recent_count:])
-                avg_freq_acc = np.mean(history['freq_scores'][-recent_count:])
-                print(f"   - Précision ML récente : {avg_ml_acc:.3f} (moyenne sur {recent_count} évaluations)")
-                print(f"   - Précision Fréquence récente : {avg_freq_acc:.3f}")
-                print(f"   - Total évaluations : {len(history['ml_scores'])}")
-            else:
-                print(f"   - État : Première utilisation - collecte des données en cours")
-    else:
-        print("\n⚠️ Aucune grille n'a été générée.")
-        print("Vérifiez les critères d'exclusion et la configuration.")
+            summary = adaptive_strategy.get_performance_summary()
+            if isinstance(summary, dict):
+                print(f"\n🤖 Stratégie Adaptative - Résumé des performances :")
+                print(f"   - Poids ML actuel : {summary['current_ml_weight']:.3f} ({summary['current_ml_weight']*100:.1f}%)")
+                print(f"   - Confiance : {summary['confidence']:.3f}")
+                print(f"   - Tendance : {summary['trend']:+.4f}")
+                print(f"   - Stabilité des poids : {summary['weight_stability']:.3f}")
+                print(f"   - Évaluations totales : {summary['total_predictions']}")
+                print(f"   - Changements de stratégie : {summary['strategy_changes']}")
+                print(f"   - Taux d'apprentissage : {summary['learning_rate']:.4f}")
+                if summary['should_retrain']:
+                    print(f"   - ⚠️ Ré-entraînement recommandé pour la prochaine session")
+                
+    print(f"\n🎲 Rappel : Ces grilles utilisent l'IA adaptative qui s'améliore en continu")
+    print(f"   selon les performances passées, mais chaque tirage reste aléatoire !")
 
-    print(f"\n🎲 Rappel : Ces grilles sont optimisées selon des critères statistiques")
-    print(f"   basés sur l'historique, mais chaque tirage reste entièrement aléatoire !")
-
-if __name__ == '__main__':
+# AJOUT CRITIQUE : Appel de la fonction main() à la fin du script
+if __name__ == "__main__":
     try:
-        mp.set_start_method('spawn', force=True)
-    except RuntimeError:
-        pass
-    
-    print("🎲 " + "="*60)
-    print("   GÉNÉRATEUR INTELLIGENT DE GRILLES LOTO")
-    print("   Analyse statistique + Machine Learning + Optimisation")
-    print("="*64)
-    
-    main()
-    
-    print("\n" + "="*64)
-    print("🏁 Fin d'exécution du générateur de grilles Loto")
-    print("="*64)
+        main()
+    except KeyboardInterrupt:
+        print("\n❌ Interruption par l'utilisateur (Ctrl+C)")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n❌ ERREUR CRITIQUE: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

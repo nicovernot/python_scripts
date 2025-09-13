@@ -3,17 +3,6 @@
 """
 🎯 GÉNÉRATEUR DE GRILLES LOTO STRATÉGIQUE (VERSION FINALE)
 =========================================================
-
-Script complet pour générer des grilles de loto en utilisant des stratégies
-de pondération externes définies dans un fichier YAML. Il fournit des analyses
-approfondies via des graphiques et des exports CSV.
-
-Utilisation:
-    # Générer 3 grilles avec la stratégie par défaut ('equilibre') et créer les analyses
-    python loto_strategist.py --csv /path/to/data.csv --grids 3 --plots --export-stats
-
-    # Choisir une stratégie spécifique comme 'focus_retard'
-    python loto_strategist.py --csv /path/to/data.csv --strategy focus_retard
 """
 import os
 import sys
@@ -60,7 +49,7 @@ class LotoStrategist:
     MID_ZONE_END = 34
 
     def __init__(self, max_number: int = 49, numbers_per_draw: int = 5, 
-                 config_file: str = './loto/strategies.yml', strategy_name: str = 'equilibre'):
+                 config_file: str = None, strategy_name: str = 'equilibre'):
         self.max_number = max_number
         self.numbers_per_draw = numbers_per_draw
         self.BALLS = list(range(1, max_number + 1))
@@ -77,8 +66,69 @@ class LotoStrategist:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
         self.logger = logging.getLogger(__name__)
 
-        self._load_strategies(config_file)
+        # Définir le chemin du fichier de configuration
+        if config_file is None:
+            # Chercher le fichier dans le répertoire du script
+            script_dir = Path(__file__).parent
+            config_file = script_dir / 'strategies.yml'
+            if not config_file.exists():
+                # Essayer dans le répertoire parent
+                config_file = script_dir.parent / 'loto' / 'strategies.yml'
+                if not config_file.exists():
+                    # Créer le fichier par défaut
+                    config_file = script_dir / 'strategies.yml'
+                    self._create_default_config(config_file)
+
+        self._load_strategies(str(config_file))
         self.set_strategy(strategy_name)
+
+    def _create_default_config(self, config_path: Path):
+        """Crée un fichier de configuration par défaut si aucun n'existe."""
+        default_config = {
+            'strategies': {
+                'equilibre': {
+                    'description': "Stratégie équilibrée combinant tous les facteurs statistiques",
+                    'weights': {
+                        'frequency': 0.25,
+                        'recency_gap': 0.20,
+                        'momentum': 0.15,
+                        'hot_cold': 0.10,
+                        'frequent_pairs': 0.15,
+                        'ml_boost': 0.10,
+                        'recent_draws_penalty': 0.30
+                    }
+                },
+                'focus_retard': {
+                    'description': "Privilégie les numéros en retard avec un fort écart par rapport à leur moyenne",
+                    'weights': {
+                        'frequency': 0.15,
+                        'recency_gap': 0.40,
+                        'momentum': 0.05,
+                        'hot_cold': 0.05,
+                        'frequent_pairs': 0.10,
+                        'ml_boost': 0.20,
+                        'recent_draws_penalty': 0.60
+                    }
+                },
+                'focus_frequence': {
+                    'description': "Met l'accent sur les numéros les plus fréquents historiquement",
+                    'weights': {
+                        'frequency': 0.45,
+                        'recency_gap': 0.10,
+                        'momentum': 0.15,
+                        'hot_cold': 0.15,
+                        'frequent_pairs': 0.10,
+                        'ml_boost': 0.05,
+                        'recent_draws_penalty': 0.20
+                    }
+                }
+            }
+        }
+        
+        with open(config_path, 'w', encoding='utf-8') as f:
+            yaml.dump(default_config, f, allow_unicode=True, default_flow_style=False)
+        
+        self.logger.info(f"✅ Fichier de configuration par défaut créé: {config_path}")
 
     def _load_strategies(self, config_file: str):
         """Charge les stratégies depuis un fichier de configuration YAML."""
@@ -1093,7 +1143,10 @@ def main():
     parser.add_argument('--plots', action='store_true', help='Activer la génération de graphiques d\'analyse')
     parser.add_argument('--export-stats', action='store_true', help='Exporter les statistiques en fichiers CSV')
     
-    parser.add_argument('--config-file', type=str, default='strategies.yml', help="Fichier de configuration des stratégies (défaut: strategies.yml)")
+    # Correction du chemin par défaut
+    script_dir = Path(__file__).parent
+    default_config = script_dir / 'strategies.yml'
+    parser.add_argument('--config-file', type=str, default=str(default_config), help="Fichier de configuration des stratégies")
     parser.add_argument('--strategy', type=str, default='equilibre', help="Nom de la stratégie à utiliser (défaut: equilibre)")
 
     args = parser.parse_args()
