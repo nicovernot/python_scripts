@@ -5,7 +5,7 @@ import os
 
 # Configuration des chemins
 SCRIPT_DIR = Path(__file__).parent
-DATA_DIR = SCRIPT_DIR / 'data'
+DATA_DIR = SCRIPT_DIR / 'loto_data'
 DATA_DIR.mkdir(exist_ok=True)
 
 # Chercher le fichier CSV dans le dossier loto/data

@@ -5,51 +5,111 @@
 
 strategies:
   equilibre:
-    description: "Approche équilibrée entre la fréquence historique, le retard et le momentum récent. Idéal pour commencer."
+    description: "Stratégie équilibrée combinant tous les facteurs statistiques"
     weights:
-      frequency: 0.20        # Fréquence globale
-      recency_gap: 0.25      # Écart depuis la dernière sortie vs écart moyen
-      momentum: 0.20         # Performance sur les 20 derniers tirages
-      hot_cold: 0.10         # Bonus pour les numéros très chauds/froids
-      frequent_pairs: 0.15   # Bonus si le numéro fait partie d'une paire fréquente
-      recent_draws_penalty: 0.5 # Pénalité (multiplicateur) si le numéro est dans les 3 derniers tirages
+      frequency: 0.25
+      recency_gap: 0.20
+      momentum: 0.15
+      hot_cold: 0.10
+      frequent_pairs: 0.15
+      ml_boost: 0.10
+      recent_draws_penalty: 0.30
 
   focus_retard:
-    description: "Stratégie agressive qui favorise fortement les numéros en 'retard de sortie'."
+    description: "Privilégie les numéros en retard avec un fort écart par rapport à leur moyenne"
     weights:
-      frequency: 0.10
-      recency_gap: 0.50      # Poids principal sur l'écart/retard
+      frequency: 0.15
+      recency_gap: 0.40
       momentum: 0.05
-      hot_cold: 0.15         # On favorise aussi les numéros très froids
+      hot_cold: 0.05
       frequent_pairs: 0.10
-      recent_draws_penalty: 0.6 # Pénalité encore plus forte
+      ml_boost: 0.20
+      recent_draws_penalty: 0.60
 
-  momentum:
-    description: "Stratégie qui mise sur les numéros 'chauds' et les tendances récentes."
+  focus_frequence:
+    description: "Met l'accent sur les numéros les plus fréquents historiquement"
+    weights:
+      frequency: 0.45
+      recency_gap: 0.10
+      momentum: 0.15
+      hot_cold: 0.15
+      frequent_pairs: 0.10
+      ml_boost: 0.05
+      recent_draws_penalty: 0.20
+
+  momentum_fort:
+    description: "Privilégie les numéros avec une forte dynamique récente"
+    weights:
+      frequency: 0.15
+      recency_gap: 0.10
+      momentum: 0.40
+      hot_cold: 0.10
+      frequent_pairs: 0.15
+      ml_boost: 0.10
+      recent_draws_penalty: 0.10
+
+  paires_optimales:
+    description: "Se concentre sur les paires de numéros les plus performantes"
+    weights:
+      frequency: 0.20
+      recency_gap: 0.15
+      momentum: 0.10
+      hot_cold: 0.10
+      frequent_pairs: 0.35
+      ml_boost: 0.10
+      recent_draws_penalty: 0.25
+
+  contrarian:
+    description: "Stratégie contrarian qui privilégie les numéros délaissés"
+    weights:
+      frequency: 0.05
+      recency_gap: 0.35
+      momentum: 0.05
+      hot_cold: 0.30
+      frequent_pairs: 0.05
+      ml_boost: 0.15
+      recent_draws_penalty: 0.70
+
+  machine_learning:
+    description: "Stratégie basée principalement sur les prédictions ML"
     weights:
       frequency: 0.10
-      recency_gap: 0.10
-      momentum: 0.50         # Poids principal sur les tirages récents
-      hot_cold: 0.15         # On favorise les numéros très chauds
-      frequent_pairs: 0.15
-      recent_draws_penalty: 0.4
+      recency_gap: 0.15
+      momentum: 0.10
+      hot_cold: 0.05
+      frequent_pairs: 0.10
+      ml_boost: 0.45
+      recent_draws_penalty: 0.25
 
-  frequences_moyennes:
-    description: "Stratégie qui privilégie les numéros avec des fréquences moyennes, évitant les extrêmes (ni trop sortis, ni jamais sortis)."
+  conservateur:
+    description: "Approche conservatrice évitant les extrêmes"
     weights:
-      frequency: 0.45        # Poids principal sur les fréquences moyennes
-      recency_gap: 0.20      # Écart modéré depuis la dernière sortie
-      momentum: 0.15         # Momentum récent modéré
-      hot_cold: 0.05         # Faible poids sur les extrêmes chaud/froid
-      frequent_pairs: 0.15   # Bonus pour les paires fréquentes
-      recent_draws_penalty: 0.7 # Pénalité forte pour éviter les répétitions immédiates
+      frequency: 0.30
+      recency_gap: 0.25
+      momentum: 0.20
+      hot_cold: 0.15
+      frequent_pairs: 0.10
+      ml_boost: 0.00
+      recent_draws_penalty: 0.40
 
-  equilibre_conservateur:
-    description: "Version plus conservatrice de l'équilibre, favorisant la stabilité et les fréquences moyennes."
+  agressif:
+    description: "Stratégie agressive avec prise de risque élevée"
     weights:
-      frequency: 0.35        # Fréquence importante mais pas exclusive
-      recency_gap: 0.30      # Retard modéré privilégié
-      momentum: 0.10         # Faible poids sur les tendances récentes
-      hot_cold: 0.05         # Évite les extrêmes
-      frequent_pairs: 0.20   # Privilégie les associations stables
-      recent_draws_penalty: 0.8 # Pénalité très forte contre les répétitions
+      frequency: 0.10
+      recency_gap: 0.30
+      momentum: 0.25
+      hot_cold: 0.05
+      frequent_pairs: 0.05
+      ml_boost: 0.25
+      recent_draws_penalty: 0.10
+
+  adaptative:
+    description: "Stratégie qui s'adapte aux tendances récentes du jeu"
+    weights:
+      frequency: 0.20
+      recency_gap: 0.20
+      momentum: 0.30
+      hot_cold: 0.10
+      frequent_pairs: 0.10
+      ml_boost: 0.10
+      recent_draws_penalty: 0.35
