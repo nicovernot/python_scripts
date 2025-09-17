@@ -180,6 +180,136 @@
       box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
     }
 
+    /* NOUVEAU: Styles pour les suggestions */
+    .suggestions-section {
+      margin: 25px 0;
+      padding: 20px;
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 20px;
+      transition: all 0.3s ease;
+    }
+
+    .suggestions-section.hidden {
+      display: none;
+    }
+
+    .suggestions-title {
+      color: #ffd700;
+      font-size: 1.4rem;
+      font-weight: bold;
+      margin-bottom: 20px;
+      text-align: center;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .suggestions-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .suggestion-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 15px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 15px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.3s ease;
+    }
+
+    .suggestion-item:hover {
+      background: rgba(255, 255, 255, 0.1);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+    }
+
+    .suggestion-info {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .suggestion-label {
+      color: white;
+      font-weight: bold;
+      font-size: 1rem;
+      margin-bottom: 5px;
+    }
+
+    .suggestion-desc {
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 0.8rem;
+    }
+
+    .suggestion-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .checkbox-container {
+      position: relative;
+      display: inline-block;
+    }
+
+    .checkbox-container input[type="checkbox"] {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .checkbox-custom {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 25px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 25px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .checkbox-custom::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 19px;
+      height: 19px;
+      background: white;
+      border-radius: 50%;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+    }
+
+    .checkbox-container input:checked + .checkbox-custom {
+      background: linear-gradient(45deg, #00ff88, #4ecdc4);
+      border-color: #00ff88;
+    }
+
+    .checkbox-container input:checked + .checkbox-custom::after {
+      transform: translateX(25px);
+    }
+
+    .suggestion-number {
+      width: 60px;
+      height: 35px;
+      line-height: 35px;
+      text-align: center;
+      border-radius: 8px;
+      background: rgba(255, 215, 0, 0.2);
+      border: 2px solid rgba(255, 215, 0, 0.5);
+      color: #ffd700;
+      font-weight: bold;
+      font-size: 1.1rem;
+    }
+
     .grilles {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -388,6 +518,11 @@
         gap: 15px;
       }
       
+      .suggestions-grid {
+        grid-template-columns: 1fr;
+        gap: 15px;
+      }
+      
       .grilles {
         grid-template-columns: 1fr;
         gap: 20px;
@@ -411,6 +546,74 @@
       <button class="game-btn" id="grille-euromillion" onclick="selectGame('euromillion')">🌟 EuroMillion</button>
     </div>
 
+    <!-- CORRECTION: Section des suggestions pour le Loto avec onclick sur le switch -->
+    <div class="suggestions-section" id="suggestions-loto">
+      <div class="suggestions-title">🎯 Suggestions Loto Recommandées</div>
+      <div class="suggestions-grid">
+        <div class="suggestion-item">
+          <div class="suggestion-info">
+            <div class="suggestion-label">Numéro Hot #1</div>
+            <div class="suggestion-desc">Numéro sorti fréquemment</div>
+          </div>
+          <div class="suggestion-controls">
+            <div class="checkbox-container">
+              <input type="checkbox" id="loto-hot1-check" onchange="toggleSuggestion('loto', 'hot1', 23)">
+              <div class="checkbox-custom" onclick="document.getElementById('loto-hot1-check').click()"></div>
+            </div>
+            <div class="suggestion-number">23</div>
+          </div>
+        </div>
+        
+        <div class="suggestion-item">
+          <div class="suggestion-info">
+            <div class="suggestion-label">Numéro Hot #2</div>
+            <div class="suggestion-desc">Deuxième plus fréquent</div>
+          </div>
+          <div class="suggestion-controls">
+            <div class="checkbox-container">
+              <input type="checkbox" id="loto-hot2-check" onchange="toggleSuggestion('loto', 'hot2', 7)">
+              <div class="checkbox-custom" onclick="document.getElementById('loto-hot2-check').click()"></div>
+            </div>
+            <div class="suggestion-number">7</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CORRECTION: Section des suggestions pour l'EuroMillion avec onclick sur le switch -->
+    <div class="suggestions-section hidden" id="suggestions-euromillion">
+      <div class="suggestions-title">🌟 Suggestions EuroMillion Recommandées</div>
+      <div class="suggestions-grid">
+        <div class="suggestion-item">
+          <div class="suggestion-info">
+            <div class="suggestion-label">Numéro Hot #1</div>
+            <div class="suggestion-desc">Numéro sorti fréquemment</div>
+          </div>
+          <div class="suggestion-controls">
+            <div class="checkbox-container">
+              <input type="checkbox" id="euro-hot1-check" onchange="toggleSuggestion('euromillion', 'hot1', 50)">
+              <div class="checkbox-custom" onclick="document.getElementById('euro-hot1-check').click()"></div>
+            </div>
+            <div class="suggestion-number">50</div>
+          </div>
+        </div>
+        
+        <div class="suggestion-item">
+          <div class="suggestion-info">
+            <div class="suggestion-label">Numéro Hot #2</div>
+            <div class="suggestion-desc">Deuxième plus fréquent</div>
+          </div>
+          <div class="suggestion-controls">
+            <div class="checkbox-container">
+              <input type="checkbox" id="euro-hot2-check" onchange="toggleSuggestion('euromillion', 'hot2', 23)">
+              <div class="checkbox-custom" onclick="document.getElementById('euro-hot2-check').click()"></div>
+            </div>
+            <div class="suggestion-number">23</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="controls">
       <div class="input-group">
         <label>🎯 Numéro conseillé 1 :</label>
@@ -430,11 +633,15 @@
   </div>
 
 <script>
-// Configuration des jeux
+// Configuration des jeux avec suggestions (identique)
 const jeux = {
   loto: {
     name: "Loto",
     min: 1, max: 49,
+    suggestions: {
+      hot1: 23,
+      hot2: 7
+    },
     tranches: [
       [1, 16],   // Tranche 1
       [17, 33],  // Tranche 2  
@@ -450,6 +657,10 @@ const jeux = {
   euromillion: {
     name: "EuroMillion", 
     min: 1, max: 50,
+    suggestions: {
+      hot1: 50,
+      hot2: 23
+    },
     tranches: [
       [1, 17],   // Tranche 1
       [18, 33],  // Tranche 2
@@ -465,6 +676,10 @@ const jeux = {
 };
 
 let currentGame = 'loto';
+let activeSuggestions = {
+  loto: { hot1: false, hot2: false },
+  euromillion: { hot1: false, hot2: false }
+};
 
 function randInt(min, max) { 
   return Math.floor(Math.random() * (max - min + 1)) + min; 
@@ -474,7 +689,115 @@ function getUnitDigit(num) {
   return num % 10;
 }
 
+// FONCTION CORRIGÉE avec plus de debug et gestion d'erreurs
+function toggleSuggestion(gameType, suggestionType, number) {
+  console.log(`🔧 toggleSuggestion appelé: gameType=${gameType}, type=${suggestionType}, number=${number}`);
+  
+  try {
+    // Obtenir l'état de la checkbox
+    const checkboxId = `${gameType === 'loto' ? 'loto' : 'euro'}-${suggestionType}-check`;
+    const checkbox = document.getElementById(checkboxId);
+    
+    if (!checkbox) {
+      console.error(`❌ Checkbox introuvable: ${checkboxId}`);
+      return;
+    }
+    
+    const isChecked = checkbox.checked;
+    console.log(`✅ Checkbox ${checkboxId} trouvée, état: ${isChecked}`);
+    
+    // Mettre à jour l'état global
+    if (!activeSuggestions[gameType]) {
+      activeSuggestions[gameType] = {};
+    }
+    activeSuggestions[gameType][suggestionType] = isChecked;
+    
+    console.log(`📊 État mis à jour:`, activeSuggestions);
+    
+    // Mettre à jour immédiatement les inputs
+    updateSuggestionInputs();
+    
+  } catch (error) {
+    console.error(`❌ Erreur dans toggleSuggestion:`, error);
+  }
+}
+
+// FONCTION CORRIGÉE avec validation renforcée
+function updateSuggestionInputs() {
+  console.log(`🔄 updateSuggestionInputs pour: ${currentGame}`);
+  
+  try {
+    const game = jeux[currentGame];
+    if (!game) {
+      console.error(`❌ Configuration jeu introuvable: ${currentGame}`);
+      return;
+    }
+    
+    const suggestions = activeSuggestions[currentGame] || {};
+    console.log(`📋 Suggestions actives pour ${currentGame}:`, suggestions);
+    
+    // Obtenir les éléments DOM
+    const sug1Input = document.getElementById('sug-1');
+    const sug2Input = document.getElementById('sug-2');
+    
+    if (!sug1Input || !sug2Input) {
+      console.error(`❌ Inputs suggestions introuvables`);
+      return;
+    }
+    
+    // Reset des inputs
+    sug1Input.value = '';
+    sug2Input.value = '';
+    
+    let suggestionsToApply = [];
+    
+    // Collecter les suggestions actives
+    if (suggestions.hot1) {
+      suggestionsToApply.push(game.suggestions.hot1);
+      console.log(`🔥 Hot1 activé: ${game.suggestions.hot1}`);
+    }
+    
+    if (suggestions.hot2) {
+      suggestionsToApply.push(game.suggestions.hot2);
+      console.log(`🔥 Hot2 activé: ${game.suggestions.hot2}`);
+    }
+    
+    console.log(`🎯 Suggestions à appliquer:`, suggestionsToApply);
+    
+    // Appliquer les suggestions dans les inputs
+    if (suggestionsToApply.length > 0) {
+      sug1Input.value = suggestionsToApply[0];
+      console.log(`✅ sug-1 défini à: ${suggestionsToApply[0]}`);
+      
+      // Animation visuelle pour confirmer la modification
+      sug1Input.style.background = 'rgba(255, 215, 0, 0.3)';
+      setTimeout(() => {
+        sug1Input.style.background = 'rgba(255, 255, 255, 0.15)';
+      }, 500);
+    }
+    
+    if (suggestionsToApply.length > 1) {
+      sug2Input.value = suggestionsToApply[1];
+      console.log(`✅ sug-2 défini à: ${suggestionsToApply[1]}`);
+      
+      // Animation visuelle pour confirmer la modification
+      sug2Input.style.background = 'rgba(255, 215, 0, 0.3)';
+      setTimeout(() => {
+        sug2Input.style.background = 'rgba(255, 255, 255, 0.15)';
+      }, 500);
+    }
+    
+    // Debug final
+    console.log(`🏁 Résultat final: sug-1="${sug1Input.value}", sug-2="${sug2Input.value}"`);
+    
+  } catch (error) {
+    console.error(`❌ Erreur dans updateSuggestionInputs:`, error);
+  }
+}
+
+// FONCTION CORRIGÉE selectGame
 function selectGame(gameType) {
+  console.log(`🎮 Sélection du jeu: ${gameType}`);
   currentGame = gameType;
   
   // Mettre à jour les boutons
@@ -490,10 +813,54 @@ function selectGame(gameType) {
   document.getElementById('sug-1').max = maxValue;
   document.getElementById('sug-2').max = maxValue;
   
+  // Montrer/cacher les bonnes sections de suggestions
+  document.getElementById('suggestions-loto').classList.toggle('hidden', gameType !== 'loto');
+  document.getElementById('suggestions-euromillion').classList.toggle('hidden', gameType !== 'euromillion');
+  
+  // CORRECTION: Synchroniser les checkboxes avec l'état
+  const gamePrefix = gameType === 'loto' ? 'loto' : 'euro';
+  const hot1Checkbox = document.getElementById(`${gamePrefix}-hot1-check`);
+  const hot2Checkbox = document.getElementById(`${gamePrefix}-hot2-check`);
+  
+  if (hot1Checkbox && activeSuggestions[gameType]) {
+    hot1Checkbox.checked = activeSuggestions[gameType].hot1 || false;
+  }
+  if (hot2Checkbox && activeSuggestions[gameType]) {
+    hot2Checkbox.checked = activeSuggestions[gameType].hot2 || false;
+  }
+  
+  // Mettre à jour les suggestions dans les inputs
+  updateSuggestionInputs();
+  
   // Vider les grilles existantes
   document.getElementById('grilles').innerHTML = '';
   document.getElementById('debug').innerHTML = `🎮 Jeu: ${jeux[gameType].name}<br>Prêt à générer des grilles ! ✨`;
 }
+
+// NOUVELLE FONCTION de test direct
+function testManualToggle() {
+  console.log("🧪 Test manuel des switches...");
+  
+  // Tester switch loto hot1
+  const lotoHot1 = document.getElementById('loto-hot1-check');
+  if (lotoHot1) {
+    lotoHot1.checked = true;
+    toggleSuggestion('loto', 'hot1', 23);
+    console.log("✅ Test loto hot1 effectué");
+  }
+  
+  setTimeout(() => {
+    // Tester switch loto hot2
+    const lotoHot2 = document.getElementById('loto-hot2-check');
+    if (lotoHot2) {
+      lotoHot2.checked = true;
+      toggleSuggestion('loto', 'hot2', 7);
+      console.log("✅ Test loto hot2 effectué");
+    }
+  }, 1000);
+}
+
+// FONCTIONS MANQUANTES - À AJOUTER :
 
 function detectGame() {
   if (document.getElementById('grille-euromillion').classList.contains('active')) {
@@ -593,7 +960,10 @@ function generateEtoiles() {
   return etoiles.sort((a, b) => a - b);
 }
 
+// FONCTION PRINCIPALE MANQUANTE : genererGrilles
 function genererGrilles() {
+  console.log("🎲 Génération des grilles...");
+  
   const gameType = detectGame();
   const game = jeux[gameType];
   const recommendations = [
@@ -601,12 +971,22 @@ function genererGrilles() {
     parseInt(document.getElementById('sug-2').value) || 0
   ].filter(n => n > 0);
   
+  console.log(`🎮 Jeu: ${gameType}`);
+  console.log(`🎯 Recommandations: ${recommendations}`);
+  
   const grillesDiv = document.getElementById('grilles');
   grillesDiv.innerHTML = '';
   
   const debugDiv = document.getElementById('debug');
   debugDiv.innerHTML = `<strong>🎮 Mode: ${game.name}</strong><br>`;
-  debugDiv.innerHTML += `🎯 Recommandations: ${recommendations.join(', ') || 'Aucune'}<br><br>`;
+  
+  // Afficher les suggestions actives
+  const activeSuggs = activeSuggestions[gameType];
+  const activeSugList = Object.keys(activeSuggs).filter(key => activeSuggs[key]).map(key => 
+    `${key}:${game.suggestions[key]}`
+  );
+  debugDiv.innerHTML += `🎯 Suggestions actives: ${activeSugList.length ? activeSugList.join(', ') : 'Aucune'}<br>`;
+  debugDiv.innerHTML += `🎯 Recommandations finales: ${recommendations.join(', ') || 'Aucune'}<br><br>`;
   
   // Générer 4 grilles avec les patterns
   for (let i = 0; i < 4; i++) {
@@ -722,9 +1102,23 @@ function validateGrids(gameType) {
   validationDiv.innerHTML = html;
 }
 
-// Initialisation
+// INITIALISATION CORRIGÉE
 window.onload = function() {
+  console.log("🚀 === INITIALISATION ===");
+  
+  // Initialiser le jeu
   selectGame('loto');
+  
+  // Ajouter des boutons de test pour debug
+  setTimeout(() => {
+    const debugDiv = document.getElementById('debug');
+    debugDiv.innerHTML += '<br><div style="margin: 10px 0;">';
+    debugDiv.innerHTML += '<button onclick="testManualToggle()" style="background: #4ecdc4; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; margin-right: 10px;">🧪 Test Manuel</button>';
+    debugDiv.innerHTML += '<button onclick="console.clear()" style="background: #666; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer;">🧹 Clear Console</button>';
+    debugDiv.innerHTML += '</div>';
+  }, 1000);
+  
+  console.log("✅ Initialisation terminée");
 };
 </script>
 

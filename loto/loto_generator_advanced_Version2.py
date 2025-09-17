@@ -589,6 +589,7 @@ def add_cyclic_features(df, date_col='date_de_tirage'):
         df2[f'cos_boule_{i}'] = np.cos(2 * np.pi * df2[col] / 49)
     return df2
 
+
 # --- Fonctions d'Analyse (DuckDB) ---
 def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) -> dict:
     print("Début de l'analyse des critères avec DuckDB...")
@@ -608,19 +609,25 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
     last_3_draws = df_pandas.iloc[-3:][balls_cols].values.flatten()
     last_3_numbers_set = set(last_3_draws)
     
+    # MODIFICATION : Ne plus exclure de numéros automatiquement
     # Filtre de fréquence : exclure les numéros avec fréquence < 80 ou > 100
-    freq_excluded = set(freq[(freq < 80) | (freq > 100)].index.tolist())
+    # freq_excluded = set(freq[(freq < 80) | (freq > 100)].index.tolist())
+    freq_excluded = set()  # Aucun numéro exclu par défaut
     
-    # Utiliser les numéros exclus configurables
+    # MODIFICATION : Utiliser uniquement les exclusions manuelles de l'utilisateur
     if EXCLUDED_NUMBERS is not None:
-        numbers_to_exclude = EXCLUDED_NUMBERS.union(freq_excluded)
-        exclusion_source = "paramètre utilisateur + filtre fréquence"
+        numbers_to_exclude = EXCLUDED_NUMBERS  # Seulement les exclusions manuelles
+        exclusion_source = "paramètre utilisateur uniquement"
+        print(f"   ✓ Numéros exclus (utilisateur): {sorted(numbers_to_exclude)}")
     else:
-        numbers_to_exclude = last_3_numbers_set.union(freq_excluded)
-        exclusion_source = "3 derniers tirages (auto) + filtre fréquence"
+        numbers_to_exclude = set()  # Aucune exclusion automatique
+        exclusion_source = "aucune exclusion"
+        print(f"   ✓ Mode sans exclusion : tous les numéros 1-49 disponibles")
     
-    print(f"   ✓ Numéros exclus par fréquence (<80 ou >100): {sorted(freq_excluded)}")
-    print(f"   ✓ Numéros exclus ({exclusion_source}): {sorted(numbers_to_exclude)}")
+    # Garder l'info des anciens critères pour les statistiques
+    freq_excluded_info = set(freq[(freq < 80) | (freq > 100)].index.tolist())
+    if freq_excluded_info:
+        print(f"   ℹ️ Numéros avec fréquence atypique (<80 ou >100) : {sorted(freq_excluded_info)} (non exclus)")
 
     last_appearance = df_pandas.melt(
         id_vars=['date_de_tirage'], 
@@ -800,8 +807,8 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
         'pair_impair_probs': pair_impair_dist / pair_impair_dist.sum(),
         'consecutive_counts': consecutive_counts,
         'pair_counts': pair_counts,
-        'numbers_to_exclude': numbers_to_exclude,
-        'freq_excluded': freq_excluded,  # Nouveaux numéros exclus par fréquence
+        'numbers_to_exclude': numbers_to_exclude,  # Maintenant peut être vide
+        'freq_excluded': freq_excluded_info,  # Pour info seulement, pas d'exclusion
         'sums': sums,
         'stds': stds,
         'dynamic_weights': dynamic_weights,
@@ -817,67 +824,601 @@ def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) 
         'position_variance': position_variance
     }
 
-# --- Fonctions d'analyse de cycles et motifs ---
-def autocorrelation_analysis(series, max_lag=50):
-    autocorr = [series.autocorr(lag) for lag in range(1, max_lag + 1)]
-    return pd.Series(autocorr, index=range(1, max_lag + 1))
+# --- Stratégie Adaptative Améliorée ---
+class AdaptiveStrategy:
+    """Stratégie adaptative qui s'améliore en continu avec apprentissage par renforcement"""
+    
+    def __init__(self, history_file=None):
+        self.history_file = history_file or (MODEL_DIR / 'performance_history.json')
+        self.performance_history = self.load_history()
+        self.ml_weight = 0.6  # Poids initial pour ML vs fréquences
+        self.adaptation_rate = 0.05  # Vitesse d'adaptation réduite pour plus de stabilité
+        self.confidence_threshold = 0.7  # Seuil de confiance pour les adaptations
+        self.learning_rate_decay = 0.995  # Décroissance du taux d'apprentissage
+        self.exploration_factor = 0.1  # Facteur d'exploration pour éviter les optima locaux
+        self.performance_window = 20  # Fenêtre glissante pour l'évaluation
+        
+    def load_history(self):
+        """Charge l'historique des performances avec validation"""
+        if self.history_file.exists():
+            try:
+                with open(self.history_file, 'r') as f:
+                    history = json.load(f)
+                
+                # Validation et migration des données si nécessaire
+                required_keys = ['predictions', 'actuals', 'ml_scores', 'freq_scores', 
+                               'dates', 'ml_weight_history', 'strategy_changes', 
+                               'performance_trends', 'confidence_scores']
+                
+                for key in required_keys:
+                    if key not in history:
+                        history[key] = []
+                
+                # Limiter l'historique pour éviter une croissance excessive
+                max_history = 500
+                for key in history:
+                    if isinstance(history[key], list) and len(history[key]) > max_history:
+                        history[key] = history[key][-max_history:]
+                
+                return history
+            except Exception as e:
+                print(f"⚠️ Erreur chargement historique: {e}, initialisation nouveau")
+                
+        return {
+            'predictions': [],
+            'actuals': [],
+            'ml_scores': [],
+            'freq_scores': [],
+            'dates': [],
+            'ml_weight_history': [],
+            'strategy_changes': [],
+            'performance_trends': [],
+            'confidence_scores': []
+        }
+    
+    def save_history(self):
+        """Sauvegarde l'historique avec gestion d'erreurs"""
+        try:
+            # Sauvegarde atomique pour éviter la corruption
+            temp_file = self.history_file.with_suffix('.tmp')
+            with open(temp_file, 'w') as f:
+                json.dump(self.performance_history, f, indent=2)
+            temp_file.replace(self.history_file)
+        except Exception as e:
+            print(f"⚠️ Erreur sauvegarde historique: {e}")
+    
+    def calculate_performance_trend(self):
+        """Calcule la tendance de performance récente"""
+        if len(self.performance_history['ml_scores']) < 10:
+            return 0.0
+        
+        recent_scores = self.performance_history['ml_scores'][-self.performance_window:]
+        
+        # Régression linéaire simple pour détecter la tendance
+        x = np.arange(len(recent_scores))
+        if len(recent_scores) > 1:
+            slope, _ = np.polyfit(x, recent_scores, 1)
+            return slope
+        return 0.0
+    
+    def calculate_confidence(self):
+        """Calcule le niveau de confiance dans les prédictions actuelles"""
+        if len(self.performance_history['ml_scores']) < 5:
+            return 0.5
+        
+        recent_scores = self.performance_history['ml_scores'][-self.performance_window:]
+        
+        # Confiance basée sur la stabilité et la performance
+        stability = 1.0 - np.std(recent_scores)  # Plus stable = plus confiant
+        performance = np.mean(recent_scores)     # Meilleure performance = plus confiant
+        
+        confidence = (stability + performance) / 2.0
+        return np.clip(confidence, 0.1, 0.9)
+    
+    def adaptive_learning_rate(self):
+        """Calcule un taux d'apprentissage adaptatif"""
+        base_rate = self.adaptation_rate
+        
+        # Réduire le taux si on a beaucoup d'expérience
+        experience_factor = max(0.1, 1.0 - len(self.performance_history['ml_scores']) / 1000)
+        
+        # Augmenter le taux si la performance est en baisse
+        trend = self.calculate_performance_trend()
+        trend_factor = 1.0 + max(0, -trend * 10)  # Augmenter si tendance négative
+        
+        adaptive_rate = base_rate * experience_factor * trend_factor
+        return np.clip(adaptive_rate, 0.01, 0.2)
+    
+    def evaluate_prediction_accuracy(self, predicted_probs, actual_draw):
+        """Évaluation améliorée de la précision des prédictions"""
+        if len(actual_draw) != 5:
+            return 0.0, 0.0
+        
+        # Score ML amélioré avec pondération
+        if isinstance(predicted_probs, np.ndarray) and len(predicted_probs) == 49:
+            # Score basé sur la probabilité moyenne des boules tirées
+            ml_score = np.mean([predicted_probs[boule-1] for boule in actual_draw])
+            
+            # Bonus pour les prédictions très sûres (probabilités élevées)
+            high_prob_bonus = np.sum([predicted_probs[boule-1] for boule in actual_draw if predicted_probs[boule-1] > 0.7])
+            ml_score += high_prob_bonus * 0.1
+        else:
+            ml_score = 0.0
+            
+        # Score fréquences avec amélioration
+        freq_weights = np.ones(49) / 49  # Uniforme en fallback
+        freq_score = np.mean([freq_weights[boule-1] for boule in actual_draw])
+        
+        return ml_score, freq_score
+    
+    def detect_pattern_changes(self):
+        """Détecte les changements dans les patterns de tirage"""
+        if len(self.performance_history['ml_scores']) < 20:
+            return False
+        
+        # Comparer les performances récentes vs historiques
+        recent_perf = np.mean(self.performance_history['ml_scores'][-10:])
+        historical_perf = np.mean(self.performance_history['ml_scores'][-20:-10])
+        
+        # Détection de changement significatif
+        change_threshold = 0.1
+        return abs(recent_perf - historical_perf) > change_threshold
+    
+    def update_performance(self, prediction, actual_draw, ml_probs=None):
+        """Mise à jour améliorée des performances avec apprentissage adaptatif"""
+        if ml_probs is not None:
+            ml_score, freq_score = self.evaluate_prediction_accuracy(ml_probs, actual_draw)
+            
+            # Ajouter à l'historique
+            self.performance_history['predictions'].append(prediction)
+            self.performance_history['actuals'].append(actual_draw)
+            self.performance_history['ml_scores'].append(float(ml_score))
+            self.performance_history['freq_scores'].append(float(freq_score))
+            self.performance_history['dates'].append(datetime.now().isoformat())
+            
+            # Calculer la confiance et la tendance
+            confidence = self.calculate_confidence()
+            trend = self.calculate_performance_trend()
+            
+            self.performance_history['confidence_scores'].append(float(confidence))
+            self.performance_history['performance_trends'].append(float(trend))
+            
+            # Adaptation intelligente du poids ML
+            old_weight = self.ml_weight
+            self.adapt_ml_weight_intelligent(ml_score, freq_score, confidence, trend)
+            
+            # Enregistrer les changements de stratégie significatifs
+            weight_change = abs(self.ml_weight - old_weight)
+            if weight_change > 0.05:  # Changement significatif
+                change_info = {
+                    'timestamp': datetime.now().isoformat(),
+                    'old_weight': float(old_weight),
+                    'new_weight': float(self.ml_weight),
+                    'reason': 'adaptive_learning',
+                    'ml_score': float(ml_score),
+                    'freq_score': float(freq_score),
+                    'confidence': float(confidence),
+                    'trend': float(trend)
+                }
+                self.performance_history['strategy_changes'].append(change_info)
+            
+            # Maintenir une taille d'historique raisonnable
+            max_history = 200
+            for key in self.performance_history:
+                if isinstance(self.performance_history[key], list) and len(self.performance_history[key]) > max_history:
+                    self.performance_history[key] = self.performance_history[key][-max_history:]
+            
+            self.save_history()
+    
+    def adapt_ml_weight_intelligent(self, ml_score, freq_score, confidence, trend):
+        """Adaptation intelligente du poids ML avec multiple critères"""
+        if len(self.performance_history['ml_scores']) < 5:
+            return
+        
+        # Taux d'apprentissage adaptatif
+        learning_rate = self.adaptive_learning_rate()
+        
+        # Calculer la performance relative avec fenêtre glissante
+        window_size = min(self.performance_window, len(self.performance_history['ml_scores']))
+        recent_ml = np.mean(self.performance_history['ml_scores'][-window_size:])
+        recent_freq = np.mean(self.performance_history['freq_scores'][-window_size:])
+        
+        # Facteur de performance relative
+        if recent_freq > 0:
+            performance_ratio = recent_ml / recent_freq
+        else:
+            performance_ratio = 1.0
+        
+        # Ajustement basé sur multiple critères
+        if performance_ratio > 1.1 and confidence > self.confidence_threshold:
+            # ML performe bien avec confiance élevée -> augmenter poids ML
+            adjustment = learning_rate * (1 + trend * 2)
+            self.ml_weight = min(0.95, self.ml_weight + adjustment)
+        elif performance_ratio < 0.9 or confidence < 0.3:
+            # ML performe mal ou confiance faible -> réduire poids ML
+            adjustment = learning_rate * (1 + abs(trend))
+            self.ml_weight = max(0.05, self.ml_weight - adjustment)
+        elif trend < -0.05:
+            # Tendance négative -> réduction prudente
+            adjustment = learning_rate * 0.5
+            self.ml_weight = max(0.1, self.ml_weight - adjustment)
+        
+        # Exploration périodique pour éviter les optima locaux
+        if len(self.performance_history['ml_scores']) % 50 == 0:
+            exploration_noise = np.random.normal(0, self.exploration_factor)
+            self.ml_weight = np.clip(self.ml_weight + exploration_noise, 0.05, 0.95)
+        
+        # Enregistrer le poids dans l'historique
+        self.performance_history['ml_weight_history'].append(float(self.ml_weight))
+        
+        # Décroissance du taux d'apprentissage avec l'expérience
+        self.adaptation_rate *= self.learning_rate_decay
+        self.adaptation_rate = max(0.01, self.adaptation_rate)
+    
+    def get_adaptive_weights(self):
+        """Retourne les poids adaptatifs optimisés"""
+        return self.ml_weight, 1.0 - self.ml_weight
+    
+    def should_retrain_models(self):
+        """Détermine si les modèles doivent être ré-entraînés"""
+        # Critères pour déclencher un ré-entraînement
+        pattern_change = self.detect_pattern_changes()
+        low_confidence = self.calculate_confidence() < 0.3
+        negative_trend = self.calculate_performance_trend() < -0.1
+        
+        # Éviter les ré-entraînements trop fréquents
+        last_retrain = getattr(self, 'last_retrain', datetime.min)
+        time_since_retrain = (datetime.now() - last_retrain).days
+        min_days_between_retrains = 7
+        
+        should_retrain = (pattern_change or low_confidence or negative_trend) and \
+                        time_since_retrain > min_days_between_retrains
+        
+        if should_retrain:
+            self.last_retrain = datetime.now()
+        
+        return should_retrain
+    
+    def get_performance_summary(self):
+        """Retourne un résumé détaillé des performances"""
+        if len(self.performance_history['ml_scores']) < 5:
+            return "Données insuffisantes pour l'analyse adaptative"
+        
+        window_size = min(self.performance_window, len(self.performance_history['ml_scores']))
+        recent_ml = np.mean(self.performance_history['ml_scores'][-window_size:])
+        recent_freq = np.mean(self.performance_history['freq_scores'][-window_size:])
+        confidence = self.calculate_confidence()
+        trend = self.calculate_performance_trend()
+        
+        # Stabilité des poids
+        recent_weights = self.performance_history['ml_weight_history'][-window_size:] if self.performance_history['ml_weight_history'] else [self.ml_weight]
+        weight_stability = 1.0 - np.std(recent_weights) if len(recent_weights) > 1 else 1.0
+        
+        return {
+            'ml_score_recent': recent_ml,
+            'freq_score_recent': recent_freq,
+            'performance_ratio': recent_ml / recent_freq if recent_freq > 0 else 1.0,
+            'current_ml_weight': self.ml_weight,
+            'confidence': confidence,
+            'trend': trend,
+            'weight_stability': weight_stability,
+            'total_predictions': len(self.performance_history['ml_scores']),
+            'strategy_changes': len(self.performance_history['strategy_changes']),
+            'should_retrain': self.should_retrain_models(),
+            'learning_rate': self.adaptation_rate
+        }
 
-def plot_autocorrelation(series, output_dir, max_lag=50):
-    ac = autocorrelation_analysis(series, max_lag)
-    plt.figure(figsize=(10, 5))
-    plt.bar(ac.index, ac.values)
-    plt.title("Autocorrélation des tirages (lags)")
-    plt.xlabel("Décalage (lag)")
-    plt.ylabel("Autocorrélation")
-    plt.tight_layout()
-    plt.savefig(output_dir / 'autocorrelation_plot.png', dpi=150)
-    plt.close()
+# Initialiser la stratégie adaptative
+adaptive_strategy = AdaptiveStrategy()
 
-def fft_analysis(series):
-    N = len(series)
-    yf = fft(series - np.mean(series))
-    xf = fftfreq(N, 1)[:N // 2]
-    spectrum = np.abs(yf[:N // 2])
-    return xf, spectrum
+def update_adaptive_strategy_with_recent_draws(con, strategy):
+    """Met à jour la stratégie adaptative avec les tirages récents"""
+    try:
+        # Récupérer les 5 derniers tirages pour évaluation
+        recent_draws = con.execute("""
+            SELECT boule_1, boule_2, boule_3, boule_4, boule_5, date_de_tirage
+            FROM loto_draws 
+            ORDER BY date_de_tirage DESC 
+            LIMIT 5
+        """).fetchdf()
+        
+        if len(recent_draws) >= 2:
+            print("   🎯 Mise à jour de la stratégie adaptative...")
+            
+            # Simuler des prédictions pour les tirages passés
+            for i in range(1, min(len(recent_draws), 4)):
+                actual_draw = recent_draws.iloc[i-1][['boule_1', 'boule_2', 'boule_3', 'boule_4', 'boule_5']].values
+                previous_draw = recent_draws.iloc[i][['boule_1', 'boule_2', 'boule_3', 'boule_4', 'boule_5']].values
+                
+                # Mettre à jour la stratégie (sans probabilities ML pour simplifier)
+                strategy.update_performance(
+                    prediction=previous_draw.tolist(), 
+                    actual_draw=actual_draw.tolist()
+                )
+            
+            # Afficher le résumé des performances
+            summary = strategy.get_performance_summary()
+            if isinstance(summary, dict):
+                print(f"      ML Weight: {summary['current_ml_weight']:.2f}")
+                print(f"      Total Predictions: {summary['total_predictions']}")
+    except Exception as e:
+        print(f"   ⚠️ Erreur mise à jour stratégie: {e}")
 
-def plot_fft(series, output_dir):
-    xf, spectrum = fft_analysis(series)
-    plt.figure(figsize=(10, 5))
-    plt.plot(xf, spectrum)
-    plt.title("Spectre de fréquences (FFT)")
-    plt.xlabel("Fréquence")
-    plt.ylabel("Amplitude")
-    plt.tight_layout()
-    plt.savefig(output_dir / 'fft_spectrum_plot.png', dpi=150)
-    plt.close()
+try:
+    redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=False)
+    redis_client.ping()
+    print("✓ Connexion à Redis réussie.")
+except redis.exceptions.ConnectionError:
+    print("⚠️ Impossible de se connecter à Redis. Le caching sera désactivé.")
+    redis_client = None
 
-def seasonal_decomposition(series, period=10):
-    res = STL(series, period=period).fit()
-    return res
+# --- Fonctions de Scoring Optimisées ---
+@njit
+def _count_consecutive_numba(grid: np.ndarray) -> int:
+    if len(grid) < 2:
+        return 0
+    count = 0
+    sorted_grid = np.sort(grid)
+    for i in range(len(sorted_grid) - 1):
+        if sorted_grid[i+1] - sorted_grid[i] == 1:
+            count += 1
+    return count
 
-def plot_seasonal_decomposition(series, output_dir, period=10):
-    res = seasonal_decomposition(series, period)
-    res.plot()
-    plt.tight_layout()
-    plt.savefig(output_dir / 'stl_decomposition_plot.png', dpi=150)
-    plt.close()
+def count_consecutive_safe(row_values, balls_cols):
+    grid = np.array([row_values[col] for col in balls_cols], dtype=np.int32)
+    return _count_consecutive_numba(grid)
 
-def matrix_profile_motifs(series, window=10):
-    mp = stumpy.stump(series.values, m=window)
-    motifs = stumpy.motifs(series.values, mp, max_motifs=5)
-    return motifs
+# --- Extraction des features cycliques ---
+def add_cyclic_features(df, date_col='date_de_tirage'):
+    df2 = df.copy()
+    if date_col in df2.columns:
+        df2[date_col] = pd.to_datetime(df2[date_col])
+        df2['dayofweek'] = df2[date_col].dt.dayofweek
+        df2['month'] = df2[date_col].dt.month
+        df2['sin_day'] = np.sin(2 * np.pi * df2['dayofweek'] / 7)
+        df2['cos_day'] = np.cos(2 * np.pi * df2['dayofweek'] / 7)
+        df2['sin_month'] = np.sin(2 * np.pi * df2['month'] / 12)
+        df2['cos_month'] = np.cos(2 * np.pi * df2['month'] / 12)
+    for i in range(1, 6):
+        col = f'boule_{i}'
+        df2[f'sin_boule_{i}'] = np.sin(2 * np.pi * df2[col] / 49)
+        df2[f'cos_boule_{i}'] = np.cos(2 * np.pi * df2[col] / 49)
+    return df2
 
-def plot_matrix_profile(series, output_dir, window=10):
-    mp = stumpy.stump(series.values.astype(np.float64), m=window)
-    plt.figure(figsize=(10,5))
-    plt.plot(mp[:,0], label="Matrix Profile")
-    plt.title(f"Matrix Profile (window={window})")
-    plt.xlabel("Index")
-    plt.ylabel("Distance")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(output_dir / 'matrix_profile_plot.png', dpi=150)
-    plt.close()
+# --- Fonctions d'Analyse (DuckDB) ---
+def analyze_criteria_duckdb(db_con: duckdb.DuckDBPyConnection, table_name: str) -> dict:
+    print("Début de l'analyse des critères avec DuckDB...")
+
+    db_con.execute(f"""
+        CREATE OR REPLACE TEMPORARY VIEW BaseData AS
+        SELECT ROW_NUMBER() OVER (ORDER BY date_de_tirage) AS draw_index, 
+               date_de_tirage::DATE as date_de_tirage,
+               boule_1, boule_2, boule_3, boule_4, boule_5
+        FROM {table_name};
+    """)
+
+    df_pandas = db_con.table('BaseData').fetchdf()
+    balls_cols = [f'boule_{i}' for i in range(1, 6)]
+
+    freq = pd.Series(df_pandas[balls_cols].values.flatten()).value_counts().reindex(BALLS, fill_value=0)
+    last_3_draws = df_pandas.iloc[-3:][balls_cols].values.flatten()
+    last_3_numbers_set = set(last_3_draws)
+    
+    # MODIFICATION : Ne plus exclure de numéros automatiquement
+    # Filtre de fréquence : exclure les numéros avec fréquence < 80 ou > 100
+    # freq_excluded = set(freq[(freq < 80) | (freq > 100)].index.tolist())
+    freq_excluded = set()  # Aucun numéro exclu par défaut
+    
+    # MODIFICATION : Utiliser uniquement les exclusions manuelles de l'utilisateur
+    if EXCLUDED_NUMBERS is not None:
+        numbers_to_exclude = EXCLUDED_NUMBERS  # Seulement les exclusions manuelles
+        exclusion_source = "paramètre utilisateur uniquement"
+        print(f"   ✓ Numéros exclus (utilisateur): {sorted(numbers_to_exclude)}")
+    else:
+        numbers_to_exclude = set()  # Aucune exclusion automatique
+        exclusion_source = "aucune exclusion"
+        print(f"   ✓ Mode sans exclusion : tous les numéros 1-49 disponibles")
+    
+    # Garder l'info des anciens critères pour les statistiques
+    freq_excluded_info = set(freq[(freq < 80) | (freq > 100)].index.tolist())
+    if freq_excluded_info:
+        print(f"   ℹ️ Numéros avec fréquence atypique (<80 ou >100) : {sorted(freq_excluded_info)} (non exclus)")
+
+    last_appearance = df_pandas.melt(
+        id_vars=['date_de_tirage'], 
+        value_vars=balls_cols, 
+        value_name='numero'
+    ).groupby('numero')['date_de_tirage'].max()
+
+    pair_counts_df = db_con.execute("""
+        SELECT n1, n2, COUNT(*) as compte
+        FROM (
+            SELECT LEAST(boule_1, boule_2) AS n1, GREATEST(boule_1, boule_2) AS n2 FROM BaseData
+            UNION ALL SELECT LEAST(boule_1, boule_3), GREATEST(boule_1, boule_3) FROM BaseData
+            UNION ALL SELECT LEAST(boule_1, boule_4), GREATEST(boule_1, boule_4) FROM BaseData
+            UNION ALL SELECT LEAST(boule_1, boule_5), GREATEST(boule_1, boule_5) FROM BaseData
+            UNION ALL SELECT LEAST(boule_2, boule_3), GREATEST(boule_2, boule_3) FROM BaseData
+            UNION ALL SELECT LEAST(boule_2, boule_4), GREATEST(boule_2, boule_4) FROM BaseData
+            UNION ALL SELECT LEAST(boule_2, boule_5), GREATEST(boule_2, boule_5) FROM BaseData
+            UNION ALL SELECT LEAST(boule_3, boule_4), GREATEST(boule_3, boule_4) FROM BaseData
+            UNION ALL SELECT LEAST(boule_3, boule_5), GREATEST(boule_3, boule_5) FROM BaseData
+            UNION ALL SELECT LEAST(boule_4, boule_5), GREATEST(boule_4, boule_5) FROM BaseData
+        )
+        WHERE n1 IS NOT NULL AND n2 IS NOT NULL
+        GROUP BY n1, n2
+        ORDER BY compte DESC
+        LIMIT 20
+   
+    """).fetchdf()
+
+    pair_counts = pd.Series(pair_counts_df.set_index(['n1', 'n2'])['compte']) if not pair_counts_df.empty else pd.Series(dtype='int64')
+
+    gaps_query = """
+        SELECT numero, AVG(draw_index - lag) as periodicite
+        FROM (
+            SELECT numero, draw_index, LAG(draw_index, 1) OVER (PARTITION BY numero ORDER BY draw_index) as lag
+            FROM (
+                SELECT draw_index, unnest(list_value(boule_1, boule_2, boule_3, boule_4, boule_5)) as numero
+                FROM BaseData
+            )
+        )
+        WHERE lag IS NOT NULL
+        GROUP BY numero
+    """
+    gaps_df = db_con.execute(gaps_query).fetchdf()
+    gaps = pd.Series(gaps_df.set_index('numero')['periodicite']) if not gaps_df.empty else pd.Series(dtype='float64', index=BALLS)
+
+    pair_impair_dist = (df_pandas[balls_cols] % 2 == 0).sum(axis=1).value_counts().sort_index()
+
+    consecutive_list = []
+    for _, row in df_pandas.iterrows():
+        grid = np.array([row[col] for col in balls_cols], dtype=np.int32)
+        consecutive_list.append(_count_consecutive_numba(grid))
+    consecutive_counts = pd.Series(consecutive_list).value_counts().sort_index()
+
+    hot_numbers = freq.nlargest(10).index.tolist()
+    cold_numbers = freq.nsmallest(10).index.tolist()
+
+    correlation_matrix = df_pandas[balls_cols].corr()
+
+    regression_results = {}
+    for ball in balls_cols:
+        result = db_con.execute(f"""
+            SELECT draw_index, {ball} as value
+            FROM BaseData
+            ORDER BY draw_index
+        """).fetchdf()
+        X = result['draw_index'].values.reshape(-1, 1)
+        y = result['value'].values
+        slope, intercept = np.polyfit(X.flatten(), y, 1)
+        regression_results[ball] = {'slope': slope, 'intercept': intercept}
+
+    sums = df_pandas[balls_cols].sum(axis=1)
+    stds = df_pandas[balls_cols].std(axis=1)
+
+    # === NOUVEAUX CRITÈRES STATISTIQUES ===
+    
+    # 1. Distribution par dizaines (0-9, 10-19, 20-29, 30-39, 40-49)
+    decades_dist = []
+    for _, row in df_pandas.iterrows():
+        grid = row[balls_cols].values
+        decades = [(n-1)//10 for n in grid]  # 0,1,2,3,4 pour les dizaines
+        decades_count = pd.Series(decades).value_counts()
+        decades_dist.append(decades_count.reindex(range(5), fill_value=0).values)
+    decades_dist = np.array(decades_dist)
+    decades_entropy = -np.sum(decades_dist * np.log(decades_dist + 1e-10), axis=1)
+    
+    # 2. Espacement entre numéros consécutifs (gaps)
+    gaps_between_numbers = []
+    for _, row in df_pandas.iterrows():
+        sorted_nums = sorted(row[balls_cols].values)
+        local_gaps = [sorted_nums[i+1] - sorted_nums[i] for i in range(4)]
+        gaps_between_numbers.append(np.std(local_gaps))  # Écart-type des espacements
+    gaps_between_numbers = np.array(gaps_between_numbers)
+    
+    # 3. Répartition haute/basse (1-25 vs 26-49)
+    high_low_ratio = []
+    for _, row in df_pandas.iterrows():
+        grid = row[balls_cols].values
+        low_count = sum(1 for n in grid if n <= 25)
+        high_count = 5 - low_count
+        ratio = low_count / 5.0  # Proportion de numéros bas
+        high_low_ratio.append(ratio)
+    high_low_ratio = np.array(high_low_ratio)
+    
+    # 4. Nombres premiers vs composés
+    primes = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47}
+    prime_ratio = []
+    for _, row in df_pandas.iterrows():
+        grid = row[balls_cols].values
+        prime_count = sum(1 for n in grid if n in primes)
+        prime_ratio.append(prime_count / 5.0)
+    prime_ratio = np.array(prime_ratio)
+    
+    # 5. Variance des positions (mesure de dispersion)
+    position_variance = []
+    for _, row in df_pandas.iterrows():
+        grid = sorted(row[balls_cols].values)
+        positions = [(n-1)/48.0 for n in grid]  # Normalisation 0-1
+        position_variance.append(np.var(positions))
+    position_variance = np.array(position_variance)
+
+    # Calcul des variances pour tous les critères
+    sum_var = np.var(sums)
+    std_var = np.var(stds)
+    pair_impair_var = np.var((pair_impair_dist/pair_impair_dist.sum()).values)
+    decades_entropy_var = np.var(decades_entropy)
+    gaps_var = np.var(gaps_between_numbers)
+    high_low_var = np.var(high_low_ratio)
+    prime_var = np.var(prime_ratio)
+    position_var = np.var(position_variance)
+    
+    # Poids équilibrés basés sur l'inverse des variances, mais avec normalisation
+    raw_weights = {
+        'sum': 1.0 / (1.0 + sum_var),
+        'std': 1.0 / (1.0 + std_var), 
+        'pair_impair': 1.0 / (1.0 + pair_impair_var),
+        'decades_entropy': 1.0 / (1.0 + decades_entropy_var),
+        'gaps': 1.0 / (1.0 + gaps_var),
+        'high_low': 1.0 / (1.0 + high_low_var),
+        'prime_ratio': 1.0 / (1.0 + prime_var),
+        'position_variance': 1.0 / (1.0 + position_var)
+    }
+    
+    # Normalisation pour que les poids soient plus équilibrés (pas de domination extrême)
+    total_weight = sum(raw_weights.values())
+    dynamic_weights = {key: value / total_weight for key, value in raw_weights.items()}
+    
+    # Ajustement pour éviter qu'un critère domine complètement (max 25% pour un critère maintenant)
+    max_weight = 0.25
+    for key in dynamic_weights:
+        if dynamic_weights[key] > max_weight:
+            excess = dynamic_weights[key] - max_weight
+            dynamic_weights[key] = max_weight
+            # Redistribuer l'excès sur les autres critères
+            other_keys = [k for k in dynamic_weights.keys() if k != key]
+            for other_key in other_keys:
+                dynamic_weights[other_key] += excess / len(other_keys)
+    
+    # Re-normalisation finale
+    total_weight = sum(dynamic_weights.values())
+    dynamic_weights = {key: value / total_weight for key, value in dynamic_weights.items()}
+
+    delta = pd.to_datetime('now').normalize() - pd.to_datetime(last_appearance.reindex(BALLS))
+    numbers_analysis = pd.DataFrame({
+        'Numero': BALLS,
+        'Frequence': freq.reindex(BALLS, fill_value=0),
+        'Dernier_Tirage': last_appearance.reindex(BALLS),
+        'Jours_Depuis_Tirage': delta.dt.days,
+        'Ecart_Moyen_Tirages': gaps.reindex(BALLS)
+    }).sort_values('Frequence', ascending=False).reset_index(drop=True)
+
+    print("   ✓ Analyse DuckDB terminée.")
+
+    return {
+        'freq': freq,
+        'hot_numbers': hot_numbers,
+        'cold_numbers': cold_numbers,
+        'last_draw': df_pandas[balls_cols].iloc[-1].tolist(),
+        'pair_impair_probs': pair_impair_dist / pair_impair_dist.sum(),
+        'consecutive_counts': consecutive_counts,
+        'pair_counts': pair_counts,
+        'numbers_to_exclude': numbers_to_exclude,  # Maintenant peut être vide
+        'freq_excluded': freq_excluded_info,  # Pour info seulement, pas d'exclusion
+        'sums': sums,
+        'stds': stds,
+        'dynamic_weights': dynamic_weights,
+        'last_appearance': last_appearance,
+        'numbers_analysis': numbers_analysis,
+        'correlation_matrix': correlation_matrix,
+        'regression_results': regression_results,
+        # Nouveaux critères statistiques
+        'decades_entropy': decades_entropy,
+        'gaps_between_numbers': gaps_between_numbers,
+        'high_low_ratio': high_low_ratio,
+        'prime_ratio': prime_ratio,
+        'position_variance': position_variance
+    }
 
 # --- Fonctions de Machine Learning ---
 def train_xgboost_parallel(df: pd.DataFrame):
@@ -1416,9 +1957,16 @@ def generate_grid_vectorized_adaptive(criteria: dict, models: dict, X_last: np.n
     else:
         exploitation_weights = top25_weights if top25_weights is not None else freq_weights
     
-    # Suite de la génération identique...
+    # MODIFICATION MAJEURE : Plus d'exclusion de numéros
     excluded_numbers = criteria.get('numbers_to_exclude', set())
     available_numbers = [n for n in BALLS if n not in excluded_numbers]
+    
+    # MODIFICATION : Si aucune exclusion, utiliser tous les numéros
+    if len(excluded_numbers) == 0:
+        available_numbers = list(BALLS)  # Tous les numéros 1-49 disponibles
+        print(f"   ✅ TOUS les 49 numéros disponibles (aucune exclusion)")
+    else:
+        print(f"   ⚠️ {len(excluded_numbers)} numéros exclus manuellement: {sorted(excluded_numbers)}")
     
     if len(available_numbers) < 5:
         print(f"⚠️ ATTENTION: Seulement {len(available_numbers)} numéros disponibles!")
@@ -1514,10 +2062,13 @@ def generate_grid_vectorized_adaptive(criteria: dict, models: dict, X_last: np.n
     
     return sorted(best_grid_list) + [chance_ball]
 
-# Ajouter les fonctions de génération ML Top 25 qui manquent
+# ...existing code...
+
+# Ajouter ces fonctions après la fonction generate_grid_vectorized_adaptive et avant la fonction main()
+
 def generate_ml_top25_predictions(models: dict, X_last: np.ndarray, criteria: dict, output_dir: Path):
     """Génère le top 25 des numéros basés sur les prédictions ML et l'exporte en CSV"""
-    print("Génération du top 25 des numéros selon les prédictions ML...")
+    print("Génération du top 25 des numéros selon le training ML...")
     
     if not models or 'balls_multilabel' not in models or models['balls_multilabel'] is None:
         print("   ⚠️ Pas de modèle ML disponible pour générer les prédictions")
@@ -1625,7 +2176,7 @@ def generate_ml_top25_predictions(models: dict, X_last: np.ndarray, criteria: di
         predictions_df = predictions_df.sort_values('score_composite', ascending=False).reset_index(drop=True)
         
         # Ajouter une colonne de position finale
-        predictions_df['position_finale'] = range(1, len(predictions_df) +  1)
+        predictions_df['position_finale'] = range(1, len(predictions_df) + 1)
         
         # Sélectionner le top 25
         top25_df = predictions_df.head(25).copy()
@@ -1765,7 +2316,7 @@ def create_ml_predictions_summary(top25_df, criteria: dict, output_dir: Path):
 - Les scores ML reflètent les patterns appris sur l'historique des tirages
 - La fréquence historique indique la popularité passée du numéro
 - Le score composite combine intelligemment ML et fréquence selon les performances
-- Les numéros exclus sont basés sur les 3 derniers tirages et le filtre de fréquence
+- Les numéros exclus sont basés sur les paramètres utilisateur uniquement
 
 ---
 *Fichiers détaillés disponibles: `ml_top25_predictions.csv` et `ml_full_predictions.csv`*
@@ -1780,6 +2331,166 @@ def create_ml_predictions_summary(top25_df, criteria: dict, output_dir: Path):
         
     except Exception as e:
         print(f"   ⚠️ Erreur création résumé ML: {e}")
+
+# Ajouter aussi les fonctions de visualisation avancées manquantes
+def plot_autocorrelation(series: pd.Series, output_dir: Path, max_lags: int = 50):
+    """Trace l'autocorrélation de la série"""
+    try:
+        from statsmodels.tsa.stattools import acf
+        
+        plt.figure(figsize=(12, 6))
+        autocorr = acf(series, nlags=max_lags, fft=True)
+        
+        plt.subplot(1, 2, 1)
+        plt.plot(range(len(autocorr)), autocorr, 'b-', alpha=0.8)
+        plt.axhline(y=0, color='k', linestyle='-', alpha=0.3)
+        plt.axhline(y=0.05, color='r', linestyle='--', alpha=0.5, label='Seuil 5%')
+        plt.axhline(y=-0.05, color='r', linestyle='--', alpha=0.5)
+        plt.title('Fonction d\'Autocorrélation')
+        plt.xlabel('Décalage')
+        plt.ylabel('Autocorrélation')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Corrélogramme en barres
+        plt.subplot(1, 2, 2)
+        plt.bar(range(len(autocorr)), autocorr, alpha=0.7, color='skyblue', edgecolor='navy')
+        plt.axhline(y=0, color='k', linestyle='-', alpha=0.3)
+        plt.title('Corrélogramme')
+        plt.xlabel('Décalage')
+        plt.ylabel('Autocorrélation')
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(output_dir / 'autocorrelation_plot.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"⚠️ Erreur création autocorrélation: {e}")
+
+def plot_fft(series: pd.Series, output_dir: Path):
+    """Trace le spectre FFT de la série"""
+    try:
+        plt.figure(figsize=(12, 6))
+        
+        # Calcul FFT
+        fft_values = fft(series.values)
+        freqs = fftfreq(len(series), d=1)
+        
+        # Ne garder que les fréquences positives
+        positive_freqs = freqs[:len(freqs)//2]
+        positive_fft = np.abs(fft_values[:len(fft_values)//2])
+        
+        plt.subplot(1, 2, 1)
+        plt.plot(positive_freqs, positive_fft, 'b-', alpha=0.8)
+        plt.title('Spectre FFT - Amplitude')
+        plt.xlabel('Fréquence')
+        plt.ylabel('Amplitude')
+        plt.grid(True, alpha=0.3)
+        
+        # Spectre de puissance (log)
+        plt.subplot(1, 2, 2)
+        power_spectrum = positive_fft**2
+        plt.semilogy(positive_freqs, power_spectrum, 'r-', alpha=0.8)
+        plt.title('Spectre de Puissance (échelle log)')
+        plt.xlabel('Fréquence')
+        plt.ylabel('Puissance')
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(output_dir / 'fft_spectrum_plot.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"⚠️ Erreur création FFT: {e}")
+
+def plot_seasonal_decomposition(series: pd.Series, output_dir: Path, period: int = 10):
+    """Décomposition saisonnière STL"""
+    try:
+        if len(series) < 2 * period:
+            print(f"⚠️ Série trop courte pour décomposition (min: {2*period}, actuel: {len(series)})")
+            return
+            
+        plt.figure(figsize=(15, 10))
+        
+        # Décomposition STL
+        stl = STL(series, seasonal=period)
+        result = stl.fit()
+        
+        # 4 sous-graphiques
+        plt.subplot(4, 1, 1)
+        plt.plot(result.observed, label='Série Originale', color='black')
+        plt.title('Décomposition Saisonnière STL')
+        plt.ylabel('Observé')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        plt.subplot(4, 1, 2)
+        plt.plot(result.trend, label='Tendance', color='blue')
+        plt.ylabel('Tendance')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        plt.subplot(4, 1, 3)
+        plt.plot(result.seasonal, label='Saisonnier', color='green')
+        plt.ylabel('Saisonnier')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        plt.subplot(4, 1, 4)
+        plt.plot(result.resid, label='Résidus', color='red')
+        plt.ylabel('Résidus')
+        plt.xlabel('Index')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(output_dir / 'stl_decomposition_plot.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"⚠️ Erreur décomposition STL: {e}")
+
+def plot_matrix_profile(series: pd.Series, output_dir: Path, window: int = 10):
+    """Matrix Profile pour détecter les motifs récurrents"""
+    try:
+        if len(series) < 2 * window:
+            print(f"⚠️ Série trop courte pour Matrix Profile (min: {2*window}, actuel: {len(series)})")
+            return
+            
+        plt.figure(figsize=(15, 8))
+        
+        # Calcul du Matrix Profile
+        matrix_profile = stumpy.stump(series.values, m=window)
+        
+        plt.subplot(2, 1, 1)
+        plt.plot(series.values, color='black', alpha=0.7)
+        plt.title(f'Série Temporelle (fenêtre={window})')
+        plt.ylabel('Valeur')
+        plt.grid(True, alpha=0.3)
+        
+        plt.subplot(2, 1, 2)
+        plt.plot(matrix_profile[:, 0], color='red', alpha=0.8)
+        plt.title('Matrix Profile - Distance aux motifs les plus proches')
+        plt.ylabel('Distance')
+        plt.xlabel('Index')
+        plt.grid(True, alpha=0.3)
+        
+        # Marquer les anomalies (pics élevés)
+        threshold = np.percentile(matrix_profile[:, 0], 95)
+        anomalies = np.where(matrix_profile[:, 0] > threshold)[0]
+        if len(anomalies) > 0:
+            plt.scatter(anomalies, matrix_profile[anomalies, 0], 
+                       color='orange', s=50, zorder=5, alpha=0.8, 
+                       label=f'Anomalies (>P95)')
+            plt.legend()
+        
+        plt.tight_layout()
+        plt.savefig(output_dir / 'matrix_profile_plot.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"⚠️ Erreur Matrix Profile: {e}")
 
 # --- Simulation Parallèle ---
 def simulate_chunk(args_tuple):
@@ -2205,8 +2916,20 @@ def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time:
             f"- `{int(p[0])}-{int(p[1])}`: {c} fois" 
             for (p, c) in criteria['pair_counts'].head(5).items()
         ])
-        
-    excluded_numbers_str = ", ".join(map(str, sorted(criteria.get('numbers_to_exclude', []))))
+    
+    # MODIFICATION : Section exclusion adaptée
+    excluded_numbers = criteria.get('numbers_to_exclude', set())
+    if excluded_numbers:
+        excluded_numbers_str = ", ".join(map(str, sorted(excluded_numbers)))
+        exclusion_section = f"""
+## 🚫 Numéros Exclus (Manuellement)
+- **Numéros exclus des grilles générées** : `{excluded_numbers_str}`
+"""
+    else:
+        exclusion_section = """
+## ✅ Aucune Exclusion
+- **Tous les 49 numéros sont utilisables** pour générer les grilles
+"""
 
     # Vérifier si le fichier top 25 ML existe
     ml_top25_section = ""
@@ -2274,8 +2997,7 @@ def create_report(criteria: dict, best_grids: list, output_dir: Path, exec_time:
 
 {ml_top25_section}
 
-## 🚫 Numéros Exclu (3 Derniers Tirages)
-- **Numéros exclus des grilles générées** : `{excluded_numbers_str}`
+{exclusion_section}
 
 *📁 Toutes les grilles sont disponibles dans `grilles_conseillees.csv`.*
 
@@ -2442,6 +3164,8 @@ def main():
     all_results = []
     print(f"Simulation adaptative de {N_SIMULATIONS} grilles sur {N_CORES} coeurs...")
     print(f"Nombre de chunks: {len(chunks_args)}")
+    
+   
     
     with ProcessPoolExecutor(max_workers=N_CORES) as executor:
         futures = [executor.submit(simulate_chunk_adaptive, args) for args in chunks_args]
