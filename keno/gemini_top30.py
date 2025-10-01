@@ -776,19 +776,16 @@ class KenoGeneratorAdvanced:
     # -------------------------
     # 🧠 Entraînement ML
     # -------------------------
-    def train_ml_models(self, force_retrain: bool = False) -> bool:
+    def train_ml_models(self) -> bool:
         """
-        Entraîne les modèles ML et évalue leur performance sur un jeu de test.
+        Entraîne les modèles ML. Si un modèle existe déjà, il est amélioré
+        en ajoutant des estimateurs (entraînement incrémental via warm_start).
         """
         if not HAS_ML:
             self._log("⚠️ ML non disponible — entraînement ignoré.", "WARNING")
             return False
 
-        model_path = self.models_dir / "ml_models.pkl"
-        if model_path.exists() and not force_retrain:
-            self._log("ℹ️  Le modèle existe déjà. Utiliser --train pour forcer le réentraînement.")
-            self.load_models()
-            return True
+        is_incremental_training = 'multioutput' in self.ml_models
 
         try:
             X, y = self._build_features_labels()
@@ -806,18 +803,36 @@ class KenoGeneratorAdvanced:
                 self._log(f"Split temporel: {len(X_train)} tirages pour l'entraînement, {len(X_test)} pour le test.")
 
             # Scalage des données
-            self.ml_scaler = ML_CONFIG['scaler']
             X_train_scaled = pd.DataFrame(self.ml_scaler.fit_transform(X_train), columns=X_train.columns)
             if X_test is not None:
                 X_test_scaled = pd.DataFrame(self.ml_scaler.transform(X_test), columns=X_test.columns)
 
             if self.ml_strategy == "multioutput":
-                self._log(f"🧩 Entraînement MultiOutput RandomForest (profil: {self.training_profile})...")
                 rf_params = get_training_params(self.training_profile)
-                base_rf = RandomForestClassifier(**rf_params)
-                model = MultiOutputClassifier(base_rf, n_jobs=-1)
+                
+                if is_incremental_training:
+                    self._log(f"📈 Amélioration du modèle existant (profil: {self.training_profile})...")
+                    model = self.ml_models['multioutput']
+                    base_rf = model.estimator
+                    
+                    new_n_estimators = base_rf.n_estimators + rf_params['n_estimators']
+                    self._log(f"  - Nombre d'estimateurs : {base_rf.n_estimators} -> {new_n_estimators}")
+                    
+                    base_rf.set_params(
+                        n_estimators=new_n_estimators,
+                        warm_start=True,
+                        **{k: v for k, v in rf_params.items() if k != 'n_estimators'}
+                    )
+                else:
+                    self._log(f"✨ Entraînement d'un nouveau modèle (profil: {self.training_profile})...")
+                    base_rf = RandomForestClassifier(**rf_params)
+                    model = MultiOutputClassifier(base_rf, n_jobs=-1)
                 
                 model.fit(X_train_scaled, y_train.values)
+                
+                if is_incremental_training:
+                    base_rf.set_params(warm_start=False)
+
                 self.ml_models['multioutput'] = model
                 
                 if X_test is not None:
@@ -839,8 +854,6 @@ class KenoGeneratorAdvanced:
 
             else:
                 self._log(f"🔥 Stratégie d'entraînement '{self.ml_strategy}' non entièrement optimisée dans cette version.")
-                # La logique existante pour XGBoost est conservée mais pourrait ne pas être optimale
-                # avec la nouvelle structure de features globales.
                 pass
 
             self.save_models()
@@ -1118,13 +1131,19 @@ class KenoGeneratorAdvanced:
     # 💾 Sauvegarde / Chargement modèles et stats
     # -------------------------
     def save_models(self):
-        """Sauvegarde des modèles et métadonnées"""
+        """Sauvegarde des modèles, du scaler et des métadonnées"""
         try:
             self.models_dir.mkdir(parents=True, exist_ok=True)
             models_path = self.models_dir / "ml_models.pkl"
             meta_path = self.models_dir / "metadata.json"
+            
+            to_save = {
+                'models': self.ml_models,
+                'scaler': self.ml_scaler
+            }
             with open(models_path, "wb") as f:
-                pickle.dump(self.ml_models, f)
+                pickle.dump(to_save, f)
+
             with open(meta_path, "w") as f:
                 json.dump({
                     "feature_names": self.feature_names,
@@ -1132,23 +1151,29 @@ class KenoGeneratorAdvanced:
                     "ml_strategy": self.ml_strategy,
                     "saved_at": datetime.now().isoformat()
                 }, f)
-            self._log(f"💾 Modèles sauvegardés dans {models_path}")
+            self._log(f"💾 Modèles et scaler sauvegardés dans {models_path}")
         except Exception as e:
             self._log(f"⚠️ Erreur sauvegarde modèles: {e}", "WARNING")
 
     def load_models(self):
-        """Charge les modèles si présents"""
+        """Charge les modèles, le scaler et les métadonnées si présents"""
         try:
             models_path = self.models_dir / "ml_models.pkl"
             meta_path = self.models_dir / "metadata.json"
             if models_path.exists():
                 with open(models_path, "rb") as f:
-                    self.ml_models = pickle.load(f)
+                    saved_data = pickle.load(f)
+                    if isinstance(saved_data, dict) and 'models' in saved_data:
+                        self.ml_models = saved_data.get('models', {})
+                        self.ml_scaler = saved_data.get('scaler', ML_CONFIG['scaler'])
+                    else:
+                        self.ml_models = saved_data
+                        self.ml_scaler = ML_CONFIG['scaler']
                 if meta_path.exists():
                     with open(meta_path, "r") as f:
                         meta = json.load(f)
                         self.feature_names = meta.get("feature_names", self.feature_names)
-                self._log("✅ Modèles ML chargés depuis le disque.")
+                self._log("✅ Modèles ML et scaler chargés depuis le disque.")
                 return True
             else:
                 self._log("ℹ️ Aucun modèle trouvé sur le disque.")
@@ -1204,7 +1229,7 @@ def main(argv: List[str] = None):
         gen._log("ℹ️ Mode ML désactivé par option utilisateur. Utilisation du mode fréquence.", "WARNING")
     elif args.train or not gen.ml_models:
         gen._log("▶ Entraînement ML demandé...")
-        gen.train_ml_models(force_retrain=args.train)
+        gen.train_ml_models()
 
     # Génération du TOP 30 ML
     top30_ml = [num for num, _ in gen.get_top_n(30)]
@@ -1241,6 +1266,7 @@ def main(argv: List[str] = None):
     export_top30_csv(top30_ml)
 
     print(f"\nGrilles ML optimisées exportées dans keno_output/keno_grids_ml.csv")
+
 
 def generate_best_ml_grids(top30_ml, n_grids=10, grid_size=10, stats=None):
     """

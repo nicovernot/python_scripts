@@ -24,3 +24,10 @@ beautifulsoup4
 pytest>=7.0.0
 pytest-cov>=4.0.0
 pulp
+moviepy
+gtts
+Pillow
+requests
+numpy
+imageio
+imageio-ffmpeg

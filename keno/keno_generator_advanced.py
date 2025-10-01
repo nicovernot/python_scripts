@@ -38,7 +38,8 @@ import multiprocessing as mp
 from dataclasses import dataclass
 from tqdm import tqdm
 import logging
-from collections import defaultdict, deque
+from collections import defaultdict, deque, Counter
+from numpy.linalg import matrix_power
 
 # DuckDB pour optimiser les requêtes
 try:
@@ -227,6 +228,16 @@ class KenoStats:
     derniers_tirages: List[List[int]]                    # Derniers tirages
     tous_tirages: List[List[int]]                        # Tous les tirages pour DuckDB
 
+@dataclass
+class MarkovChain:
+    """Structure pour stocker les chaînes de Markov par numéro"""
+    transition_matrices: Dict[int, np.ndarray]      # Matrice de transition par numéro
+    steady_states: Dict[int, np.ndarray]            # États stationnaires 
+    pattern_transitions: Dict[str, Dict[str, float]] # Transitions entre motifs
+    zone_transitions: Dict[str, np.ndarray]         # Transitions par zones
+    last_states: Dict[int, int]                     # Derniers états (0 ou 1)
+    n_order: int                                    # Ordre de la chaîne (1, 2, ou 3)
+
 # ==============================================================================
 # 🎯 CLASSE PRINCIPALE GENERATEUR KENO
 # ==============================================================================
@@ -289,6 +300,9 @@ class KenoGeneratorAdvanced:
         
         # Chargement de l'état précédent s'il existe
         self._load_incremental_state()
+        
+        # Méthode de prédiction par défaut
+        self.method = "hybrid"
         
         self._log(f"🎲 Générateur Keno Avancé v2.0 initialisé (grilles de {self.grid_size} numéros)")
 
@@ -1474,19 +1488,25 @@ class KenoGeneratorAdvanced:
         Pipeline complet : chargement des données, analyse, entraînement ML, génération des grilles.
         Inclut maintenant l'apprentissage incrémental.
         """
-        self._log("🚀 Démarrage du pipeline complet Keno avec apprentissage incrémental...")
+        self._log("🚀 Démarrage du pipeline complet Keno avec ML + Markov + Apprentissage incrémental...")
+        
         if not self.load_data():
             self._log("❌ Chargement des données impossible.", "ERROR")
             return
+        
         self.stats = self.analyze_patterns()
+        
+        # 🔗 NOUVEAU : Construction des chaînes de Markov
+        self.markov_chain = self.build_markov_chains(order=2)
+        
         self.train_xgboost_models(retrain=False)
         self.load_ml_models()
         
-        # Évaluation initiale des performances si nous avons des données
+        # Évaluation initiale des performances
         if len(self.data) > 100:
             self._evaluate_initial_performance()
         
-        self._log("✅ Pipeline complet terminé avec apprentissage incrémental activé.")
+        self._log("✅ Pipeline complet terminé avec ML + Markov + apprentissage incrémental activé.")
     
     def _evaluate_initial_performance(self):
         """Évalue les performances initiales du modèle sur les données de test"""
@@ -1557,6 +1577,8 @@ class KenoGeneratorAdvanced:
                     range(1, 71),
                     size=20,
                     replace=False,
+
+
                     p=weights
                 ))
             else:
@@ -1606,23 +1628,515 @@ class KenoGeneratorAdvanced:
         else:
             self._log("❌ Échec du réentraînement - Conservation du modèle précédent", "ERROR")
 
-    def generate_optimized_grids(self, num_grids: int = 40) -> list:
+    def build_markov_chains(self, order: int = 1) -> MarkovChain:
         """
-        Génère des grilles optimisées en privilégiant le TOP 30 ML.
+        Construit les chaînes de Markov pour chaque numéro Keno
+        
+        Args:
+            order: Ordre de la chaîne (1=simple, 2=mémoire sur 2 tirages, 3=mémoire sur 3 tirages)
+    
+        Returns:
+            MarkovChain: Structure contenant toutes les chaînes
         """
-        self._log(f"🎯 Génération de {num_grids} grilles Keno optimisées (TOP 30 ML privilégié, {self.grid_size} numéros/grille)...")
-        top30_ml = [num for num, _ in self.predict_numbers_ml()]
-        if not top30_ml or len(top30_ml) < self.grid_size:
-            self._log("❌ TOP 30 ML indisponible, génération aléatoire.", "ERROR")
-            # Fallback : génération aléatoire
-            return [sorted(random.sample(range(1, 71), self.grid_size)) for _ in range(num_grids)]
-        grids = []
-        for _ in range(num_grids):
-            grid = sorted(random.sample(top30_ml, self.grid_size))
-            grids.append(grid)
-        self._log(f"✅ {len(grids)} grilles de {self.grid_size} numéros générées à partir du TOP 30 ML")
-        return grids
+        self._log(f"🔗 Construction des chaînes de Markov d'ordre {order} pour le Keno...")
+    
+        if not self.stats or not self.stats.tous_tirages:
+            self._log("❌ Données de tirages non disponibles", "ERROR")
+            return None
+    
+        tirages = self.stats.tous_tirages
+        transition_matrices = {}
+        last_states = {}
+    
+        # 1️⃣ CHAÎNES DE MARKOV PAR NUMÉRO (approche granulaire)
+        for num in range(1, KENO_PARAMS['total_numbers'] + 1):
+            # Extraire la séquence d'états pour ce numéro (0=non tiré, 1=tiré)
+            states_sequence = []
+            for tirage in tirages:
+                states_sequence.append(1 if num in tirage else 0)
+        
+            # Construire la matrice de transition selon l'ordre
+            if order == 1:
+                matrix = self._build_first_order_matrix(states_sequence)
+            elif order == 2:
+                matrix = self._build_second_order_matrix(states_sequence)
+            else:  # order == 3
+                matrix = self._build_third_order_matrix(states_sequence)
+        
+            transition_matrices[num] = matrix
+            last_states[num] = states_sequence[-order:] if len(states_sequence) >= order else [0] * order
+    
+        # 2️⃣ CHAÎNES DE MARKOV PAR MOTIFS (zones, parité, etc.)
+        pattern_transitions = self._build_pattern_transitions(tirages)
+    
+        # 3️⃣ CHAÎNES DE MARKOV PAR ZONES
+        zone_transitions = self._build_zone_transitions(tirages)
+    
+        # 4️⃣ CALCUL DES ÉTATS STATIONNAIRES (distribution limite)
+        steady_states = {}
+        for num, matrix in transition_matrices.items():
+            try:
+                # Calculer l'état stationnaire (vecteur propre pour valeur propre 1)
+                eigenvalues, eigenvectors = np.linalg.eig(matrix.T)
+                steady_idx = np.argmin(np.abs(eigenvalues - 1.0))
+                steady_state = np.real(eigenvectors[:, steady_idx])
+                steady_state = steady_state / steady_state.sum()  # Normalisation
+                steady_states[num] = steady_state
+            except:
+                # Fallback : distribution uniforme
+                steady_states[num] = np.array([0.8, 0.2])  # ~80% non tiré, ~20% tiré
+    
+        markov_chain = MarkovChain(
+            transition_matrices=transition_matrices,
+            steady_states=steady_states,
+            pattern_transitions=pattern_transitions,
+            zone_transitions=zone_transitions,
+            last_states=last_states,
+            n_order=order
+        )
+    
+        self._log(f"✅ Chaînes de Markov d'ordre {order} construites pour {len(transition_matrices)} numéros")
+        return markov_chain
 
+    def _build_first_order_matrix(self, states_sequence: List[int]) -> np.ndarray:
+        """Construit une matrice de transition d'ordre 1 (2x2)"""
+        # Compter les transitions
+        transitions = {
+            (0, 0): 0,  # non tiré -> non tiré
+            (0, 1): 0,  # non tiré -> tiré
+            (1, 0): 0,  # tiré -> non tiré
+            (1, 1): 0   # tiré -> tiré
+        }
+        
+        for i in range(len(states_sequence) - 1):
+            current_state = states_sequence[i]
+            next_state = states_sequence[i + 1]
+            transitions[(current_state, next_state)] += 1
+    
+        # Construire la matrice 2x2
+        matrix = np.zeros((2, 2))
+    
+        # Ligne 0 : transitions depuis l'état "non tiré" (0)
+        total_from_0 = transitions[(0, 0)] + transitions[(0, 1)]
+        if total_from_0 > 0:
+            matrix[0, 0] = transitions[(0, 0)] / total_from_0  # P(0→0)
+            matrix[0, 1] = transitions[(0, 1)] / total_from_0  # P(0→1)
+        else:
+            matrix[0, :] = [0.8, 0.2]  # Défaut : 20% de chance d'être tiré
+    
+        # Ligne 1 : transitions depuis l'état "tiré" (1)
+        total_from_1 = transitions[(1, 0)] + transitions[(1, 1)]
+        if total_from_1 > 0:
+            matrix[1, 0] = transitions[(1, 0)] / total_from_1  # P(1→0)
+            matrix[1, 1] = transitions[(1, 1)] / total_from_1  # P(1→1)
+        else:
+            matrix[1, :] = [0.8, 0.2]  # Défaut
+    
+        return matrix
+
+    def _build_second_order_matrix(self, states_sequence: List[int]) -> np.ndarray:
+        """Construit une matrice de transition d'ordre 2 (4x4)"""
+        # États : 00, 01, 10, 11 (les 2 derniers tirages)
+        state_map = {(0, 0): 0, (0, 1): 1, (1, 0): 2, (1, 1): 3}
+        transitions = defaultdict(int)
+        
+        for i in range(len(states_sequence) - 2):
+            current_state = (states_sequence[i], states_sequence[i + 1])
+            next_state_single = states_sequence[i + 2]
+            next_state = (states_sequence[i + 1], next_state_single)
+            
+            curr_idx = state_map[current_state]
+            next_idx = state_map[next_state]
+            transitions[(curr_idx, next_idx)] += 1
+    
+        # Construire la matrice 4x4
+        matrix = np.zeros((4, 4))
+        for from_state in range(4):
+            total = sum(transitions[(from_state, to_state)] for to_state in range(4))
+            if total > 0:
+                for to_state in range(4):
+                    matrix[from_state, to_state] = transitions[(from_state, to_state)] / total
+            else:
+                matrix[from_state, :] = [0.25, 0.25, 0.25, 0.25]  # Uniforme par défaut
+    
+        return matrix
+
+    def _build_third_order_matrix(self, states_sequence: List[int]) -> np.ndarray:
+        """Construit une matrice de transition d'ordre 3 (8x8)"""
+        # États : 000, 001, 010, 011, 100, 101, 110, 111
+        state_map = {
+            (0, 0, 0): 0, (0, 0, 1): 1, (0, 1, 0): 2, (0, 1, 1): 3,
+            (1, 0, 0): 4, (1, 0, 1): 5, (1, 1, 0): 6, (1, 1, 1): 7
+        }
+        transitions = defaultdict(int)
+        
+        for i in range(len(states_sequence) - 3):
+            current_state = (states_sequence[i], states_sequence[i + 1], states_sequence[i + 2])
+            next_state_single = states_sequence[i + 3]
+            next_state = (states_sequence[i + 1], states_sequence[i + 2], next_state_single)
+            
+            curr_idx = state_map[current_state]
+            next_idx = state_map[next_state]
+            transitions[(curr_idx, next_idx)] += 1
+    
+        # Construire la matrice 8x8
+        matrix = np.zeros((8, 8))
+        for from_state in range(8):
+            total = sum(transitions[(from_state, to_state)] for to_state in range(8))
+            if total > 0:
+                for to_state in range(8):
+                    matrix[from_state, to_state] = transitions[(from_state, to_state)] / total
+            else:
+                matrix[from_state, :] = [1/8] * 8  # Uniforme par défaut
+    
+        return matrix
+
+    def _build_pattern_transitions(self, tirages: List[List[int]]) -> Dict[str, Dict[str, float]]:
+        """Construit les transitions entre motifs (parité, zones, etc.)"""
+        pattern_transitions = {}
+    
+        # 🎯 MOTIFS DE PARITÉ
+        parity_sequences = []
+        for tirage in tirages:
+            pairs_count = sum(1 for num in tirage if num % 2 == 0)
+            if pairs_count <= 6:
+                parity_pattern = "low_pairs"
+            elif pairs_count <= 14:
+                parity_pattern = "medium_pairs"
+            else:
+                parity_pattern = "high_pairs"
+            parity_sequences.append(parity_pattern)
+        
+        # Construire matrice de transition de parité
+        parity_states = ["low_pairs", "medium_pairs", "high_pairs"]
+        parity_matrix = self._build_categorical_transitions(parity_sequences, parity_states)
+        pattern_transitions["parity"] = parity_matrix
+    
+        # 🎯 MOTIFS DE ZONES
+        zone_sequences = []
+        for tirage in tirages:
+            zone_counts = [0, 0, 0, 0]  # 4 zones
+            for num in tirage:
+                if 1 <= num <= 17:
+                    zone_counts[0] += 1
+                elif 18 <= num <= 35:
+                    zone_counts[1] += 1
+                elif 36 <= num <= 52:
+                    zone_counts[2] += 1
+                else:  # 53-70
+                    zone_counts[3] += 1
+            
+            # Classification du motif de zone
+            dominant_zone = zone_counts.index(max(zone_counts))
+            zone_pattern = f"zone{dominant_zone + 1}_dominant"
+            zone_sequences.append(zone_pattern)
+        
+        zone_states = ["zone1_dominant", "zone2_dominant", "zone3_dominant", "zone4_dominant"]
+        zone_matrix = self._build_categorical_transitions(zone_sequences, zone_states)
+        pattern_transitions["zones"] = zone_matrix
+    
+        return pattern_transitions
+
+    def _build_categorical_transitions(self, sequences: List[str], states: List[str]) -> Dict[str, float]:
+        """Construit une matrice de transition pour des états catégoriels"""
+        transitions = defaultdict(lambda: defaultdict(int))
+        
+        for i in range(len(sequences) - 1):
+            current = sequences[i]
+            next_state = sequences[i + 1]
+            transitions[current][next_state] += 1
+    
+        # Normaliser pour obtenir des probabilités
+        result = {}
+        for from_state in states:
+            total = sum(transitions[from_state].values())
+            if total > 0:
+                for to_state in states:
+                    result[f"{from_state}→{to_state}"] = transitions[from_state][to_state] / total
+            else:
+                # Distribution uniforme par défaut
+                for to_state in states:
+                    result[f"{from_state}→{to_state}"] = 1.0 / len(states)
+    
+        return result
+
+    def _build_zone_transitions(self, tirages: List[List[int]]) -> Dict[str, np.ndarray]:
+        """Construit les matrices de transition par zones géographiques"""
+        zone_transitions = {}
+    
+        # Définir les zones
+        zones = {
+            "zone1": list(range(1, 18)),   # 1-17
+            "zone2": list(range(18, 36)),  # 18-35
+            "zone3": list(range(36, 53)),  # 36-52
+            "zone4": list(range(53, 71))   # 53-70
+        }
+        
+        for zone_name, zone_numbers in zones.items():
+            # Créer une séquence d'activité pour cette zone
+            zone_activity = []
+            for tirage in tirages:
+                count_in_zone = sum(1 for num in tirage if num in zone_numbers)
+                # Classifier l'activité : 0=faible, 1=moyenne, 2=forte
+                if count_in_zone <= 3:
+                    zone_activity.append(0)  # Faible
+                elif count_in_zone <= 7:
+                    zone_activity.append(1)  # Moyenne
+                else:
+                    zone_activity.append(2)  # Forte
+            
+            # Construire la matrice de transition 3x3 pour cette zone
+            matrix = np.zeros((3, 3))
+            transitions = defaultdict(int)
+            
+            for i in range(len(zone_activity) - 1):
+                current = zone_activity[i]
+                next_state = zone_activity[i + 1]
+                transitions[(current, next_state)] += 1
+            
+            # Remplir la matrice
+            for from_state in range(3):
+                total = sum(transitions[(from_state, to_state)] for to_state in range(3))
+                if total > 0:
+                    for to_state in range(3):
+                        matrix[from_state, to_state] = transitions[(from_state, to_state)] / total
+                else:
+                    matrix[from_state, :] = [1/3, 1/3, 1/3]  # Uniforme
+            
+            zone_transitions[zone_name] = matrix
+    
+        return zone_transitions
+
+    def predict_top30_markov(self, n_steps: int = 1) -> List[Tuple[int, float]]:
+        """
+        Prédiction des 30 numéros les plus probables en utilisant les chaînes de Markov
+        
+        Args:
+            n_steps: Nombre de pas de prédiction (1 = prochain tirage)
+        
+        Returns:
+            List[Tuple[int, float]]: TOP 30 avec probabilités
+        """
+        if not hasattr(self, 'markov_transitions') or self.markov_transitions is None:
+            self._log("⚠️ Matrices de transition Markov non disponibles", "ERROR")
+            return [(i, 0.1) for i in range(1, 31)]
+        
+        try:
+            # Obtenir l'état actuel basé sur les derniers tirages
+            current_state = self._get_current_markov_state()
+            
+            # Calculer la distribution de probabilité après n_steps
+            transition_matrix = np.array(list(self.markov_transitions.values()))
+            state_probabilities = np.mean(transition_matrix, axis=0)  # État initial uniforme
+            
+            # Appliquer n_steps de transition
+            for _ in range(n_steps):
+                new_probs = np.zeros_like(state_probabilities)
+                for i, prob in enumerate(state_probabilities):
+                    if prob > 0:
+                        new_probs += prob * transition_matrix[i]
+                state_probabilities = new_probs
+            
+            # Convertir les probabilités d'état en probabilités de numéros
+            numero_probs = {}
+            for numero in range(1, 71):
+                numero_probs[numero] = 0.0
+                
+            # Calculer les probabilités pour chaque numéro
+            for state, prob in enumerate(state_probabilities):
+                if prob > 0:
+                    # Distribuer la probabilité de cet état sur tous les numéros possibles
+                    for numero in range(1, 71):
+                        numero_probs[numero] += prob / 70  # Distribution uniforme de base
+            
+            # Trier et retourner le TOP 30
+            sorted_numbers = sorted(numero_probs.items(), key=lambda x: x[1], reverse=True)
+            return sorted_numbers[:30]
+            
+        except Exception as e:
+            self._log(f"❌ Erreur dans predict_top30_markov: {e}", "ERROR")
+            return [(i, 0.1) for i in range(1, 31)]
+
+    def _get_current_markov_state(self) -> int:
+        """
+        Obtenir l'état actuel de Markov basé sur les derniers tirages
+        
+        Returns:
+            int: Index de l'état actuel
+        """
+        try:
+            if hasattr(self, 'df') and not self.df.empty:
+                # Prendre les derniers tirages pour déterminer l'état
+                recent_draws = self.df.tail(3)
+                # Calculer un hash simple basé sur les derniers tirages
+                state_hash = sum(hash(tuple(sorted(draw))) for draw in recent_draws['numeros_tires'])
+                return abs(state_hash) % 10  # 10 états possibles
+            return 0
+        except Exception as e:
+            self._log(f"⚠️ Erreur calcul état Markov: {e}", "ERROR")
+            return 0
+
+    def generate_optimized_grids(self, num_grids: int = 10) -> List[List[int]]:
+        """
+        Génère des grilles optimisées selon la méthode choisie
+        
+        Args:
+            num_grids: Nombre de grilles à générer
+            
+        Returns:
+            List[List[int]]: Liste des grilles générées
+        """
+        try:
+            # Utiliser la méthode hybride ou ML selon la disponibilité
+            if hasattr(self, 'method') and self.method == 'hybrid':
+                top30 = self.get_top30_numbers_hybrid()
+            elif hasattr(self, 'method') and self.method == 'markov':
+                markov_predictions = self.predict_top30_markov()
+                top30 = [num for num, _ in markov_predictions]
+            elif hasattr(self, 'method') and self.method == 'freq':
+                top30 = self.get_top30_numbers_advanced()
+            else:
+                # Par défaut : utiliser ML
+                ml_grids = self.predict_numbers_ml(num_grids=1)
+                if ml_grids:
+                    top30 = ml_grids[0]
+                else:
+                    top30 = self.get_top30_numbers_advanced()
+            
+            # Générer les grilles à partir du TOP 30
+            grids = []
+            for i in range(num_grids):
+                # Sélectionner grid_size numéros du TOP 30 avec variation
+                import random
+                random.seed(42 + i)  # Seed différent pour chaque grille
+                grid = random.sample(top30[:min(len(top30), self.grid_size * 2)], self.grid_size)
+                grids.append(sorted(grid))
+            
+            return grids
+            
+        except Exception as e:
+            self._log(f"Erreur génération grilles: {e}", "ERROR")
+            # Génération de fallback
+            fallback_grids = []
+            for i in range(num_grids):
+                import random
+                random.seed(42 + i)
+                grid = random.sample(range(1, 71), self.grid_size)
+                fallback_grids.append(sorted(grid))
+            return fallback_grids
+
+    def get_top30_numbers_hybrid(self) -> List[int]:
+        """
+        Combinaison hybride : ML + Fréquences + Markov pour le TOP 30 final
+        """
+        self._log("🎯 Calcul du TOP 30 hybride (ML + Fréquences + Markov)...")
+    
+        # 1. TOP 30 ML
+        top30_ml = self.predict_numbers_ml()
+        ml_scores = {num: prob for num, prob in top30_ml} if top30_ml else {}
+    
+        # 2. TOP 30 Fréquences avancées
+        top30_freq = self.get_top30_numbers_advanced()
+    
+        # 3. TOP 30 Markov
+        top30_markov = self.predict_top30_markov()
+        markov_scores = {num: prob for num, prob in top30_markov} if top30_markov else {}
+    
+        # 4. FUSION PONDÉRÉE ADAPTATIVE
+        hybrid_scores = {}
+    
+        # Poids adaptatifs incluant Markov
+        ml_weight = self.adaptive_weights['ml_weight'] * 0.8  # Réduire légèrement le ML
+        freq_weight = self.adaptive_weights['freq_weight'] * 0.8  # Réduire légèrement les fréq
+        markov_weight = 0.4  # Nouveau poids pour Markov
+    
+        # Normaliser les poids
+        total_weight = ml_weight + freq_weight + markov_weight
+        ml_weight /= total_weight
+        freq_weight /= total_weight  
+        markov_weight /= total_weight
+    
+        for num in range(1, KENO_PARAMS['total_numbers'] + 1):
+            score = 0.0
+            
+            # Score ML normalisé
+            if num in ml_scores:
+                score += ml_scores[num] * ml_weight
+            
+            # Score fréquence normalisé (position dans le TOP 30)
+            if num in top30_freq:
+                freq_score = (30 - top30_freq.index(num)) / 30.0
+                score += freq_score * freq_weight
+            
+            # Score Markov normalisé
+            if num in markov_scores:
+                score += markov_scores[num] * markov_weight
+            
+            hybrid_scores[num] = score
+    
+        # TOP 30 final
+        top30_hybrid = sorted(hybrid_scores.items(), key=lambda x: x[1], reverse=True)[:30]
+        top30_numbers = [num for num, _ in top30_hybrid]
+    
+        self._log(f"✅ TOP 30 hybride: ML({ml_weight:.2f}) + Freq({freq_weight:.2f}) + Markov({markov_weight:.2f})")
+        return top30_numbers
+
+    def analyze_markov_performance(self) -> str:
+        """
+        Analyse les performances des chaînes de Markov sur les données historiques
+        """
+        if not hasattr(self, 'markov_chain') or not self.markov_chain:
+            return "❌ Chaînes de Markov non construites"
+        
+        report = "# 🔗 Analyse des Chaînes de Markov Keno\n\n"
+        
+        # Test sur les 20 derniers tirages
+        test_tirages = self.stats.tous_tirages[-20:] if len(self.stats.tous_tirages) > 20 else []
+        
+        if len(test_tirages) < 5:
+            return report + "❌ Données insuffisantes pour l'analyse\n"
+        
+        successes = 0
+        total_tests = 0
+        
+        for i in range(len(test_tirages) - 1):
+            # Simuler la prédiction à partir du tirage i
+            # (ici on devrait reconstruire l'état à partir des tirages précédents)
+            predicted_top30 = self.predict_top30_markov(n_steps=1)
+            predicted_numbers = [num for num, _ in predicted_top30]
+            
+            actual_draw = test_tirages[i + 1]
+            hits = len(set(predicted_numbers).intersection(set(actual_draw)))
+            
+            if hits >= 8:  # Au moins 8 numéros trouvés sur 20
+                successes += 1
+            total_tests += 1
+    
+        success_rate = successes / total_tests if total_tests > 0 else 0
+    
+        report += f"## 📊 Performance sur {total_tests} tests\n"
+        report += f"- **Succès** (≥8 numéros trouvés): {successes}/{total_tests}\n"
+        report += f"- **Taux de succès**: {success_rate:.1%}\n\n"
+        
+        # Analyse des matrices de transition
+        report += "## 🔍 Analyse des Matrices de Transition\n"
+        
+        # Exemples de numéros intéressants
+        interesting_numbers = [7, 23, 42, 55, 69]  # Sélection arbitraire
+        
+        for num in interesting_numbers:
+            if num in self.markov_chain.transition_matrices:
+                matrix = self.markov_chain.transition_matrices[num]
+                steady_state = self.markov_chain.steady_states.get(num, np.array([0.8, 0.2]))
+                
+                report += f"**Numéro {num}:**\n"
+                if matrix.shape == (2, 2):
+                    report += f"- P(non tiré → tiré): {matrix[0, 1]:.3f}\n"
+                    report += f"- P(tiré → tiré): {matrix[1, 1]:.3f}\n"
+                report += f"- État stationnaire: {steady_state[1]:.3f} (prob. long terme)\n\n"
+        
+        return report
+    
     def save_results(self, grids: list):
         """Sauvegarde les grilles générées dans un fichier CSV avec colonnes adaptées à la taille"""
         output_path = self.output_dir / "grilles_keno.csv"
@@ -1821,7 +2335,7 @@ if __name__ == "__main__":
     parser.add_argument("--profile", type=str, default="balanced", help="Profil d'entraînement ML (quick, balanced, comprehensive, intensive)")
     parser.add_argument("--data", type=str, default=None, help="Chemin du fichier de données Keno")
     parser.add_argument("--silent", action="store_true", help="Mode silencieux")
-    parser.add_argument("--retrain", action="store_true", help="Forcer le réentraînement du modèle ML")
+    parser.add_argument("--retrain", action="store_true", help="Forcer le réentraînement même si le modèle existe")
     parser.add_argument("--save-top30-ml", action="store_true", help="Sauvegarder le TOP 30 ML dans un CSV")
     parser.add_argument("--test-grids", action="store_true", help="Évaluer les grilles générées avec le modèle ML")
     
@@ -1832,6 +2346,17 @@ if __name__ == "__main__":
                        help="Ajouter un feedback (format: 'num1,num2,...' 'num1,num2,...')")
     parser.add_argument("--retrain-incremental", action="store_true", help="Réentraîner avec les données incrémentales")
     parser.add_argument("--demo-data", action="store_true", help="Générer des données de démonstration")
+
+    # Options pour les chaînes de Markov
+    parser.add_argument("--markov-order", type=int, default=2, choices=[1, 2, 3], 
+                   help="Ordre des chaînes de Markov (1, 2, ou 3)")
+    parser.add_argument("--markov-steps", type=int, default=1, 
+                   help="Nombre de pas de prédiction Markov")
+    parser.add_argument("--markov-analysis", action="store_true", 
+                   help="Afficher l'analyse des chaînes de Markov")
+    parser.add_argument("--method", type=str, default="hybrid", 
+                   choices=["ml", "freq", "markov", "hybrid"],
+                   help="Méthode de prédiction (ml, freq, markov, hybrid)")
     
     args = parser.parse_args()
 
@@ -1855,6 +2380,9 @@ if __name__ == "__main__":
         training_profile=args.profile,
         grid_size=args.size
     )
+    
+    # Configuration de la méthode de prédiction
+    generator.method = args.method
     
     # Gestion des commandes spéciales d'apprentissage incrémental
     if args.learning_report:

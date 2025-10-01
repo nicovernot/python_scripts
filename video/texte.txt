@@ -1,0 +1,46 @@
+Introduction (0:00 - 0:15)
+"Bonjour à tous ! Aujourd’hui, nous allons analyser les statistiques des tirages de numéros à travers plusieurs visualisations. Ces graphiques nous permettent de mieux comprendre les tendances, les distributions et les fréquences d’apparition des numéros. Commençons par la répartition entre paires et impairs !"
+
+1. Fréquence des Répartitions Pairs/Impairs (0:15 - 0:45)
+(Image : repartition_pairs_impairs.png)
+"Ce premier graphique montre la fréquence des répartitions entre numéros pairs et impairs dans les tirages.
+On observe clairement que la combinaison la plus fréquente est 3 paires et 2 impairs, suivie de près par 2 paires et 3 impairs.
+Cela reflète la symétrie naturelle des tirages aléatoires, où les combinaisons équilibrées entre paires et impairs sont les plus probables.
+Les combinaisons extrêmes, comme 5 paires et 0 impair ou 0 paire et 5 impairs, sont beaucoup plus rares, ce qui est logique d’un point de vue statistique."
+
+2. Distribution de la Somme des Numéros par Tirage (0:45 - 1:20)
+(Image : somme_numeros.png)
+"Passons maintenant à la distribution de la somme des numéros tirés.
+On remarque que les sommes se concentrent autour de 125, formant une courbe en cloche caractéristique d’une distribution normale.
+Cela signifie que la plupart des tirages ont une somme proche de cette valeur, tandis que les sommes très basses ou très élevées sont moins fréquentes.
+Cette répartition est typique des jeux de hasard où les numéros sont tirés uniformément, et elle confirme que les tirages suivent bien une logique aléatoire."
+
+3. Heatmap de Fréquence des Paires de Numéros (1:20 - 2:00)
+(Image : heatmap_paires.png)
+"Cette heatmap représente la fréquence des paires de numéros tirées ensemble.
+Les zones en rouge indiquent les paires les plus fréquentes, tandis que les zones jaunes ou claires montrent des paires plus rares.
+On peut observer que certaines paires apparaissent plus souvent, mais cela ne signifie pas qu’elles sont ‘favorisées’ : c’est simplement le résultat d’un grand nombre de tirages aléatoires.
+Cette visualisation est utile pour identifier les combinaisons qui reviennent régulièrement, mais attention : cela ne prédit pas les futurs tirages !"
+
+4. Nombre de Jours Depuis la Dernière Apparition (2:00 - 2:30)
+(Image : jours_apparition.png)
+"Ce graphique montre le nombre de jours écoulés depuis la dernière apparition de chaque numéro.
+Certains numéros, comme le 11 ou le 36, n’ont pas été tirés depuis longtemps, tandis que d’autres, comme le 7 ou le 49, sont apparus plus récemment.
+C’est un bon rappel que chaque tirage est indépendant : un numéro ‘en retard’ n’a pas plus de chances d’apparaître au prochain tirage !
+Cette visualisation est souvent appelée ‘l’illusion du joueur’ : croiser que les numéros ‘en retard’ sont ‘dus’ est une erreur classique."
+
+5. Fréquence d’Apparition de Chaque Numéro (2:30 - 3:00)
+(Image : frequence_apparition.png)
+"Enfin, ce dernier graphique montre la fréquence d’apparition de chaque numéro sur l’ensemble des tirages.
+On voit que certains numéros, comme le 17 ou le 38, sont apparus plus souvent que d’autres, comme le 13 ou le 49.
+Cependant, ces différences sont normales dans une série de tirages aléatoires. Sur un très grand nombre de tirages, les fréquences tendraient à s’équilibrer, conformément à la loi des grands nombres.
+Cela ne signifie pas que certains numéros sont ‘chauds’ ou ‘froids’ : chaque tirage reste indépendant !"
+
+Conclusion (3:00 - 3:30)
+*"Pour résumer, ces visualisations nous montrent que :
+
+Les tirages suivent une distribution aléatoire, avec des combinaisons équilibrées (paires/impairs) plus fréquentes.
+La somme des numéros suit une courbe normale, centrée autour de 125.
+Aucune paire ou numéro n’est favorisé à long terme : les écarts observés sont normaux dans un processus aléatoire.
+
+Ces analyses sont fascinantes, mais rappelez-vous : chaque tirage est indépendant des précédents. Bonne chance, et jouez de manière responsable !"*

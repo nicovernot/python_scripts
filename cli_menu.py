@@ -146,9 +146,11 @@ class LotoKenoMenu:
         print("╔═══════════════════════════════════════════════════════════════╗")
         print("║                   🎲 SYSTÈME LOTO/KENO 🎰                    ║")
         print("║               Menu Interactif d'Analyse Avancée              ║")
+        print("║                     🚀 Version Améliorée                     ║")
         print("╚═══════════════════════════════════════════════════════════════╝")
         print(f"{Colors.ENDC}")
         print(f"{Colors.OKCYAN}📅 Date: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}{Colors.ENDC}")
+        print(f"{Colors.OKGREEN}🆕 Nouvelles fonctionnalités: Générateur adaptatif V2 (options 44-46){Colors.ENDC}")
         print()
         
     def print_status(self):
@@ -194,6 +196,7 @@ class LotoKenoMenu:
         print("  1️⃣  Télécharger les données Loto (FDJ)")
         print("  2️⃣  Télécharger les données Keno (FDJ)")
         print("  3️⃣  Mettre à jour toutes les données")
+        print("  4️⃣7️⃣ 🔄 Convertir CSV Loto vers Parquet (optimisation)")
         print()
         
         print(f"{Colors.OKBLUE}🎲 ANALYSE LOTO{Colors.ENDC}")
@@ -202,6 +205,9 @@ class LotoKenoMenu:
         print("  6️⃣  Générer grilles avec visualisations")
         print("  7️⃣  Analyse Loto personnalisée")
         print("  2️⃣2️⃣ Générateur Loto avancé (ML + IA)")
+        print("  4️⃣4️⃣ 🚀 Générateur Loto adaptatif V2 (Auto-amélioration)")
+        print("  4️⃣5️⃣ 🧠 Training ML adaptatif (ré-entraînement intelligent)")
+        print("  4️⃣6️⃣ ⚡ Générateur sans exclusion (tous les 49 numéros)")
         print()
         
         print(f"{Colors.BOLD}🎯 TOP NUMÉROS ÉQUILIBRÉS{Colors.ENDC}")
@@ -970,12 +976,15 @@ class LotoKenoMenu:
             self.wait_and_continue()
             
         elif choice == "22":
-            print(f"\n{Colors.WARNING}🚧 Générateur Loto Avancé (ML + IA){Colors.ENDC}")
+            print(f"\n{Colors.WARNING}🚧 Générateur Loto Avancé (ML + IA) - Version Classique{Colors.ENDC}")
             print("Ce générateur utilise des techniques avancées:")
             print("  • Machine Learning (XGBoost)")
             print("  • Analyse statistique approfondie") 
             print("  • Optimisation multi-critères")
             print("  • Cache Redis pour les performances")
+            print()
+            print(f"{Colors.OKBLUE}💡 Pour la version la plus récente avec auto-amélioration,{Colors.ENDC}")
+            print(f"{Colors.OKBLUE}   utilisez l'option 44 (Générateur Adaptatif V2){Colors.ENDC}")
             print()
             
             # Configuration des paramètres
@@ -1170,7 +1179,7 @@ class LotoKenoMenu:
             else:
                 print("Opération annulée.")
                 self.wait_and_continue()
-                
+        
         elif choice == "26":
             print(f"\n{Colors.BOLD}📊 Statistiques Keno Complètes{Colors.ENDC}")
             print("Génération de toutes les statistiques détaillées :")
@@ -1226,6 +1235,7 @@ class LotoKenoMenu:
             print("  • Plage 1-49 numéros avec équilibrage 3 zones")
             print("  • Export CSV fixe (remplace le fichier précédent)")
             print("  • Rapport Markdown détaillé avec suggestions")
+            print(f"  • {Colors.OKGREEN}Compatible avec le Générateur Adaptatif V2 (option 44){Colors.ENDC}")
             print()
             
             # Sélection du fichier de données Loto
@@ -1492,6 +1502,18 @@ class LotoKenoMenu:
             
         elif choice == "43":
             self.handle_keno_generate_top30()
+            
+        elif choice == "44":
+            self.handle_loto_adaptive_v2()
+            
+        elif choice == "45":
+            self.handle_loto_adaptive_training()
+            
+        elif choice == "46":
+            self.handle_loto_no_exclusion()
+            
+        elif choice == "47":
+            self.handle_csv_to_parquet()
                 
         elif choice == "0":
             print(f"\n{Colors.OKGREEN}👋 Au revoir ! Bonne chance pour vos analyses !{Colors.ENDC}")
@@ -2087,6 +2109,407 @@ else:
         confirm = input(f"\n{Colors.OKGREEN}Confirmer la génération ? (O/n): {Colors.ENDC}").strip().lower()
         if confirm in ['', 'o', 'oui', 'y', 'yes']:
             self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_loto_adaptive_v2(self):
+        """Générateur Loto Adaptatif V2 avec Auto-amélioration"""
+        print(f"\n{Colors.BOLD}🚀 GÉNÉRATEUR LOTO ADAPTATIF V2{Colors.ENDC}")
+        print("Générateur avancé avec auto-amélioration et stratégies adaptatives :")
+        print("  • 🧠 Training ML adaptatif automatique")
+        print("  • 🎯 Privilégie les numéros du TOP 25 ML")
+        print("  • ⚡ Aucune exclusion par défaut (tous les 49 numéros)")
+        print("  • 📊 Export automatique du TOP 25 basé sur le ML")
+        print("  • 🔄 Auto-amélioration continue des modèles")
+        print()
+        
+        # Configuration des paramètres
+        print(f"{Colors.OKBLUE}⚙️  Configuration des paramètres:{Colors.ENDC}")
+        print("1️⃣  Mode ultra-rapide (1,000 simulations + training rapide)")
+        print("2️⃣  Mode équilibré (10,000 simulations + training standard)")
+        print("3️⃣  Mode intensif (50,000 simulations + training complet)")
+        print("4️⃣  Mode personnalisé avancé")
+        print("0️⃣  Retour au menu principal")
+        
+        config_choice = input("\n🎯 Votre choix de configuration: ").strip()
+        
+        if config_choice == "0":
+            self.wait_and_continue()
+            return
+        elif config_choice == "1":
+            command = f"python loto/loto_generator_advanced_Version2.py --quick --fast-training --silent"
+            description = "Générateur Loto Adaptatif V2 (Mode Ultra-Rapide)"
+        elif config_choice == "2":
+            command = f"python loto/loto_generator_advanced_Version2.py --silent"
+            description = "Générateur Loto Adaptatif V2 (Mode Équilibré)"
+        elif config_choice == "3":
+            command = f"python loto/loto_generator_advanced_Version2.py --intensive --retrain"
+            description = "Générateur Loto Adaptatif V2 (Mode Intensif + Ré-entraînement)"
+        elif config_choice == "4":
+            # Configuration personnalisée avancée
+            print(f"\n{Colors.OKBLUE}🔧 Configuration personnalisée avancée:{Colors.ENDC}")
+            
+            # Nombre de simulations
+            while True:
+                try:
+                    n_sims = input("📊 Nombre de simulations (100-100000, défaut: 10000): ").strip()
+                    if not n_sims:
+                        n_sims = 10000
+                    else:
+                        n_sims = int(n_sims)
+                    
+                    if n_sims < 100 or n_sims > 100000:
+                        print("❌ Le nombre de simulations doit être entre 100 et 100,000")
+                        continue
+                    break
+                except ValueError:
+                    print("❌ Veuillez entrer un nombre valide")
+            
+            # Options avancées
+            retrain = input("🔄 Forcer le ré-entraînement des modèles ML ? (o/N): ").strip().lower()
+            fast_training = input("⚡ Utiliser le training rapide ? (o/N): ").strip().lower()
+            
+            # Options d'exclusion
+            print(f"\n{Colors.WARNING}🚫 Gestion des exclusions:{Colors.ENDC}")
+            print("1️⃣  Aucune exclusion (recommandé - tous les 49 numéros)")
+            print("2️⃣  Exclusion automatique (3 derniers tirages)")
+            print("3️⃣  Exclusion personnalisée")
+            
+            exclusion_choice = input("Option d'exclusion (défaut: 1): ").strip() or "1"
+            
+            # Construction de la commande
+            command = f"python loto/loto_generator_advanced_Version2.py -s {n_sims} --silent"
+            
+            if retrain in ['o', 'oui', 'y', 'yes']:
+                command += " --retrain"
+            
+            if fast_training in ['o', 'oui', 'y', 'yes']:
+                command += " --fast-training"
+            
+            if exclusion_choice == "2":
+                command += " --exclude auto"
+            elif exclusion_choice == "3":
+                excluded_nums = input("Numéros à exclure (1-49, séparés par des virgules): ").strip()
+                if excluded_nums:
+                    command += f" --exclude {excluded_nums}"
+            
+            description = f"Générateur Loto Adaptatif V2 Personnalisé ({n_sims:,} simulations)"
+        else:
+            print("❌ Choix invalide")
+            self.wait_and_continue()
+            return
+        
+        # Confirmation finale
+        print(f"\n{Colors.OKGREEN}✅ Configuration choisie:{Colors.ENDC}")
+        print(f"   Commande: {command}")
+        print(f"\n{Colors.WARNING}💡 Nouvelles fonctionnalités V2:{Colors.ENDC}")
+        print("   • Auto-amélioration continue des modèles ML")
+        print("   • Export automatique du TOP 25 basé sur les prédictions")
+        print("   • Privilégie intelligemment les numéros du TOP 25")
+        print("   • Aucune exclusion par défaut pour maximiser les possibilités")
+        print()
+        
+        confirm = input("Lancer le générateur adaptatif V2 ? (o/N): ").strip().lower()
+        
+        if confirm in ['o', 'oui', 'y', 'yes']:
+            print(f"\n{Colors.OKBLUE}🚀 Lancement du générateur adaptatif V2...{Colors.ENDC}")
+            print("⚠️  Note: Ce processus peut prendre quelques minutes")
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_loto_adaptive_training(self):
+        """Training ML adaptatif pour améliorer les modèles"""
+        print(f"\n{Colors.BOLD}🧠 TRAINING ML ADAPTATIF LOTO{Colors.ENDC}")
+        print("Ré-entraînement intelligent des modèles ML avec adaptation continue :")
+        print("  • 🔄 Met à jour les modèles avec les dernières données")
+        print("  • 🎯 Optimise les paramètres automatiquement") 
+        print("  • ⚡ Mode rapide ou complet disponible")
+        print("  • 📊 Validation croisée et métriques de performance")
+        print("  • 💾 Sauvegarde automatique des meilleurs modèles")
+        print()
+        
+        # Choix du mode de training
+        print(f"{Colors.OKBLUE}⚙️ Mode de training:{Colors.ENDC}")
+        print("1️⃣  Training rapide (paramètres optimisés pour la vitesse)")
+        print("2️⃣  Training complet (recherche exhaustive des meilleurs paramètres)")
+        print("3️⃣  Training personnalisé")
+        print("0️⃣  Retour au menu principal")
+        
+        training_choice = input("\n🎯 Mode de training (défaut: 1): ").strip() or "1"
+        
+        if training_choice == "0":
+            self.wait_and_continue()
+            return
+        elif training_choice == "1":
+            command = "python loto/loto_generator_advanced_Version2.py --retrain --fast-training --silent -s 1000"
+            description = "Training ML Adaptatif Rapide"
+        elif training_choice == "2":
+            command = "python loto/loto_generator_advanced_Version2.py --retrain --silent -s 5000"
+            description = "Training ML Adaptatif Complet"
+        elif training_choice == "3":
+            # Configuration personnalisée du training
+            print(f"\n{Colors.OKBLUE}🔧 Configuration du training personnalisé:{Colors.ENDC}")
+            
+            fast_mode = input("⚡ Utiliser le mode rapide ? (O/n): ").strip().lower()
+            
+            # Nombre de simulations pour validation
+            while True:
+                try:
+                    n_sims = input("📊 Nombre de simulations pour validation (100-10000, défaut: 2000): ").strip()
+                    if not n_sims:
+                        n_sims = 2000
+                    else:
+                        n_sims = int(n_sims)
+                    
+                    if n_sims < 100 or n_sims > 10000:
+                        print("❌ Le nombre doit être entre 100 et 10,000")
+                        continue
+                    break
+                except ValueError:
+                    print("❌ Veuillez entrer un nombre valide")
+            
+            command = f"python loto/loto_generator_advanced_Version2.py --retrain --silent -s {n_sims}"
+            
+            if fast_mode not in ['n', 'non', 'no']:
+                command += " --fast-training"
+            
+            description = f"Training ML Adaptatif Personnalisé ({n_sims:,} simulations)"
+        else:
+            print("❌ Choix invalide")
+            self.wait_and_continue()
+            return
+        
+        # Confirmation et informations
+        print(f"\n{Colors.WARNING}📋 Informations sur le training adaptatif:{Colors.ENDC}")
+        print("   • Les modèles existants seront mis à jour")
+        print("   • Les performances seront évaluées automatiquement")
+        print("   • Seuls les modèles améliorés seront conservés")
+        print("   • Le TOP 25 sera recalculé avec les nouveaux modèles")
+        
+        confirm = input(f"\n{Colors.OKGREEN}Lancer le training adaptatif ? (O/n): {Colors.ENDC}").strip().lower()
+        
+        if confirm not in ['n', 'non', 'no']:
+            print(f"\n{Colors.OKBLUE}🧠 Lancement du training adaptatif...{Colors.ENDC}")
+            print("⚠️  Note: Le training peut prendre plusieurs minutes")
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_loto_no_exclusion(self):
+        """Générateur Loto sans exclusion - utilise tous les 49 numéros"""
+        print(f"\n{Colors.BOLD}⚡ GÉNÉRATEUR LOTO SANS EXCLUSION{Colors.ENDC}")
+        print("Générateur utilisant TOUS les 49 numéros sans exclusion :")
+        print("  • ✅ Aucun numéro exclu (politique par défaut maintenant)")
+        print("  • 🎯 Privilégie les numéros du TOP 25 ML")
+        print("  • 🧠 Utilise l'intelligence artificielle pour le choix")
+        print("  • 📊 Maximise les possibilités de gains")
+        print("  • ⚡ Performance optimisée")
+        print()
+        
+        # Configuration rapide
+        print(f"{Colors.OKBLUE}⚙️ Configurations rapides:{Colors.ENDC}")
+        print("1️⃣  Génération express (1,000 simulations)")
+        print("2️⃣  Génération standard (10,000 simulations)")
+        print("3️⃣  Génération intensive (25,000 simulations)")
+        print("4️⃣  Configuration personnalisée")
+        print("0️⃣  Retour au menu principal")
+        
+        config_choice = input("\n🎯 Configuration (défaut: 2): ").strip() or "2"
+        
+        if config_choice == "0":
+            self.wait_and_continue()
+            return
+        elif config_choice == "1":
+            command = "python loto/loto_generator_advanced_Version2.py --quick --silent"
+            description = "Générateur Sans Exclusion Express"
+        elif config_choice == "2":
+            command = "python loto/loto_generator_advanced_Version2.py --silent"
+            description = "Générateur Sans Exclusion Standard"
+        elif config_choice == "3":
+            command = "python loto/loto_generator_advanced_Version2.py -s 25000 --silent"
+            description = "Générateur Sans Exclusion Intensif"
+        elif config_choice == "4":
+            # Configuration personnalisée
+            print(f"\n{Colors.OKBLUE}🔧 Configuration personnalisée:{Colors.ENDC}")
+            
+            # Nombre de simulations
+            while True:
+                try:
+                    n_sims = input("📊 Nombre de simulations (100-50000, défaut: 10000): ").strip()
+                    if not n_sims:
+                        n_sims = 10000
+                    else:
+                        n_sims = int(n_sims)
+                    
+                    if n_sims < 100 or n_sims > 50000:
+                        print("❌ Le nombre de simulations doit être entre 100 et 50,000")
+                        continue
+                    break
+                except ValueError:
+                    print("❌ Veuillez entrer un nombre valide")
+            
+            # Nombre de processeurs
+            import multiprocessing as mp
+            max_cores = mp.cpu_count()
+            default_cores = max_cores - 1 if max_cores > 1 else 1
+            
+            while True:
+                try:
+                    n_cores = input(f"🔄 Nombre de processeurs (1-{max_cores}, défaut: {default_cores}): ").strip()
+                    if not n_cores:
+                        n_cores = default_cores
+                    else:
+                        n_cores = int(n_cores)
+                    
+                    if n_cores < 1 or n_cores > max_cores:
+                        print(f"❌ Le nombre de processeurs doit être entre 1 et {max_cores}")
+                        continue
+                    break
+                except ValueError:
+                    print("❌ Veuillez entrer un nombre valide")
+            
+            command = f"python loto/loto_generator_advanced_Version2.py -s {n_sims} -c {n_cores} --silent"
+            description = f"Générateur Sans Exclusion Personnalisé ({n_sims:,} simulations, {n_cores} cœurs)"
+        else:
+            print("❌ Choix invalide")
+            self.wait_and_continue()
+            return
+        
+        # Informations importantes
+        print(f"\n{Colors.OKGREEN}✅ Avantages du générateur sans exclusion:{Colors.ENDC}")
+        print("   • Tous les 49 numéros sont candidats")
+        print("   • Pas de biais d'exclusion arbitraire")
+        print("   • Le ML décide intelligemment quels numéros privilégier")
+        print("   • Meilleure couverture probabiliste")
+        
+        print(f"\n{Colors.WARNING}💡 Note importante:{Colors.ENDC}")
+        print("   Cette approche est maintenant la stratégie par défaut")
+        print("   recommandée pour maximiser les chances de gains")
+        
+        confirm = input(f"\n{Colors.OKGREEN}Lancer la génération sans exclusion ? (O/n): {Colors.ENDC}").strip().lower()
+        
+        if confirm not in ['n', 'non', 'no']:
+            print(f"\n{Colors.OKBLUE}⚡ Lancement du générateur sans exclusion...{Colors.ENDC}")
+            print("📊 Utilisation de tous les 49 numéros avec privilège TOP 25 ML")
+            self.execute_command(command, description)
+        else:
+            print("Opération annulée.")
+            self.wait_and_continue()
+    
+    def handle_csv_to_parquet(self):
+        """Convertit les fichiers CSV Loto vers le format Parquet pour optimiser les performances"""
+        print(f"\n{Colors.BOLD}🔄 CONVERSION CSV → PARQUET{Colors.ENDC}")
+        print("Optimisation des données Loto pour de meilleures performances :")
+        print("  • 📦 Compression avancée (réduction de 70-80%)")
+        print("  • ⚡ Accès ultra-rapide aux données")
+        print("  • 🧠 Optimisé pour les analyses ML")
+        print("  • 🔧 Compatible avec tous les générateurs")
+        print("  • 💾 Économie d'espace disque")
+        print()
+        
+        # Vérifier l'existence du script de conversion
+        parquet_script = self.base_path / "loto" / "csvToParquet.py"
+        if not parquet_script.exists():
+            print(f"{Colors.FAIL}❌ Script de conversion non trouvé: {parquet_script}{Colors.ENDC}")
+            self.wait_and_continue()
+            return
+        
+        # Vérifier l'existence de fichiers CSV Loto
+        loto_data_dir = self.base_path / "loto" / "loto_data"
+        if loto_data_dir.exists():
+            csv_files = list(loto_data_dir.glob("*.csv"))
+            if csv_files:
+                print(f"{Colors.OKGREEN}📂 Fichiers CSV détectés:{Colors.ENDC}")
+                for csv_file in csv_files[:3]:  # Afficher max 3 fichiers
+                    size = csv_file.stat().st_size / (1024*1024)
+                    mtime = datetime.fromtimestamp(csv_file.stat().st_mtime)
+                    print(f"   📄 {csv_file.name} ({size:.1f}MB, {mtime.strftime('%d/%m/%Y')})")
+                
+                if len(csv_files) > 3:
+                    print(f"   📄 ... et {len(csv_files) - 3} autres fichiers")
+            else:
+                print(f"{Colors.WARNING}⚠️  Aucun fichier CSV trouvé dans {loto_data_dir}{Colors.ENDC}")
+                print("💡 Téléchargez d'abord les données Loto (option 1)")
+                self.wait_and_continue()
+                return
+        else:
+            print(f"{Colors.WARNING}⚠️  Dossier loto/loto_data non trouvé{Colors.ENDC}")
+            print("💡 Téléchargez d'abord les données Loto (option 1)")
+            self.wait_and_continue()
+            return
+        
+        # Vérifier si des fichiers Parquet existent déjà
+        parquet_files = list(loto_data_dir.glob("*.parquet"))
+        if parquet_files:
+            print(f"\n{Colors.OKCYAN}📦 Fichiers Parquet existants:{Colors.ENDC}")
+            for parquet_file in parquet_files[:3]:
+                size = parquet_file.stat().st_size / (1024*1024)
+                mtime = datetime.fromtimestamp(parquet_file.stat().st_mtime)
+                print(f"   📦 {parquet_file.name} ({size:.1f}MB, {mtime.strftime('%d/%m/%Y')})")
+            
+            print(f"\n{Colors.WARNING}⚠️  Des fichiers Parquet existent déjà.{Colors.ENDC}")
+            print("La conversion remplacera les fichiers existants si le CSV est plus récent.")
+        
+        # Options de conversion
+        print(f"\n{Colors.OKBLUE}🔧 Options de conversion:{Colors.ENDC}")
+        print("1️⃣  Conversion automatique (recommandé)")
+        print("2️⃣  Conversion forcée (remplace tous les Parquet)")
+        print("3️⃣  Vérification et info seulement")
+        print("0️⃣  Annuler")
+        
+        conversion_choice = input(f"\n{Colors.BOLD}Option (défaut: 1): {Colors.ENDC}").strip() or "1"
+        
+        if conversion_choice == "0":
+            print("Opération annulée.")
+            self.wait_and_continue()
+            return
+        elif conversion_choice == "3":
+            # Mode information seulement
+            print(f"\n{Colors.OKCYAN}📊 Informations sur la conversion:{Colors.ENDC}")
+            
+            total_csv_size = sum(f.stat().st_size for f in csv_files) / (1024*1024)
+            total_parquet_size = sum(f.stat().st_size for f in parquet_files) / (1024*1024) if parquet_files else 0
+            
+            print(f"   📄 Fichiers CSV: {len(csv_files)} fichiers ({total_csv_size:.1f}MB)")
+            print(f"   📦 Fichiers Parquet: {len(parquet_files)} fichiers ({total_parquet_size:.1f}MB)")
+            
+            if parquet_files:
+                compression_ratio = ((total_csv_size - total_parquet_size) / total_csv_size) * 100
+                print(f"   🗜️ Compression actuelle: {compression_ratio:.1f}%")
+                print(f"   💾 Espace économisé: {total_csv_size - total_parquet_size:.1f}MB")
+            
+            print(f"\n{Colors.OKGREEN}💡 Avantages de la conversion Parquet:{Colors.ENDC}")
+            print("   • Lecture 5-10x plus rapide que CSV")
+            print("   • Compression 70-80% (économie d'espace)")
+            print("   • Optimisé pour les analyses ML")
+            print("   • Type de données préservé")
+            
+            self.wait_and_continue()
+            return
+        
+        # Exécuter la conversion
+        if conversion_choice == "2":
+            # Mode forcé - supprimer d'abord les Parquet existants
+            print(f"\n{Colors.WARNING}🗑️ Suppression des fichiers Parquet existants...{Colors.ENDC}")
+            for parquet_file in parquet_files:
+                parquet_file.unlink()
+                print(f"   ✓ Supprimé: {parquet_file.name}")
+        
+        # Confirmation finale
+        print(f"\n{Colors.OKGREEN}✅ Configuration de conversion:{Colors.ENDC}")
+        print(f"   📂 Dossier: loto/loto_data")
+        print(f"   📄 Fichiers CSV: {len(csv_files)}")
+        print(f"   🔄 Mode: {'Forcé' if conversion_choice == '2' else 'Automatique'}")
+        
+        confirm = input(f"\n{Colors.BOLD}Lancer la conversion ? (O/n): {Colors.ENDC}").strip().lower()
+        
+        if confirm not in ['n', 'non', 'no']:
+            print(f"\n{Colors.OKBLUE}🔄 Lancement de la conversion CSV → Parquet...{Colors.ENDC}")
+            self.execute_command("python loto/csvToParquet.py", "Conversion CSV vers Parquet")
         else:
             print("Opération annulée.")
             self.wait_and_continue()
