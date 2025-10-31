@@ -91,7 +91,7 @@ def test_scripts_compilation():
     main_scripts = [
         'keno/duckdb_keno.py',
         'loto/duckdb_loto.py',
-        'keno/results_clean.py',
+        'keno/extracteur_keno_zip.py',
         'loto/result.py',
     ]
     
