@@ -76,6 +76,21 @@ viz_cache.pkl
 model_*.joblib
 xgb_*.pkl
 
+# Ignore LoRA model directories and files
+phi3_lora*/
+phi_lora*/
+*_lora*/
+loto_lora*/
+*.safetensors
+adapter_*.json
+training_*.json
+special_tokens_map.json
+tokenizer.json
+tokenizer_config.json
+README.md
+runs/
+checkpoint-*/
+
 # Ignore test files and temporary scripts
 test_*.py
 *_test.py
